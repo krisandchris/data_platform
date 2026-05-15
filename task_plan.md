@@ -15,7 +15,7 @@ Analyze `urban_violation_platform_markdown/` and the dataset layout under `DATAS
 - Phase 2: Dataset structure and schema sampling - complete
 - Phase 3: Frontend/backend/integration task split - complete
 - Phase 4: Acceptance criteria and handoff checklist - complete
-- Phase 5: Git repository and agent worktree setup - in_progress
+- Phase 5: Git repository and agent worktree setup - complete
 - Phase 6: Shared contract/bootstrap execution - pending
 
 ## Phase 1 - Documentation Inventory
