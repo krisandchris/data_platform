@@ -19,6 +19,7 @@ Analyze `urban_violation_platform_markdown/` and the dataset layout under `DATAS
 - Phase 6: Shared contract/bootstrap execution - in_progress (first slices complete)
 - Phase 7: Remaining task backlog and execution order - complete
 - Phase 8: P0 contract/API/frontend/integration execution cycle - complete
+- Phase 9: Full DATASET registration for product preview - complete
 
 ## Phase 1 - Documentation Inventory
 
@@ -312,6 +313,40 @@ Results:
 - Integration product validation complete on `agent/integration-testing` at `ee3deb5`; it validated the backend and frontend worktree products as running services and published `docs/front_back_integration_report.md`.
 - Active backend contract against `http://127.0.0.1:8000`: 6 passed.
 - Active E2E against backend/frontend URLs: 3 passed, 1 skipped. The skipped review submit/audit refresh case remains under the P1 Review and Audit Workflow backlog.
+
+## Phase 9 - Full DATASET Registration For Product Preview
+
+Goal:
+- Replace the 2-sample runtime default with the real `DATASET/urban_violation` dataset so frontend pages can be judged against representative product data.
+
+Tasks:
+- Load all stage1 manifest samples into the backend runtime service by default.
+- Preserve deterministic subset import support for unit tests.
+- Normalize stage2 parsed payloads that include dataset-only extra fields.
+- Expose import validation rows and mapping counts for the import task page.
+- Expose dataset distributions and preannotation counts for overview/preannotation pages.
+- Expose asset/category/confidence fields for asset list and QC queue pages.
+- Re-run frontend/backend preview against live services.
+
+Acceptance:
+- Backend summary reports 797 raw assets, 797 stage1 records, 780 successful stage2 records, and 19 preserved stage2 failure artifacts.
+- Backend import job returns 797 validation rows.
+- Backend QC queue returns 797 samples.
+- Frontend pages render without route-level error state:
+  - `/datasets`
+  - `/datasets/urban_violation/overview`
+  - `/datasets/urban_violation/assets`
+  - `/datasets/urban_violation/import-jobs/fixture-import-urban-violation`
+  - `/datasets/urban_violation/preannotations`
+  - `/datasets/urban_violation/qc`
+  - `/datasets/urban_violation/samples/000142_0_1762483003246/review`
+  - `/datasets/urban_violation/samples/001710_0_1763108687181/review`
+
+Results:
+- Backend full registration verified with `uv run pytest`: 13 passed.
+- Frontend live adapter verified with `npm run build` and `npm run test`: build passed, 14 tests passed.
+- Integration validation after full registration: fixture validator passed, contract tests 6 passed, E2E smoke 3 passed and 1 skipped.
+- Local tmux preview services are running as `uvp-backend` and `uvp-frontend`.
 
 ## Phase 4 - Acceptance Criteria
 

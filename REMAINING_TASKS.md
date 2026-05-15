@@ -5,8 +5,8 @@ Last updated: 2026-05-15
 ## Current Baseline
 
 - `main`: `02fba2c` before this status update
-- Backend branch: `agent/backend-implementation` at `f6a76ee`
-- Frontend branch: `agent/frontend-implementation` at `5d55505`
+- Backend branch: `agent/backend-implementation` now includes full DATASET registration work after `f0deeca`.
+- Frontend branch: `agent/frontend-implementation` now includes live full-DATASET adapter work after `57d85a4`.
 - Integration branch: `agent/integration-testing` at `501578a`
 
 All worktrees were clean when this list was created.
@@ -26,6 +26,31 @@ Validated:
 
 Residual:
 - Review submit/audit refresh remains skip-safe and is tracked under P1 Review And Audit Workflow.
+
+## Full DATASET Registration Status
+
+Completed:
+- Backend runtime now registers the real `DATASET/urban_violation` dataset by default.
+- The deterministic 2-sample import path remains available for targeted tests.
+- Runtime summary now reports:
+  - 797 raw assets
+  - 797 stage1 records
+  - 780 successful stage2 records
+  - 19 preserved stage2 failure artifacts
+  - 2476 fact verification rows
+  - 943 stage2 candidates
+- Import job API now returns 797 validation rows and mapping counts for raw/stage1/stage2/failure entities.
+- QC queue API now returns 797 rows with asset id, primary category, confidence, failure flag, and update timestamp.
+- Frontend adapter now consumes these full-DATASET fields.
+
+Validated:
+- Backend `uv run pytest`: 13 passed.
+- Frontend `npm run build`: passed.
+- Frontend `npm run test`: 14 passed.
+- Headless browser route checks passed for dataset list, overview, assets, import job, preannotations, QC queue, success review, and failure review routes.
+
+Residual:
+- Full dataset contains 19 preserved stage2 failure artifacts, while current per-sample final failure state is 17 samples after manifest retry/last-write resolution. Keep this distinction explicit in summaries and integration checks.
 
 ## P0 - Contract Convergence
 
@@ -114,12 +139,13 @@ Acceptance:
 Owner: backend plus integration.
 
 Tasks:
-- Run full dataset smoke import.
-- Confirm final counts:
+- Keep full dataset runtime import covered by regression tests.
+- Confirm and document both final per-sample failure state and preserved failure artifact count:
   - 797 raw assets
   - 797 stage1 records
   - 780 successful stage2 records
-  - 19 stage2 failures preserved.
+  - 19 stage2 failure artifacts preserved
+  - 17 current stage2-failure samples after retry/last-write resolution
 - Decide whether stage2 failure entries enter QC queue or a separate remediation queue.
 - Treat `soft_fail` as QC/review signal, not import failure.
 - Add summary endpoint fields for rerun nuance:

@@ -55,3 +55,17 @@
 - Re-ran integration-agent validation against backend `f6a76ee` and frontend `5d55505`; integration commit `ee3deb5` published `docs/front_back_integration_report.md`.
 - Integration report result: fixture validation passed, backend contract tests 6 passed, frontend/backend E2E smoke 3 passed and 1 skipped. The skip remains owned by the P1 review/audit contract gap.
 - Stopped integration validation services on ports 8000 and 5173 after report review.
+- Registered the real `DATASET/urban_violation` data into the backend runtime path instead of the 2-sample fixture default.
+- Backend now reports 797 raw assets, 797 stage1 records, 780 stage2 success records, 19 preserved stage2 failure artifacts, 797 import validation rows, and 797 QC queue items.
+- Expanded backend runtime API payloads for dataset distributions, import validation rows/mapping steps, asset confidence/category fields, and QC queue asset/category fields.
+- Updated frontend live API adapter to consume backend import validation rows and stage2 success counts.
+- Verified backend with `uv run pytest`: 13 passed.
+- Verified frontend with `npm run build` and `npm run test`: build passed, 14 tests passed.
+- Restarted local preview services in tmux:
+  - backend `uvp-backend` on `http://127.0.0.1:8000`
+  - frontend `uvp-frontend` on `http://127.0.0.1:5173`
+- Headless browser checks passed for datasets, overview, assets, import job, preannotations, QC queue, success review sample, and stage2 failure review sample routes.
+- Integration validation after full DATASET registration:
+  - `python3 scripts/validate_fixture_manifest.py`: passed.
+  - `BACKEND_URL=http://127.0.0.1:8000 pytest -q tests/contracts`: 6 passed.
+  - `FRONTEND_URL=http://127.0.0.1:5173 BACKEND_URL=http://127.0.0.1:8000 pytest -q tests/e2e`: 3 passed, 1 skipped.
