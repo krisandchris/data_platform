@@ -4,12 +4,27 @@ Last updated: 2026-05-15
 
 ## Current Baseline
 
-- `main`: `a1a99c3`
-- Backend branch: `agent/backend-implementation` at `fc82b60`
-- Frontend branch: `agent/frontend-implementation` at `83f4501`
-- Integration branch: `agent/integration-testing` at `8344695`
+- `main`: `02fba2c` before this status update
+- Backend branch: `agent/backend-implementation` at `f6a76ee`
+- Frontend branch: `agent/frontend-implementation` at `5d55505`
+- Integration branch: `agent/integration-testing` at `501578a`
 
 All worktrees were clean when this list was created.
+
+## Phase 8 P0 Execution Status
+
+Completed:
+- Backend runtime API over fixture import.
+- Frontend live API integration with explicit fixture fallback.
+- Integration contract tests activated against backend URL.
+- Integration E2E route/filter/review-route smoke activated against frontend/backend URLs.
+
+Validated:
+- Backend contract tests: 6 passed.
+- E2E smoke: 3 passed, 1 skipped.
+
+Residual:
+- Review submit/audit refresh remains skip-safe and is tracked under P1 Review And Audit Workflow.
 
 ## P0 - Contract Convergence
 
