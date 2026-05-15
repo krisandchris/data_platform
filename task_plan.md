@@ -20,6 +20,7 @@ Analyze `urban_violation_platform_markdown/` and the dataset layout under `DATAS
 - Phase 7: Remaining task backlog and execution order - complete
 - Phase 8: P0 contract/API/frontend/integration execution cycle - complete
 - Phase 9: Full DATASET registration for product preview - complete
+- Phase 10: Immersive QC sample review redesign - complete
 
 ## Phase 1 - Documentation Inventory
 
@@ -347,6 +348,27 @@ Results:
 - Frontend live adapter verified with `npm run build` and `npm run test`: build passed, 14 tests passed.
 - Integration validation after full registration: fixture validator passed, contract tests 6 passed, E2E smoke 3 passed and 1 skipped.
 - Local tmux preview services are running as `uvp-backend` and `uvp-frontend`.
+
+## Phase 10 - Immersive QC Sample Review Redesign
+
+Goal:
+- Redesign the sample review route around the actual evidence flow from STEP1 and STEP2.
+
+Analysis:
+- STEP1 is the spatial evidence layer: environment analysis, scene elements, anchors, relation text, and pixel bboxes.
+- STEP2 is the decision evidence layer: fact verification result/confidence, candidate category, evidence relation indices, and reasoning.
+- Stage2 failure samples must keep the image and STEP1 relation layer visible while showing the failure reason as a first-class remediation signal.
+
+Implementation:
+- Replaced the three-column table-like review shell with a single-screen evidence workbench.
+- Added a left QC queue rail, central image evidence canvas, relation timeline, right evidence inspector, and fixed decision dock.
+- Preserved review submission semantics and the existing backend/frontend API contract.
+
+Acceptance:
+- Success sample review route renders STEP1, STEP2, candidate, image, bbox, and review controls in one screen.
+- Stage2 failure sample route renders image, STEP1 evidence, failure reason, and review controls without a blank panel.
+- `npm run test` passes.
+- `npm run build` passes.
 
 ## Phase 4 - Acceptance Criteria
 

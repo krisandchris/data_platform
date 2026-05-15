@@ -69,3 +69,10 @@
   - `python3 scripts/validate_fixture_manifest.py`: passed.
   - `BACKEND_URL=http://127.0.0.1:8000 pytest -q tests/contracts`: 6 passed.
   - `FRONTEND_URL=http://127.0.0.1:5173 BACKEND_URL=http://127.0.0.1:8000 pytest -q tests/e2e`: 3 passed, 1 skipped.
+- Redesigned the QC sample review surface into an immersive single-screen evidence workbench.
+- STEP1 analysis used for the redesign: scene understanding, scene elements, anchors, and relation bboxes are the spatial evidence layer.
+- STEP2 analysis used for the redesign: fact verifications provide supported/weakly-supported evidence confidence, candidates provide final category reasoning, and stage2 failures need a visible remediation state.
+- The new review layout uses a left QC queue rail, central image evidence canvas, bottom relation timeline, right STEP1/STEP2/candidate evidence inspector, and fixed decision dock.
+- Verified review redesign with `npm run test`: 14 passed.
+- Verified review redesign with `npm run build`: passed.
+- Captured browser checks for success and stage2-failure review routes without route-level error state.
