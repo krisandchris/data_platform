@@ -34,3 +34,11 @@
 - Started frontend Vite dev server from the frontend worktree at `http://127.0.0.1:5173/` and verified it returns HTTP 200.
 - Consolidated unfinished work into `REMAINING_TASKS.md` with P0/P1/P2 priorities, ownership, acceptance criteria, and recommended next execution order.
 - Started Phase 8 planning for the P0 execution cycle: backend runtime API, frontend live API integration, and integration contract/E2E activation.
+- Added `NEXT_TASKS.md` to each agent worktree and committed:
+  - backend `263ed47`
+  - frontend `124ed55`
+  - integration `c33d584`
+- Launched three P0 execution agents:
+  - backend runtime API agent for `data_platform_backend_agent`
+  - frontend live API integration agent for `data_platform_frontend_agent`
+  - integration contract/E2E activation agent for `data_platform_integration_agent`
