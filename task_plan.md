@@ -18,6 +18,7 @@ Analyze `urban_violation_platform_markdown/` and the dataset layout under `DATAS
 - Phase 5: Git repository and agent worktree setup - complete
 - Phase 6: Shared contract/bootstrap execution - in_progress (first slices complete)
 - Phase 7: Remaining task backlog and execution order - complete
+- Phase 8: P0 contract/API/frontend/integration execution cycle - in_progress
 
 ## Phase 1 - Documentation Inventory
 
@@ -287,6 +288,22 @@ Acceptance:
 - `REMAINING_TASKS.md` exists.
 - Remaining work is grouped into P0/P1/P2 priorities.
 - Next execution order is explicit.
+
+## Phase 8 - P0 Execution Cycle
+
+Goal:
+- Move from isolated first slices to a working fixture-backed vertical loop.
+
+Agent assignments:
+- Backend: implement runnable FastAPI API over fixture import, keep backend schema as canonical contract, and expose browser-safe media endpoints.
+- Frontend: replace fixture-only usage with live backend API integration while preserving fixture fallback for tests/dev.
+- Integration: convert skipped skeleton tests into URL-parameterized contract/E2E checks that run when backend/frontend URLs are provided.
+
+Acceptance:
+- Backend branch starts a local API server and passes API tests.
+- Frontend branch builds/tests and can point at backend URL without response shape patches.
+- Integration branch validates fixtures, runs contract tests against backend URL, and has E2E checks ready for frontend URL.
+- Main `progress.md` records each branch commit and validation result.
 
 ## Phase 4 - Acceptance Criteria
 
