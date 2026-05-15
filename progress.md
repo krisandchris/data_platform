@@ -76,3 +76,16 @@
 - Verified review redesign with `npm run test`: 14 passed.
 - Verified review redesign with `npm run build`: passed.
 - Captured browser checks for success and stage2-failure review routes without route-level error state.
+
+## 2026-05-16
+
+- Re-read `2026-05-13-qc-tool-ui-interaction-design.md` and `2026-05-13-qc-tool-ui-interaction-preview.html` as the reference for the sample review page.
+- Reworked the live review shell to match the reference Sample Detail layout: top status/action bar, left image evidence panel, middle Relation review panel, and right Candidate/verdict panel.
+- Added STEP1/STEP2/candidate bbox layer toggles, active relation expansion, orphan relation warning, stage2 failure warning, Pass gate checklist, local Save Patch state, vote note, and Patch Preview.
+- Preserved existing human review submission semantics, including the `需人工精标` decision and `提交质检` action.
+- Added route-prop reload handling in `ReviewWorkbenchPage.vue` so Prev/Next sample links reload the active review detail.
+- Verified frontend after the reference-aligned redesign:
+  - `npm run test`: 14 passed.
+  - `npm run build`: passed.
+  - Headless Chrome DOM checks passed for success sample `000142_0_1762483003246` and stage2 failure sample `001710_0_1763108687181`.
+  - Captured smoke screenshots at `/tmp/uvp_review_success.png` and `/tmp/uvp_review_failure.png`.

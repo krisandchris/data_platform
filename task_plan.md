@@ -21,6 +21,7 @@ Analyze `urban_violation_platform_markdown/` and the dataset layout under `DATAS
 - Phase 8: P0 contract/API/frontend/integration execution cycle - complete
 - Phase 9: Full DATASET registration for product preview - complete
 - Phase 10: Immersive QC sample review redesign - complete
+- Phase 11: Reference-aligned Sample Detail workbench redesign - complete
 
 ## Phase 1 - Documentation Inventory
 
@@ -369,6 +370,29 @@ Acceptance:
 - Stage2 failure sample route renders image, STEP1 evidence, failure reason, and review controls without a blank panel.
 - `npm run test` passes.
 - `npm run build` passes.
+
+## Phase 11 - Reference-Aligned Sample Detail Workbench Redesign
+
+Goal:
+- Align the live sample review route with `2026-05-13-qc-tool-ui-interaction-design.md` and `2026-05-13-qc-tool-ui-interaction-preview.html`.
+
+Implementation:
+- Reworked the review shell into the reference Sample Detail structure:
+  - Fixed top status/action bar with sample, progress, stage judge, draft state, Prev/Next/List, Save Patch, Pass, and Fail.
+  - Left image evidence panel with STEP1/STEP2/candidate bbox layer toggles, global facts, scene elements, anchors, and active relation summary.
+  - Middle relation review panel with active relation expansion, Step1 Core, Step2 Verification, orphan warnings, and stage2 failure warnings.
+  - Right candidate/verdict panel with evidence relation checklist, Pass gate, vote note, review decision buttons, and patch preview.
+- Preserved the existing review submission API contract while adding local Save Patch/draft-gate state for the current frontend surface.
+- Added route-prop reload handling so Prev/Next sample navigation reloads the review payload in the reused Vue route component.
+
+Acceptance:
+- Success sample route includes image evidence, relation review, candidate verdict, Pass gate, patch preview, and submit controls.
+- Stage2 failure sample route keeps image and STEP1 relation evidence visible and shows the STEP2 failure remediation state.
+- `npm run test` passes with 14 tests.
+- `npm run build` passes.
+- Headless browser checks pass for:
+  - `/datasets/urban_violation/samples/000142_0_1762483003246/review`
+  - `/datasets/urban_violation/samples/001710_0_1763108687181/review`
 
 ## Phase 4 - Acceptance Criteria
 
