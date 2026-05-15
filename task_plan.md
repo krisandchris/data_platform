@@ -16,7 +16,7 @@ Analyze `urban_violation_platform_markdown/` and the dataset layout under `DATAS
 - Phase 3: Frontend/backend/integration task split - complete
 - Phase 4: Acceptance criteria and handoff checklist - complete
 - Phase 5: Git repository and agent worktree setup - complete
-- Phase 6: Shared contract/bootstrap execution - pending
+- Phase 6: Shared contract/bootstrap execution - in_progress (first slices complete)
 
 ## Phase 1 - Documentation Inventory
 
@@ -263,11 +263,17 @@ Acceptance:
 Tasks:
 - Start from backend schema/API contract and deterministic fixture definition.
 - Keep frontend and integration branches aligned through explicit contract files.
+- Reconcile the backend contract artifact with frontend TypeScript types and integration fixture checks.
+- Decide whether to merge backend contract into main before frontend contract consumption, or cherry-pick contract artifacts into frontend/integration branches.
 
 Acceptance:
 - Backend branch has the first canonical schema/contract artifact.
 - Frontend branch can consume the contract without inventing response shapes.
 - Integration branch has a fixture manifest that covers success, soft-fail, and failure samples.
+- First-slice status:
+  - Backend complete on `agent/backend-implementation` at `fc82b60`.
+  - Frontend complete on `agent/frontend-implementation` at `83f4501`.
+  - Integration complete on `agent/integration-testing` at `8344695`.
 
 ## Phase 4 - Acceptance Criteria
 
