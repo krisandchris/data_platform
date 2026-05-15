@@ -18,6 +18,7 @@ Completed:
 - Frontend live API integration with explicit fixture fallback.
 - Integration contract tests activated against backend URL.
 - Integration E2E route/filter/review-route smoke activated against frontend/backend URLs.
+- Integration product validation clarified and completed at integration commit `ee3deb5`, validating backend commit `f6a76ee` and frontend commit `5d55505` as running services.
 
 Validated:
 - Backend contract tests: 6 passed.

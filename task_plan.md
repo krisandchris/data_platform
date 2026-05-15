@@ -308,7 +308,8 @@ Acceptance:
 Results:
 - Backend complete on `agent/backend-implementation` at `f6a76ee`.
 - Frontend complete on `agent/frontend-implementation` at `5d55505`.
-- Integration complete on `agent/integration-testing` at `501578a`.
+- Integration test harness complete on `agent/integration-testing` at `501578a`.
+- Integration product validation complete on `agent/integration-testing` at `ee3deb5`; it validated the backend and frontend worktree products as running services and published `docs/front_back_integration_report.md`.
 - Active backend contract against `http://127.0.0.1:8000`: 6 passed.
 - Active E2E against backend/frontend URLs: 3 passed, 1 skipped. The skipped review submit/audit refresh case remains under the P1 Review and Audit Workflow backlog.
 

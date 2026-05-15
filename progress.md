@@ -50,3 +50,8 @@
   - `BACKEND_URL=http://127.0.0.1:8000 pytest -q tests/contracts`: 6 passed.
   - `FRONTEND_URL=http://127.0.0.1:5173 BACKEND_URL=http://127.0.0.1:8000 pytest -q tests/e2e`: 3 passed, 1 skipped.
 - Stopped verification servers on ports 8000 and 5173 after testing.
+- Clarified integration-agent responsibility: it must validate backend/frontend agent code products as running services, not just prepare test scaffolding.
+- Added `FRONT_BACK_INTEGRATION_TASK.md` in the integration worktree and committed `adfce4f`.
+- Re-ran integration-agent validation against backend `f6a76ee` and frontend `5d55505`; integration commit `ee3deb5` published `docs/front_back_integration_report.md`.
+- Integration report result: fixture validation passed, backend contract tests 6 passed, frontend/backend E2E smoke 3 passed and 1 skipped. The skip remains owned by the P1 review/audit contract gap.
+- Stopped integration validation services on ports 8000 and 5173 after report review.
