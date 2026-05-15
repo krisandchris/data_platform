@@ -32,3 +32,4 @@
 - Frontend subagent timed out with uncommitted changes; took over the frontend worktree, fixed build config, ran `npm ci`, `npm run build`, and `npm run test`, then committed `83f4501` on `agent/frontend-implementation`.
 - Verified all three agent worktrees are clean and `git worktree list` points to backend `fc82b60`, frontend `83f4501`, and integration `8344695`.
 - Started frontend Vite dev server from the frontend worktree at `http://127.0.0.1:5173/` and verified it returns HTTP 200.
+- Consolidated unfinished work into `REMAINING_TASKS.md` with P0/P1/P2 priorities, ownership, acceptance criteria, and recommended next execution order.

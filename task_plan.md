@@ -17,6 +17,7 @@ Analyze `urban_violation_platform_markdown/` and the dataset layout under `DATAS
 - Phase 4: Acceptance criteria and handoff checklist - complete
 - Phase 5: Git repository and agent worktree setup - complete
 - Phase 6: Shared contract/bootstrap execution - in_progress (first slices complete)
+- Phase 7: Remaining task backlog and execution order - complete
 
 ## Phase 1 - Documentation Inventory
 
@@ -274,6 +275,18 @@ Acceptance:
   - Backend complete on `agent/backend-implementation` at `fc82b60`.
   - Frontend complete on `agent/frontend-implementation` at `83f4501`.
   - Integration complete on `agent/integration-testing` at `8344695`.
+
+## Phase 7 - Remaining Task Backlog
+
+Tasks:
+- Consolidate remaining unfinished work after the first agent slices.
+- Separate tasks by priority and owner.
+- Define acceptance criteria for the next execution cycle.
+
+Acceptance:
+- `REMAINING_TASKS.md` exists.
+- Remaining work is grouped into P0/P1/P2 priorities.
+- Next execution order is explicit.
 
 ## Phase 4 - Acceptance Criteria
 
