@@ -28,6 +28,7 @@ Analyze `urban_violation_platform_markdown/` and the dataset layout under `DATAS
 - Phase 15: Sample review focused chrome reduction - complete
 - Phase 16: Minimal bbox preview styling - complete
 - Phase 17: Quantized bbox coordinate projection fix - complete
+- Phase 18: Bbox color and selected-state styling rule - complete
 
 ## Phase 1 - Documentation Inventory
 
@@ -544,6 +545,25 @@ Acceptance:
 - Browser check confirms sample R1 `[163, 362, 336, 632]` renders as `left: 16.3%; top: 36.2%; width: 17.3%; height: 27%`.
 - Browser check confirms the rendered box remains inside the actual image stage.
 - Updated screenshot captured at `/tmp/uvp_review_quantized_boxes.png`.
+
+## Phase 18 - Bbox Color And Selected-State Styling Rule
+
+Goal:
+- Enforce the requested bbox visual rule: default boxes use pure 2px non-red lines; selected boxes become thicker and red.
+
+Implementation:
+- Changed default bbox styling to `2px solid currentColor` with no shadow/fill treatment.
+- Changed selected bbox styling to a `4px` red border.
+- Stopped mapping orphan stage1 relations and unsupported stage2 verifications to red tones.
+- Kept default tones to blue, green, orange, and purple.
+
+Acceptance:
+- Default bbox overlays do not use red as their line color.
+- Selected bbox overlay is red and thicker than default overlays.
+- `npm run test` passes with 20 tests.
+- `npm run build` passes.
+- Browser computed-style check confirms selected R1 is `4px` red and default R2/R3/S2 boxes are `2px` non-red lines.
+- Updated screenshot captured at `/tmp/uvp_review_box_color_rules.png`.
 
 ## Phase 4 - Acceptance Criteria
 

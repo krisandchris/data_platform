@@ -160,3 +160,13 @@
   - `npm run build`: passed.
   - Headless Chrome DOM check confirmed sample R1 `[163, 362, 336, 632]` renders as `left: 16.3%; top: 36.2%; width: 17.3%; height: 27%` and remains inside the image stage.
   - Captured updated screenshot at `/tmp/uvp_review_quantized_boxes.png`.
+- Updated bbox visual rules:
+  - Default bbox overlays now use pure `2px solid currentColor` lines with no shadow/fill effect.
+  - Selected bbox overlays now use a thicker `4px` red border.
+  - Orphan stage1 relations and unsupported stage2 verifications no longer map to red default tones.
+  - Default overlay tones are limited to non-red blue, green, orange, and purple.
+- Verified bbox color rules:
+  - `npm run test`: 20 passed.
+  - `npm run build`: passed.
+  - Headless Chrome computed-style check confirmed selected R1 is `4px` red, default R2/R3/S2 boxes are `2px` non-red lines, and default red count is 0.
+  - Captured updated screenshot at `/tmp/uvp_review_box_color_rules.png`.
