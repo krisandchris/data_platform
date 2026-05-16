@@ -72,6 +72,8 @@ This file records research findings from `urban_violation_platform_markdown/` an
 - The previous review route stacked three header/chrome layers: global `AppShell` navigation/search, page-level `ReviewWorkbenchPage` title/actions, and the review-specific `ReviewWorkbenchShell` status/action topbar.
 - For sample audit, the only necessary top chrome is the review-specific workbench topbar because it contains sample id, queue progress, stage judge state, draft state, and Prev/Next/List controls.
 - Global navigation/search and page-level marketing/management titles reduce vertical evidence space and should be hidden on `/datasets/:id/samples/:sampleId/review`.
+- Bbox overlays in the image evidence area should not show visible text labels because labels compete with image evidence and create clutter; keep label text as `aria-label` only.
+- Minimal bbox styling is preferable for this QC workflow: thin outlines, transparent fill, restrained selected state, and a small resize handle preserve editability without covering visual evidence.
 
 ## Open Questions
 

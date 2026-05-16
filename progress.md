@@ -140,3 +140,13 @@
   - `npm run build`: passed.
   - Headless Chrome DOM check confirmed `app-shell--review-focus`, no `.sidebar`, no `.topbar`, no `.page-header`, no global brand/search text, and workbench top at 10px.
   - Captured updated screenshot at `/tmp/uvp_review_focus_mode.png`.
+- Simplified bbox preview styling in the image evidence area:
+  - Removed visible text labels from bbox overlays.
+  - Kept labels as `aria-label` for accessibility and keyboard context.
+  - Replaced heavy filled/shadowed box styling with a restrained 1px outline, transparent fill, subtle selected outline, softer colors, and a 9px square resize handle.
+  - Removed the review-shell CSS override that positioned bbox label text above the image.
+- Verified minimal bbox preview:
+  - `npm run test`: 19 passed.
+  - `npm run build`: passed.
+  - Headless Chrome DOM check confirmed 8 bbox overlays, no visible bbox text, retained aria labels, 1px selected border, and 9px resize handle.
+  - Captured updated screenshot at `/tmp/uvp_review_minimal_boxes.png`.

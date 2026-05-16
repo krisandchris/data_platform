@@ -26,6 +26,7 @@ Analyze `urban_violation_platform_markdown/` and the dataset layout under `DATAS
 - Phase 13: Review workbench layout and bbox editing refinement - complete
 - Phase 14: Direct image-stage bbox editing and fill-area alignment fix - complete
 - Phase 15: Sample review focused chrome reduction - complete
+- Phase 16: Minimal bbox preview styling - complete
 
 ## Phase 1 - Documentation Inventory
 
@@ -499,6 +500,26 @@ Acceptance:
 - `npm run build` passes.
 - Browser DOM check confirms `app-shell--review-focus`, no `.sidebar`, no `.topbar`, no `.page-header`, and workbench top at 10px.
 - Updated screenshot captured at `/tmp/uvp_review_focus_mode.png`.
+
+## Phase 16 - Minimal Bbox Preview Styling
+
+Goal:
+- Remove visible text labels from bbox overlays and make the image preview annotation layer visually minimal.
+
+Implementation:
+- Removed the visible `<span>` label from each bbox overlay.
+- Preserved each bbox label as `aria-label` so keyboard/screen-reader context is not lost.
+- Reworked bbox styling to use a restrained 1px line, transparent fill, subtle selected state, softer colors, and a small square resize handle.
+- Removed the review-shell override that positioned bbox label text above the image.
+
+Acceptance:
+- No bbox overlay renders visible text.
+- Bbox overlays still expose accessible names through `aria-label`.
+- Drag/resize and relation-selection interactions remain intact.
+- `npm run test` passes with 19 tests.
+- `npm run build` passes.
+- Browser DOM check confirms 8 bbox overlays, empty visible text, retained aria labels, and the simplified 1px selected border.
+- Updated screenshot captured at `/tmp/uvp_review_minimal_boxes.png`.
 
 ## Phase 4 - Acceptance Criteria
 
