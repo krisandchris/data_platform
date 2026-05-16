@@ -150,3 +150,13 @@
   - `npm run build`: passed.
   - Headless Chrome DOM check confirmed 8 bbox overlays, no visible bbox text, retained aria labels, 1px selected border, and 9px resize handle.
   - Captured updated screenshot at `/tmp/uvp_review_minimal_boxes.png`.
+- Corrected bbox projection from pixel-based math to the dataset's 0-1000 quantized coordinate system:
+  - `BBoxOverlay` now uses `BBOX_COORDINATE_MAX = 1000` for all bbox placement, drag, resize, and clamping math.
+  - `imageWidth` and `imageHeight` are now used only to preserve the rendered image stage aspect ratio.
+  - Dragging and resizing a box writes edited values back as 0-1000 quantized coordinates.
+  - Updated tests to prove bbox percentages are independent from source image resolution.
+- Verified quantized bbox projection:
+  - `npm run test`: 20 passed.
+  - `npm run build`: passed.
+  - Headless Chrome DOM check confirmed sample R1 `[163, 362, 336, 632]` renders as `left: 16.3%; top: 36.2%; width: 17.3%; height: 27%` and remains inside the image stage.
+  - Captured updated screenshot at `/tmp/uvp_review_quantized_boxes.png`.

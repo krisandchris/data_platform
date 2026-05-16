@@ -38,7 +38,7 @@ This file records research findings from `urban_violation_platform_markdown/` an
 - Stage1 `summary.json`: 797 total jobs, 797 attempted, 797 succeeded, 0 failed, 797 with relation bbox, 797 with valid bbox coordinates, 797 visualized.
 - Stage2 `summary.json`: 797 total jobs, 778 skipped existing success, 19 attempted, 2 succeeded, 17 failed in the rerun summary; on-disk aggregate has 780 successful parsed/records and 19 failure files.
 - Stage1 parsed schema top-level keys: `environment_analysis`, `scene_elements`, `key_anchors`, `key_relations`.
-- Stage1 relation objects include `subject`, `relation`, `object`, `description`, and `bbox` integer array in image pixel coordinates.
+- Stage1 relation objects include `subject`, `relation`, `object`, `description`, and `bbox` integer arrays in a 0-1000 quantized coordinate space.
 - Stage1 record schema top-level keys: `id`, `images`, `messages`, `metadata`; metadata includes model cache stats, `response_source`, `judge_report`, `bbox_validation`, and `qc_integration`.
 - Stage2 input schema top-level keys: `sample_id`, `image_path`, `stage1_output`.
 - Stage2 parsed schema top-level keys: `sample_id`, `fact_verifications`, `candidates`.
@@ -74,6 +74,7 @@ This file records research findings from `urban_violation_platform_markdown/` an
 - Global navigation/search and page-level marketing/management titles reduce vertical evidence space and should be hidden on `/datasets/:id/samples/:sampleId/review`.
 - Bbox overlays in the image evidence area should not show visible text labels because labels compete with image evidence and create clutter; keep label text as `aria-label` only.
 - Minimal bbox styling is preferable for this QC workflow: thin outlines, transparent fill, restrained selected state, and a small resize handle preserve editability without covering visual evidence.
+- Bbox rendering must treat stored bbox values as 0-1000 quantized coordinates. The preview stage uses the actual image resolution only to preserve aspect ratio; overlay placement converts quantized x/y values to percentages of the rendered image stage.
 
 ## Open Questions
 

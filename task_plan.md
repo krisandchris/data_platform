@@ -27,6 +27,7 @@ Analyze `urban_violation_platform_markdown/` and the dataset layout under `DATAS
 - Phase 14: Direct image-stage bbox editing and fill-area alignment fix - complete
 - Phase 15: Sample review focused chrome reduction - complete
 - Phase 16: Minimal bbox preview styling - complete
+- Phase 17: Quantized bbox coordinate projection fix - complete
 
 ## Phase 1 - Documentation Inventory
 
@@ -91,7 +92,7 @@ Execution tasks:
 5. Implement import job state machine and validation:
    - Count expected assets.
    - Verify referenced files exist.
-   - Verify bbox coordinate arrays are valid for 1280x720 sampled images or stored image dimensions.
+   - Verify bbox coordinate arrays are valid 0-1000 quantized coordinates with ordered corners.
    - Detect stage2 success/failure split.
 6. Implement APIs:
    - Dataset list/detail/summary.
@@ -361,7 +362,7 @@ Goal:
 - Redesign the sample review route around the actual evidence flow from STEP1 and STEP2.
 
 Analysis:
-- STEP1 is the spatial evidence layer: environment analysis, scene elements, anchors, relation text, and pixel bboxes.
+- STEP1 is the spatial evidence layer: environment analysis, scene elements, anchors, relation text, and 0-1000 quantized bboxes.
 - STEP2 is the decision evidence layer: fact verification result/confidence, candidate category, evidence relation indices, and reasoning.
 - Stage2 failure samples must keep the image and STEP1 relation layer visible while showing the failure reason as a first-class remediation signal.
 
@@ -520,6 +521,29 @@ Acceptance:
 - `npm run build` passes.
 - Browser DOM check confirms 8 bbox overlays, empty visible text, retained aria labels, and the simplified 1px selected border.
 - Updated screenshot captured at `/tmp/uvp_review_minimal_boxes.png`.
+
+## Phase 17 - Quantized Bbox Coordinate Projection Fix
+
+Goal:
+- Correct bbox projection so all overlay boxes use the dataset's 0-1000 quantized coordinate system instead of treating bbox values as source-image pixels.
+
+Root Cause:
+- `BBoxOverlay` divided bbox x values by `imageWidth` and y values by `imageHeight`.
+- For a 1280x720 image, a quantized bbox such as `[163, 362, 336, 632]` was incorrectly rendered as `left=12.7%`, `top=50.3%` instead of `left=16.3%`, `top=36.2%`.
+
+Implementation:
+- Added an explicit `BBOX_COORDINATE_MAX = 1000` coordinate space in `BBoxOverlay`.
+- Converted bbox placement to percentages with `value / 1000`.
+- Converted pointer drag/resize positions from the rendered image stage back into 0-1000 coordinates.
+- Kept `imageWidth/imageHeight` only for the rendered image stage aspect ratio.
+- Updated bbox overlay tests to validate quantized coordinates on non-1000 source image resolutions.
+
+Acceptance:
+- `npm run test` passes with 20 tests.
+- `npm run build` passes.
+- Browser check confirms sample R1 `[163, 362, 336, 632]` renders as `left: 16.3%; top: 36.2%; width: 17.3%; height: 27%`.
+- Browser check confirms the rendered box remains inside the actual image stage.
+- Updated screenshot captured at `/tmp/uvp_review_quantized_boxes.png`.
 
 ## Phase 4 - Acceptance Criteria
 
