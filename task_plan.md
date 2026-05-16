@@ -29,6 +29,7 @@ Analyze `urban_violation_platform_markdown/` and the dataset layout under `DATAS
 - Phase 16: Minimal bbox preview styling - complete
 - Phase 17: Quantized bbox coordinate projection fix - complete
 - Phase 18: Bbox color and selected-state styling rule - complete
+- Phase 19: Review bottom dock and panel height expansion - complete
 
 ## Phase 1 - Documentation Inventory
 
@@ -564,6 +565,30 @@ Acceptance:
 - `npm run build` passes.
 - Browser computed-style check confirms selected R1 is `4px` red and default R2/R3/S2 boxes are `2px` non-red lines.
 - Updated screenshot captured at `/tmp/uvp_review_box_color_rules.png`.
+
+## Phase 19 - Review Bottom Dock And Panel Height Expansion
+
+Goal:
+- Align the vote note/review action dock to the browser bottom and increase the usable height of the image evidence and right-side review panels.
+
+Root Cause:
+- The review workbench used fixed grid height math (`calc(100vh - 380px)`) that left unused vertical space and kept the vote note/action bar above the browser bottom.
+- The bottom action bar also had bottom padding, so the vote note textarea did not visually touch the bottom edge even after the dock reached the viewport bottom.
+
+Implementation:
+- Changed the review-focus page surface to a fixed viewport-height surface with no bottom padding on desktop.
+- Changed `ReviewWorkbenchShell` to a full-height flex column.
+- Let `.review-grid` flex to fill the remaining height between the top status bar and bottom action dock.
+- Increased image evidence minimum row height and made the right-side Relation/Candidate panels share the expanded vertical space.
+- Removed bottom padding and bottom border/radius from the review action dock so the vote note textarea aligns with the browser bottom.
+- Kept responsive breakpoints in normal document flow on narrower screens.
+
+Acceptance:
+- `npm run test` passes with 20 tests.
+- `npm run build` passes.
+- Browser layout check confirms action dock bottom gap is `0` and vote note textarea bottom gap is `0`.
+- Browser layout check confirms the image stage is 430px high and Relation/Candidate panels are each 310px high in the 1440px desktop check.
+- Updated screenshot captured at `/tmp/uvp_review_bottom_aligned_layout.png`.
 
 ## Phase 4 - Acceptance Criteria
 

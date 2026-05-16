@@ -170,3 +170,14 @@
   - `npm run build`: passed.
   - Headless Chrome computed-style check confirmed selected R1 is `4px` red, default R2/R3/S2 boxes are `2px` non-red lines, and default red count is 0.
   - Captured updated screenshot at `/tmp/uvp_review_box_color_rules.png`.
+- Reworked sample review vertical layout so the vote note/action dock aligns to the browser bottom and the main review panels are taller:
+  - Review-focus page surface now uses fixed viewport height with no desktop bottom padding.
+  - `ReviewWorkbenchShell` now uses a full-height flex column.
+  - `.review-grid` expands to fill available space between the top status bar and bottom review action dock.
+  - Image evidence row minimum was increased, and Relation/Candidate panels now share the expanded right-side stack height.
+  - Bottom dock bottom padding/border/radius were removed so the vote note textarea aligns with the viewport bottom.
+- Verified bottom-aligned review layout:
+  - `npm run test`: 20 passed.
+  - `npm run build`: passed.
+  - Headless Chrome layout check confirmed action dock bottom gap `0`, vote note textarea bottom gap `0`, image stage height `430`, and Relation/Candidate panel heights `310` each.
+  - Captured updated screenshot at `/tmp/uvp_review_bottom_aligned_layout.png`.
