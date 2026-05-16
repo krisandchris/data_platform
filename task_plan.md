@@ -25,6 +25,7 @@ Analyze `urban_violation_platform_markdown/` and the dataset layout under `DATAS
 - Phase 12: Sample review non-blocking refresh mode - complete
 - Phase 13: Review workbench layout and bbox editing refinement - complete
 - Phase 14: Direct image-stage bbox editing and fill-area alignment fix - complete
+- Phase 15: Sample review focused chrome reduction - complete
 
 ## Phase 1 - Documentation Inventory
 
@@ -472,6 +473,32 @@ Acceptance:
 - `npm run test` passes with 18 tests.
 - `npm run build` passes.
 - Updated screenshot captured at `/tmp/uvp_review_direct_bbox.png`.
+
+## Phase 15 - Sample Review Focused Chrome Reduction
+
+Goal:
+- Remove non-review chrome when entering the sample audit stage so the viewport is dedicated to review work.
+
+Root Cause:
+- The sample review route was rendering three stacked header/chrome layers:
+  - Global `AppShell` sidebar/topbar with platform navigation and search.
+  - `ReviewWorkbenchPage` page title/actions header.
+  - `ReviewWorkbenchShell` review-specific sample status/action topbar.
+
+Implementation:
+- Added review-focus mode to `AppShell` for `/datasets/:id/samples/:sampleId/review`.
+- In review-focus mode, hide the global sidebar and topbar and make the page surface full-width with compact dark padding.
+- Removed the page-level review header from `ReviewWorkbenchPage`.
+- Kept only the review-specific workbench header with sample state, progress, stage judge, draft state, Prev/Next, and List.
+
+Acceptance:
+- Sample review route no longer renders global sidebar, global search topbar, or the page-level `质检工作台 / 样本审阅` header.
+- Review workbench remains visible and starts near the top of the viewport.
+- Other non-review routes keep the normal platform shell.
+- `npm run test` passes with 19 tests.
+- `npm run build` passes.
+- Browser DOM check confirms `app-shell--review-focus`, no `.sidebar`, no `.topbar`, no `.page-header`, and workbench top at 10px.
+- Updated screenshot captured at `/tmp/uvp_review_focus_mode.png`.
 
 ## Phase 4 - Acceptance Criteria
 

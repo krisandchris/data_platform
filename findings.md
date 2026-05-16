@@ -66,6 +66,13 @@ This file records research findings from `urban_violation_platform_markdown/` an
 - Frontend review tooling must handle both `pass` and `soft_fail`, show bbox overlays from stage1/stage2, and expose failure states for stage2 invalid outputs.
 - Backend API should normalize file-system-specific paths into stable asset URLs and record IDs; absolute source image paths inside JSON records are not directly browser-safe.
 
+## UI Findings
+
+- The sample review route should be treated as a focused audit workspace rather than a normal management page.
+- The previous review route stacked three header/chrome layers: global `AppShell` navigation/search, page-level `ReviewWorkbenchPage` title/actions, and the review-specific `ReviewWorkbenchShell` status/action topbar.
+- For sample audit, the only necessary top chrome is the review-specific workbench topbar because it contains sample id, queue progress, stage judge state, draft state, and Prev/Next/List controls.
+- Global navigation/search and page-level marketing/management titles reduce vertical evidence space and should be hidden on `/datasets/:id/samples/:sampleId/review`.
+
 ## Open Questions
 
 - Whether the platform should import full raw request/response payloads or store them as audit artifacts only while exposing normalized parsed fields to the UI.

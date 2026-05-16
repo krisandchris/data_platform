@@ -128,3 +128,15 @@
   - `npm run build`: passed.
   - Headless Chrome CDP check confirmed side fill exists but stage and boxes stay aligned, no manual bbox inputs render, no refresh banner renders, dragging R3 selects R3 and writes `relation:R3` bbox data into Patch Preview.
   - Captured updated screenshot at `/tmp/uvp_review_direct_bbox.png`.
+- Reduced the sample review route chrome after identifying the three stacked header layers:
+  - Global `AppShell` sidebar/topbar.
+  - `ReviewWorkbenchPage` page title/actions header.
+  - `ReviewWorkbenchShell` review-specific status/action topbar.
+- Added `app-shell--review-focus` mode for sample review routes so the global sidebar and search topbar are hidden and the page surface becomes compact, dark, and full-width.
+- Removed the page-level `质检工作台 / 样本审阅` header from `ReviewWorkbenchPage`.
+- Kept only review-related controls inside the workbench: sample state, progress, stage judge, draft state, Prev/Next, List, evidence, relation review, candidate verdict, and bottom review actions.
+- Verified focused review mode:
+  - `npm run test`: 19 passed.
+  - `npm run build`: passed.
+  - Headless Chrome DOM check confirmed `app-shell--review-focus`, no `.sidebar`, no `.topbar`, no `.page-header`, no global brand/search text, and workbench top at 10px.
+  - Captured updated screenshot at `/tmp/uvp_review_focus_mode.png`.
