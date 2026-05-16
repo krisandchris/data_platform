@@ -103,3 +103,16 @@
   - `npm run test`: 15 passed.
   - `npm run build`: passed.
   - Headless Chrome CDP click test confirmed transition state has no `Loading review sample...`, keeps old sample visible, shows the refresh banner, then settles on `000143_0_1762483007499` with `Patch Preview`.
+- Refined the sample review workbench per the latest layout request:
+  - Removed the visible sample-switch sticky refresh banner while keeping silent non-blocking refresh behavior.
+  - Removed the image evidence card's old active-relation text block.
+  - Added clickable bbox overlays through `BBoxOverlay` and wired box selection to expand the matching Relation row.
+  - Added bbox coordinate editing for the selected relation and wired edits into relation display plus patch preview.
+  - Reflowed the main workbench to left image evidence plus right stacked Relation/Candidate cards.
+  - Moved `vote note`, approve, reject, manual-label, and submit actions into a unified bottom review bar.
+  - Removed panel-header subtitle descriptions so card headers show only primary titles on the left.
+- Verified the refined layout and bbox behavior:
+  - `npm run test`: 16 passed.
+  - `npm run build`: passed.
+  - Headless Chrome checks confirmed no `正在切换到 ...` banner, no full-page loading flash while switching, bbox click opens R3, bbox coordinate edit updates relation state and patch preview.
+  - Captured updated layout screenshot at `/tmp/uvp_review_layout_new.png`.

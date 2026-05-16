@@ -23,6 +23,7 @@ Analyze `urban_violation_platform_markdown/` and the dataset layout under `DATAS
 - Phase 10: Immersive QC sample review redesign - complete
 - Phase 11: Reference-aligned Sample Detail workbench redesign - complete
 - Phase 12: Sample review non-blocking refresh mode - complete
+- Phase 13: Review workbench layout and bbox editing refinement - complete
 
 ## Phase 1 - Documentation Inventory
 
@@ -418,6 +419,31 @@ Acceptance:
 - `npm run test` passes with 15 tests.
 - `npm run build` passes.
 - Headless Chrome CDP navigation check verifies transition and final states.
+
+## Phase 13 - Review Workbench Layout And Bbox Editing Refinement
+
+Goal:
+- Apply the latest sample-review layout and interaction corrections requested after the non-blocking refresh pass.
+
+Implementation Order:
+1. Remove the visible sample-switch sticky refresh banner while keeping the non-blocking refresh model.
+2. Remove the bottom active-relation summary from the image evidence card.
+3. Add bbox selection and bbox coordinate editing.
+4. Reflow the workbench to a two-column layout:
+   - Left: image evidence, global facts, scene elements, anchors, bbox coordinate editor.
+   - Right: stacked Relation review card over Candidate/verdict card.
+   - Bottom: unified review action bar containing vote note, approve, reject, manual-label, and submit controls.
+5. Remove subtitle descriptions from panel headers so each card's left header contains only the primary title.
+
+Acceptance:
+- No visible `正在切换到 ...` banner appears while switching samples.
+- The image evidence card no longer renders the old active relation text block.
+- Clicking a bbox selects the corresponding relation and opens its Relation review row.
+- Editing bbox coordinates updates the selected relation display and patch preview.
+- Relation and Candidate cards stack vertically on the right side at desktop width.
+- `npm run test` passes with 16 tests.
+- `npm run build` passes.
+- Headless Chrome checks confirm no refresh banner/loading flash, bbox click opens R3, bbox edit writes `[400, 492, 452, 545]` into the relation/patch state, and the new layout screenshot is captured at `/tmp/uvp_review_layout_new.png`.
 
 ## Phase 4 - Acceptance Criteria
 
