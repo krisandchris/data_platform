@@ -24,6 +24,7 @@ Analyze `urban_violation_platform_markdown/` and the dataset layout under `DATAS
 - Phase 11: Reference-aligned Sample Detail workbench redesign - complete
 - Phase 12: Sample review non-blocking refresh mode - complete
 - Phase 13: Review workbench layout and bbox editing refinement - complete
+- Phase 14: Direct image-stage bbox editing and fill-area alignment fix - complete
 
 ## Phase 1 - Documentation Inventory
 
@@ -444,6 +445,33 @@ Acceptance:
 - `npm run test` passes with 16 tests.
 - `npm run build` passes.
 - Headless Chrome checks confirm no refresh banner/loading flash, bbox click opens R3, bbox edit writes `[400, 492, 452, 545]` into the relation/patch state, and the new layout screenshot is captured at `/tmp/uvp_review_layout_new.png`.
+
+## Phase 14 - Direct Image-Stage Bbox Editing And Fill-Area Alignment Fix
+
+Goal:
+- Replace manual bbox coordinate editing with direct manipulation inside the image preview.
+- Ensure bbox rendering and pointer math use the actual rendered image stage, not the black letterbox/pillarbox fill area.
+
+Implementation:
+- Refactored `BBoxOverlay` to split the black preview shell from the real image stage.
+- Measured the shell with `ResizeObserver` and sized `.bbox-shell__stage` to the actual image aspect ratio inside the shell.
+- Rendered overlay boxes inside the stage only, so boxes cannot drift into side fill areas.
+- Added direct editable overlays:
+  - Drag a box to move it.
+  - Drag the bottom-right handle to resize it.
+  - Clicking or editing a box selects the matching Relation row.
+- Removed the manual `BBox 坐标` editor from the image evidence card.
+- Changed the bottom review action bar to normal layout flow so it no longer overlays and intercepts lower image/box pointer events.
+- Kept bbox edits synchronized with relation display and Patch Preview through `draftRelationBboxes`.
+
+Acceptance:
+- Browser validation shows the shell can have side fill while the stage remains inside the shell and boxes remain inside the stage.
+- No manual bbox coordinate inputs or `BBox 坐标` editor are rendered.
+- No visible `正在切换到 ...` refresh banner is rendered.
+- Dragging R3 in the image preview selects R3, updates its relation bbox, and writes a `relation:R3` bbox entry into Patch Preview.
+- `npm run test` passes with 18 tests.
+- `npm run build` passes.
+- Updated screenshot captured at `/tmp/uvp_review_direct_bbox.png`.
 
 ## Phase 4 - Acceptance Criteria
 

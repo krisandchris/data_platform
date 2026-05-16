@@ -116,3 +116,15 @@
   - `npm run build`: passed.
   - Headless Chrome checks confirmed no `正在切换到 ...` banner, no full-page loading flash while switching, bbox click opens R3, bbox coordinate edit updates relation state and patch preview.
   - Captured updated layout screenshot at `/tmp/uvp_review_layout_new.png`.
+- Reworked image preview bbox editing to operate directly on visible boxes instead of manual coordinate inputs:
+  - `BBoxOverlay` now separates the black preview shell from the real rendered image stage and computes the stage size from the source image aspect ratio.
+  - Overlay boxes render inside the image stage only, preventing bbox drift into left/right black fill areas.
+  - Stage1 relation boxes are editable by dragging the box to move it and dragging the bottom-right handle to resize it.
+  - Selecting or editing a box opens the matching Relation review row and writes bbox changes into Patch Preview.
+  - Removed the `BBox 坐标` manual editor from the image evidence card.
+  - Changed the bottom review action bar to normal document flow so it no longer covers or intercepts lower image boxes.
+- Verified direct image-stage bbox editing:
+  - `npm run test`: 18 passed.
+  - `npm run build`: passed.
+  - Headless Chrome CDP check confirmed side fill exists but stage and boxes stay aligned, no manual bbox inputs render, no refresh banner renders, dragging R3 selects R3 and writes `relation:R3` bbox data into Patch Preview.
+  - Captured updated screenshot at `/tmp/uvp_review_direct_bbox.png`.
