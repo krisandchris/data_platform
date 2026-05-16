@@ -89,3 +89,17 @@
   - `npm run build`: passed.
   - Headless Chrome DOM checks passed for success sample `000142_0_1762483003246` and stage2 failure sample `001710_0_1763108687181`.
   - Captured smoke screenshots at `/tmp/uvp_review_success.png` and `/tmp/uvp_review_failure.png`.
+- Investigated sample switching flicker in the review workbench.
+- Root cause: route prop changes called the first-load path, set `loading=true`, and temporarily unmounted the review shell in favor of the full-page loading state.
+- Reworked `ReviewWorkbenchPage.vue` refresh mode:
+  - First entry uses `initialLoading`.
+  - Same-dataset sample navigation uses `refreshing`.
+  - Current sample detail stays mounted while the next detail loads.
+  - A sticky `正在切换到 ...` banner replaces the disruptive full-page loading flash.
+  - QC queue fetch stays on initial load; sample switching fetches review detail only.
+  - Request sequence guards prevent stale responses from overwriting newer navigation.
+- Added route refresh regression coverage in `routesAndPages.test.ts`.
+- Verified non-blocking refresh mode:
+  - `npm run test`: 15 passed.
+  - `npm run build`: passed.
+  - Headless Chrome CDP click test confirmed transition state has no `Loading review sample...`, keeps old sample visible, shows the refresh banner, then settles on `000143_0_1762483007499` with `Patch Preview`.

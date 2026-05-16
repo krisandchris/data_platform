@@ -22,6 +22,7 @@ Analyze `urban_violation_platform_markdown/` and the dataset layout under `DATAS
 - Phase 9: Full DATASET registration for product preview - complete
 - Phase 10: Immersive QC sample review redesign - complete
 - Phase 11: Reference-aligned Sample Detail workbench redesign - complete
+- Phase 12: Sample review non-blocking refresh mode - complete
 
 ## Phase 1 - Documentation Inventory
 
@@ -393,6 +394,30 @@ Acceptance:
 - Headless browser checks pass for:
   - `/datasets/urban_violation/samples/000142_0_1762483003246/review`
   - `/datasets/urban_violation/samples/001710_0_1763108687181/review`
+
+## Phase 12 - Sample Review Non-Blocking Refresh Mode
+
+Goal:
+- Remove visible screen flicker when navigating between samples from the review workbench.
+
+Root Cause:
+- `ReviewWorkbenchPage.vue` reused the same route component for Prev/Next navigation, but the route watcher called the same `load()` path used for first entry.
+- That path set `loading=true`, causing the template to unmount `ReviewWorkbenchShell` and render the full-page loading state before the next sample detail returned.
+
+Implementation:
+- Split review loading into first-entry `initialLoading` and same-dataset `refreshing`.
+- Keep the current review workbench mounted while a new sample detail request is in flight.
+- Show a compact sticky refresh banner during sample switching instead of replacing the screen.
+- Fetch the QC queue during initial load; sample switches fetch only the review detail so the transition is shorter and less disruptive.
+- Guard async responses with a request sequence so stale sample responses cannot overwrite a newer navigation.
+
+Acceptance:
+- Switching from sample `000142_0_1762483003246` to the next sample does not show `Loading review sample...`.
+- During the pending request, the old review detail remains visible and a `正在切换到 ...` banner appears.
+- After the next sample detail resolves, the target sample replaces the old detail and the banner disappears.
+- `npm run test` passes with 15 tests.
+- `npm run build` passes.
+- Headless Chrome CDP navigation check verifies transition and final states.
 
 ## Phase 4 - Acceptance Criteria
 
