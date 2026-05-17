@@ -193,3 +193,8 @@
   - Clarified that label configs should be manually uploaded from the frontend during dataset registration/settings, then validated, versioned, activated, and loaded by the QC workbench.
   - Documented that backend-bundled `dataset_configs/{dataset_id}.json` should not be the production source of truth.
   - Defined the required API lifecycle: validate upload, save draft, activate version, get active config, get suggestions from active config.
+- Prepared subagent execution for the uploaded label config workflow:
+  - Added ignored test config file `DATASET/urban_violation/label_config.json`.
+  - Verified the config parses as `label_config_v1`, dataset type `urban_violation`, with 8 fields: 6 closed enum fields and 2 open tag fields.
+  - Added `docs/subagent_label_config_upload_tasks.md` with backend, frontend, and integration task briefs.
+  - Recorded API lifecycle and acceptance criteria for all three implementation agents.

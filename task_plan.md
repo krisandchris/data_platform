@@ -627,6 +627,22 @@ Acceptance:
 - Frontend, backend, and integration agents have clear API, state, and validation responsibilities.
 - Missing active config behavior is explicit: review data can display read-only, but label editing/submission must be blocked.
 
+## Phase 22 - Label Config Upload Subagent Execution
+
+Goal:
+- Split the frontend-uploaded label config lifecycle into backend, frontend, and integration subagent tasks.
+- Provide a real `urban_violation` label config file under the dataset directory for upload-based testing.
+
+Implementation:
+- Added `DATASET/urban_violation/label_config.json` as the current dataset test config file. This file is under ignored dataset data and is not committed.
+- Added `docs/subagent_label_config_upload_tasks.md` with per-agent write scopes, API contracts, execution tasks, and acceptance criteria.
+- Assigned backend, frontend, and integration implementation tasks to separate subagents.
+
+Acceptance:
+- Backend subagent has a clear brief to replace backend-bundled config loading with uploaded config validation/save/activation.
+- Frontend subagent has a clear brief to add manual upload, preview, activation, and active-config-driven review controls.
+- Integration subagent has a clear brief to validate the full upload/activate/review workflow using `DATASET/urban_violation/label_config.json`.
+
 ## Phase 4 - Acceptance Criteria
 
 Tasks:
@@ -644,3 +660,4 @@ Acceptance:
 | --- | --- | --- |
 | `cat ~/.codex/skills/planning-with-files/SKILL.md` failed because the AGENTS path does not exist on this machine. | Read skill from AGENTS-specified path. | Used installed skill path `/home/hy/.agents/skills/planning-with-files/SKILL.md`. |
 | `git status --short` failed because `/mnt/lc/LC/ares_xtws/0_train_data/data_platform` is not inside a Git repository. | Final verification. | Treated as environment fact; verified planning files directly instead. |
+| `jq '.schema_version, .dataset_type, (.fields | length), [.fields[] | select(...)] | length'` failed with `Cannot index string with string "fields"`. | Initial JSON summary check for `DATASET/urban_violation/label_config.json`. | Re-ran with grouped array expression: `jq '[.schema_version, .dataset_type, (.fields | length), ([.fields[] | select(.mode=="closed_enum")] | length), ([.fields[] | select(.mode=="open_tags")] | length)]' ...`. |
