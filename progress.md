@@ -222,3 +222,9 @@
   - Used real dataset sample `000142_0_1762483003246` and rendered R1/R2/R3 bbox overlays from 0-1000 coordinates.
   - Added lightweight preview interaction: clicking a bbox or Relation row updates the active Relation editor fields.
   - Chrome DevTools MCP was unavailable due to `DevToolsActivePort`; verified the preview with `google-chrome --headless=new --screenshot=/tmp/qc_step_review_field_layout_preview.png`.
+- Corrected the two-zone preview after layout feedback:
+  - Changed the right rail to strict 50% `Relation 复核区` and 50% `Candidate 与质检裁决`.
+  - Kept both right-side panels independently scrollable for full content display.
+  - Moved `vote note`, review decision buttons, `保存 Patch`, and `提交质检` out of the Candidate panel into a full-width bottom dock.
+  - Updated `docs/qc_step_review_field_layout_design.md` so the design contract matches the corrected layout.
+  - Re-verified the corrected preview with `google-chrome --headless=new --screenshot=/tmp/qc_step_review_field_layout_preview_50_50.png`.

@@ -36,6 +36,7 @@ Analyze `urban_violation_platform_markdown/` and the dataset layout under `DATAS
 - Phase 23: Label config validate runtime 404 fix - complete
 - Phase 24: STEP1/STEP2 review field and two-zone layout design - complete
 - Phase 25: STEP1/STEP2 review layout HTML preview - complete
+- Phase 26: Corrected 50/50 right rail and full-width verdict dock - complete
 
 ## Phase 1 - Documentation Inventory
 
@@ -718,6 +719,26 @@ Acceptance:
 - The file opens directly as static HTML.
 - Headless Chrome screenshot succeeds at `1440x1000`.
 - The preview uses the current frontend dark workbench styling, border radius, panel structure, bbox color rule, and bottom decision action pattern.
+
+## Phase 26 - Corrected 50/50 Right Rail and Full-Width Verdict Dock
+
+Goal:
+- Correct the preview/design to match the clarified layout requirement.
+
+Implementation:
+- Updated `docs/qc_step_review_field_layout_preview.html`.
+- Updated `docs/qc_step_review_field_layout_design.md`.
+- Changed the right rail to strict equal split:
+  - `Relation 复核区`: 50% of right-side height.
+  - `Candidate 与质检裁决`: 50% of right-side height.
+- Kept each right-side panel independently scrollable so all fields remain accessible without changing panel heights.
+- Moved `vote note`, `通过`, `需修改`, `驳回`, `人工精标`, `保存 Patch`, and `提交质检` into a full-width bottom dock spanning the entire workbench.
+
+Acceptance:
+- Right rail rows use 1:1 height distribution.
+- Relation and Candidate panel content can scroll independently.
+- Vote note and review actions are no longer inside the Candidate panel.
+- Bottom dock spans both the image area and right rail.
 
 ## Phase 4 - Acceptance Criteria
 
