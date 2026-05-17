@@ -30,6 +30,11 @@ Analyze `urban_violation_platform_markdown/` and the dataset layout under `DATAS
 - Phase 17: Quantized bbox coordinate projection fix - complete
 - Phase 18: Bbox color and selected-state styling rule - complete
 - Phase 19: Review bottom dock and panel height expansion - complete
+- Phase 20: QC label field editing design document - complete
+- Phase 21: Frontend uploaded label config flow - complete
+- Phase 22: Label config upload subagent execution - complete
+- Phase 23: Label config validate runtime 404 fix - complete
+- Phase 24: STEP1/STEP2 review field and two-zone layout design - complete
 
 ## Phase 1 - Documentation Inventory
 
@@ -669,6 +674,31 @@ Acceptance:
 - `curl` validate request against `http://127.0.0.1:8000/api/datasets/urban_violation/label-configs/validate` returns `valid=true`.
 - `BACKEND_URL=http://127.0.0.1:8000 pytest -q tests/label_config/test_label_config_api_smoke.py` passes with 4 tests.
 
+## Phase 24 - STEP1/STEP2 Review Field and Two-Zone Layout Design
+
+Goal:
+- Reorganize the STEP1 and STEP2 fields that require QC editing.
+- Redesign the right-side sample review workbench into two clear regions: `Relation 复核区` and `Candidate 与质检裁决`.
+
+Implementation:
+- Added `docs/qc_step_review_field_layout_design.md`.
+- Confirmed current dataset field shapes from real samples:
+  - STEP1: `environment_analysis`, `scene_elements`, `key_anchors`, `key_relations`.
+  - STEP2 parsed: `sample_id`, `fact_verifications`, `candidates`.
+  - STEP2 failure: `error_type`, `message`.
+- Defined editable fields, readonly fields, control types, label-config dependencies, and patch scopes.
+- Specified that `relation_index` and `evidence_relation_indices` should be shown as readable Relation references in the UI rather than raw numeric indices.
+- Designed the right-side layout as two operational regions:
+  - Upper `Relation 复核区` for STEP1 relation plus STEP2 fact verification editing.
+  - Lower `Candidate 与质检裁决` for Candidate editing, evidence relation selection, vote note, and review decisions.
+
+Acceptance:
+- The design covers every STEP1/STEP2 field involved in QC edits.
+- Closed enum fields are tied to active label config.
+- `scene_elements` and `segmentation_targets` remain open controlled tags.
+- `bbox` editing remains image-stage only and preserves 0-1000 quantized coordinates.
+- The next frontend implementation slice has clear target controls and acceptance criteria.
+
 ## Phase 4 - Acceptance Criteria
 
 Tasks:
@@ -688,3 +718,4 @@ Acceptance:
 | `git status --short` failed because `/mnt/lc/LC/ares_xtws/0_train_data/data_platform` is not inside a Git repository. | Final verification. | Treated as environment fact; verified planning files directly instead. |
 | `jq '.schema_version, .dataset_type, (.fields | length), [.fields[] | select(...)] | length'` failed with `Cannot index string with string "fields"`. | Initial JSON summary check for `DATASET/urban_violation/label_config.json`. | Re-ran with grouped array expression: `jq '[.schema_version, .dataset_type, (.fields | length), ([.fields[] | select(.mode=="closed_enum")] | length), ([.fields[] | select(.mode=="open_tags")] | length)]' ...`. |
 | Frontend label config `校验配置` showed `Not Found`. | Reproduced direct request to `http://127.0.0.1:8000/api/datasets/urban_violation/label-configs/validate`. | Found stale backend process on port 8000 with no label-config routes; restarted 8000 from current backend commit and reran API smoke successfully. |
+| `jq '.field_definitions | ...' DATASET/urban_violation/label_config.json` failed with `Cannot iterate over null`. | Checked uploaded label config shape. | Re-ran against the actual `.fields[]` structure and confirmed 8 configured fields. |

@@ -82,6 +82,12 @@ This file records research findings from `urban_violation_platform_markdown/` an
 - The test upload config for the current dataset lives at `DATASET/urban_violation/label_config.json`; it has 8 fields, with 6 `closed_enum` fields and 2 `open_tags` fields.
 - Live integration confirmed the backend upload lifecycle API with the current dataset config: validate, save, activate, active config read, suggestions, and three negative validation cases passed. Browser E2E still needs a working Playwright or Chrome DevTools environment.
 - If label config validation shows `Not Found` in the frontend, first verify that `http://127.0.0.1:8000/openapi.json` contains `/api/datasets/{dataset_id}/label-configs/validate`; a stale backend process on port 8000 can keep serving old routes even after the backend branch has been updated.
+- STEP1/STEP2 field-level QC design now lives in `docs/qc_step_review_field_layout_design.md`.
+- STEP1 editable fields should focus first on `key_relations[].subject/relation/object/description/bbox` and `scene_elements`; `environment_analysis` and `key_anchors` can be secondary editors.
+- STEP2 `fact_verifications[]` should be edited together with the matching STEP1 relation inside the Relation review area; `relation_index` is an import compatibility key and should not be exposed as the primary UI editing target.
+- STEP2 `candidates[]` should be edited in the Candidate/verdict area; `evidence_relation_indices` should render as readable Relation rows and save through stable relation references rather than naked numeric indices.
+- STEP2 failure records (`error_type`, `message`) are readonly diagnostics, but the review UI should allow a human-created Candidate patch when model stage2 produced no candidate.
+- The right review rail should be treated as two operational regions: upper `Relation 复核区` for relation/verification editing and lower `Candidate 与质检裁决` for candidate evidence, category, confidence, note, and decision.
 
 ## Open Questions
 

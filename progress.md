@@ -209,3 +209,10 @@
   - Restarted `8000` from the current backend worktree commit `a7ba76e`.
   - Verified direct validate request returns 200 with `valid=true`, `field_count=8`, `closed_enum_count=6`, `open_tags_count=2`, `option_count=54`.
   - Verified `BACKEND_URL=http://127.0.0.1:8000 pytest -q tests/label_config/test_label_config_api_smoke.py` passes with 4 tests.
+- Reorganized the STEP1/STEP2 QC-editable field design:
+  - Added `docs/qc_step_review_field_layout_design.md`.
+  - Re-sampled the dataset fields for `000142_0_1762483003246` and a STEP2 failure record.
+  - Documented STEP1 editable targets: `environment_analysis`, `scene_elements`, `key_anchors`, and `key_relations[].subject/relation/object/description/bbox`.
+  - Documented STEP2 editable targets: `fact_verifications[]`, `candidates[]`, and the special handling for failure diagnostics.
+  - Defined the target right-side layout as two regions: `Relation 复核区` and `Candidate 与质检裁决`.
+  - Recorded current implementation gaps: contextual Relation/Candidate editors, editable evidence relation selection, confidence override, detailed verification fields, and stage2 failure manual Candidate creation.
