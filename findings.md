@@ -91,6 +91,8 @@ This file records research findings from `urban_violation_platform_markdown/` an
 - The two-zone review design preview now lives at `docs/qc_step_review_field_layout_preview.html`; it uses real sample `000142_0_1762483003246`, the current dark review-workbench style, image-stage bbox overlays, Relation editor, Candidate evidence rows, and global bottom decision actions.
 - Corrected review layout requirement: `Relation 复核区` and `Candidate 与质检裁决` must each occupy exactly half of the right rail, each with its own scrollable content area; `vote note` and all review decision buttons must be a full-width bottom dock across the whole workbench.
 - Browser verification for the preview used `google-chrome --headless=new` because Chrome DevTools MCP could not connect to the local Chrome profile.
+- For annotator-only label editing, the bottom dock should not expose final QC actions such as pass/reject/manual refinement. It should use `修改说明` plus `跳过样本`, `校验修改`, `保存草稿`, and `提交修改`.
+- `修改说明` should be stored as patch/audit context (`change_note`) and required only for high-risk edits such as closed enum changes, bbox edits, relation/candidate deletion, manual candidate creation, or warning override.
 
 ## Open Questions
 

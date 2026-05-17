@@ -233,3 +233,9 @@
   - Disabled horizontal overflow and kept vertical scrolling for long content.
   - Added stable textarea minimum heights and wrapping for the long observation label.
   - Verified with `google-chrome --headless=new --screenshot=/tmp/qc_step_review_field_layout_relation_fix.png`.
+- Reframed the bottom bar for annotator label-edit mode:
+  - Added `docs/qc_label_edit_bottom_bar_design.md`.
+  - Replaced `vote note` semantics with `修改说明` / `change_note`.
+  - Removed pass/reject/manual-refinement verdict buttons from the preview bottom bar.
+  - Added `跳过样本`, `校验修改`, `保存草稿`, and `提交修改`.
+  - Verified with `google-chrome --headless=new --screenshot=/tmp/qc_label_edit_bottom_bar_preview.png`.

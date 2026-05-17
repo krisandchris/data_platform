@@ -637,27 +637,23 @@
       padding: 0 11px;
     }
 
-    .decision-button.approve {
+    .decision-button.skip {
+      color: var(--muted);
+    }
+
+    .decision-button.validate {
       color: #69db7c;
     }
 
-    .decision-button.reject {
-      color: #ff8787;
-    }
-
-    .decision-button.manual {
-      color: #ffd43b;
+    .save-button {
+      border-color: rgba(214, 158, 46, 0.58);
+      background: rgba(214, 158, 46, 0.12);
+      color: #faf089;
     }
 
     .decision-button.selected {
       border-color: currentColor;
       background: var(--surface-3);
-    }
-
-    .save-button {
-      border-color: rgba(79, 140, 255, 0.58);
-      background: rgba(79, 140, 255, 0.12);
-      color: #dbeafe;
     }
 
     @media (max-width: 1320px) {
@@ -928,7 +924,7 @@
 
                 <label class="field">
                   <span class="mini-label">evidence_reasoning</span>
-                  <textarea rows="4">画面左侧存在一辆被遮盖的非机动车，停放在人行道上并紧邻盲道。R2 证据需要保留但降低权重，最终结论建议转为需人工精标。</textarea>
+                  <textarea rows="4">画面左侧存在一辆被遮盖的非机动车，停放在人行道上并紧邻盲道。R2 证据需要保留但降低权重，R3 不作为候选证据。</textarea>
                 </label>
               </div>
 
@@ -961,18 +957,18 @@
       </aside>
     </div>
 
-    <section class="review-action-bar" aria-label="质检裁决底栏">
+    <section class="review-action-bar" aria-label="标注修改底栏">
       <label class="vote-note">
-        <span class="mini-label">vote note</span>
-        <textarea>R1 bbox 已修正；R2 保留为辅助证据；当前结论需要进入人工精标。</textarea>
+        <span class="mini-label">修改说明</span>
+        <textarea>修正 R1 bbox；R2 保留为辅助证据；R3 目标过小，不作为候选证据。</textarea>
       </label>
       <div class="decision-actions">
-        <button class="decision-button approve" type="button">通过</button>
-        <button class="decision-button selected" type="button">需修改</button>
-        <button class="decision-button reject" type="button">驳回</button>
-        <button class="decision-button manual" type="button">人工精标</button>
-        <button class="save-button" type="button">保存 Patch</button>
-        <button class="submit-button" type="button">提交质检</button>
+        <span class="pill blue">已修改 5 项</span>
+        <span class="pill green">校验通过</span>
+        <button class="decision-button skip" type="button">跳过样本</button>
+        <button class="decision-button validate selected" type="button">校验修改</button>
+        <button class="save-button" type="button">保存草稿</button>
+        <button class="submit-button" type="button">提交修改</button>
       </div>
     </section>
   </main>

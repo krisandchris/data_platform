@@ -109,7 +109,7 @@ Candidate 应在 `Candidate 与质检裁决` 区中编辑。它不是 Relation �
 │ Candidate tabs/list | category | sample_category | confidence            │
 │ Evidence Relations 勾选表 | segmentation targets | reasoning             │
 ├─────────────────────────────────────────────────────────────────────────┤
-│ 全局底栏：vote note + 通过 / 需修改 / 驳回 / 人工精标 + 保存/提交         │
+│ 全局底栏：修改说明 + 跳过样本 / 校验修改 / 保存草稿 / 提交修改           │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -120,7 +120,7 @@ Candidate 应在 `Candidate 与质检裁决` 区中编辑。它不是 Relation �
 - 右侧上区 `Relation 复核区` 占右栏 50% 高度。
 - 右侧下区 `Candidate 与质检裁决` 占右栏 50% 高度。
 - 两个右侧区域都必须有独立内容滚动容器，内容较多时不得挤压另一区高度。
-- 底部 `vote note` 与裁决按钮必须作为全局底栏横跨整个审阅页底部，不属于右侧 Candidate 面板内部。
+- 如果界面用于标注人员修改标签，底部 `修改说明` 与修改提交按钮必须作为全局底栏横跨整个审阅页底部，不属于右侧 Candidate 面板内部。
 
 ## 6. Relation 复核区设计
 
@@ -181,14 +181,13 @@ Candidate 编辑内容：
 - `evidence_reasoning`：多行文本。
 - `relation_hint`：折叠详情中的低优先级文本字段。
 
-质检裁决内容：
+底栏内容：
 
-- 裁决按钮：`通过`、`需修改`、`驳回`、`人工精标`。
-- `vote note`：本次复核依据，提交前必填或按规则校验。
-- `保存 Patch`：只保存草稿，不提交最终裁决。
-- `提交质检`：执行校验，通过后提交裁决。
-- 门禁提示：显示未通过项，但不单独做大卡片，避免压缩 Candidate 编辑区。
-- `vote note`、裁决按钮、`保存 Patch`、`提交质检` 放入横跨整个页面底部的全局底栏；Candidate 区只保留候选编辑和候选证据内容。
+- 如果该界面是质检裁决模式，底栏可承载裁决按钮和 `vote note`。
+- 如果该界面是标注修改模式，底栏应改为 `修改说明`、`跳过样本`、`校验修改`、`保存草稿`、`提交修改`。
+- 标注修改模式下不显示 `通过`、`驳回`、`人工精标`，避免让标注人员承担最终质检裁决。
+- `修改说明` 与 patch/audit 绑定，用于解释本次字段修改原因，而不是解释 pass/fail 投票。
+- 详细底栏逻辑见 `docs/qc_label_edit_bottom_bar_design.md`。
 
 ### 7.2 交互规则
 
@@ -198,7 +197,7 @@ Candidate 编辑内容：
 - 修改 `violation_category`、`sample_category` 时必须命中 active label config。
 - `segmentation_targets` 允许自定义，不因未命中字典而保存失败。
 - `confidence` 修改后显示模型值与人工值差异。
-- `通过` 前必须满足：无阻断校验错误、patch 已保存或可随提交保存、vote note 符合要求、active label config 存在。
+- `提交修改` 前必须满足：无阻断校验错误、patch 已保存或可随提交保存、修改说明满足高风险修改必填规则、active label config 存在。
 
 ## 8. Patch 数据粒度
 
@@ -277,5 +276,5 @@ Candidate 编辑内容：
 - Candidate 证据关系使用可读 Relation 行编辑，不暴露裸 `relation_index`。
 - 修改 Candidate 证据后，orphan/失效引用能产生阻断或明确警告。
 - `confidence`、`verification_confidence` 可人工修改，并能区分模型值与人工值。
-- `通过`、`需修改`、`驳回`、`人工精标` 与 `vote note` 在底部裁决区统一处理。
+- 标注修改模式下，`修改说明`、`跳过样本`、`校验修改`、`保存草稿`、`提交修改` 在底部修改提交区统一处理。
 - 所有修改只生成 patch，不覆盖 `baseSample`。

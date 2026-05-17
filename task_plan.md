@@ -38,6 +38,7 @@ Analyze `urban_violation_platform_markdown/` and the dataset layout under `DATAS
 - Phase 25: STEP1/STEP2 review layout HTML preview - complete
 - Phase 26: Corrected 50/50 right rail and full-width verdict dock - complete
 - Phase 27: Relation editor text overlap fix - complete
+- Phase 28: Label edit bottom bar semantics - complete
 
 ## Phase 1 - Documentation Inventory
 
@@ -756,6 +757,34 @@ Acceptance:
 - Relation editor labels, controls, tags, and textareas no longer overlap in the `1440x1000` preview.
 - Right-side Relation content remains reachable through vertical scrolling.
 - Headless Chrome screenshot succeeds at `/tmp/qc_step_review_field_layout_relation_fix.png`.
+
+## Phase 28 - Label Edit Bottom Bar Semantics
+
+Goal:
+- Redefine the bottom dock for the case where the workbench is used by annotators to modify labels rather than by reviewers to cast a final QC verdict.
+
+Implementation:
+- Added `docs/qc_label_edit_bottom_bar_design.md`.
+- Updated `docs/qc_step_review_field_layout_design.md`.
+- Updated `docs/qc_step_review_field_layout_preview.html`.
+- Reframed `vote note` as `修改说明` / `change_note`.
+- Removed final verdict actions from the preview bottom bar:
+  - `通过`
+  - `需修改`
+  - `驳回`
+  - `人工精标`
+- Added label-edit workflow actions:
+  - `跳过样本`
+  - `校验修改`
+  - `保存草稿`
+  - `提交修改`
+- Added bottom status chips for changed-field count and validation result.
+
+Acceptance:
+- Bottom bar no longer implies final QC pass/fail authority.
+- `修改说明` is tied to patch/audit records, not vote decisions.
+- High-risk label edits can require `修改说明` before submit.
+- Headless Chrome screenshot succeeds at `/tmp/qc_label_edit_bottom_bar_preview.png`.
 
 ## Phase 4 - Acceptance Criteria
 
