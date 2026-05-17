@@ -203,3 +203,9 @@
   - Frontend subagent committed `e93f581` with manual upload panel, label config client, active-config review gate, and DOM/API tests; `npm run test` passed with 23 tests and `npm run build` passed.
   - Integration subagent committed `98a2560` and `454cc3e`; live API smoke against `http://127.0.0.1:8010` passed with 4 tests.
   - Browser E2E remained blocked: Python Playwright is missing and Chrome DevTools MCP could not connect because `DevToolsActivePort` was unavailable.
+- Resolved runtime `Not Found` on label config validation:
+  - Reproduced that port `8000` returned 404 for `POST /api/datasets/urban_violation/label-configs/validate`.
+  - Confirmed the running `8000` process was an older backend process without label-config routes.
+  - Restarted `8000` from the current backend worktree commit `a7ba76e`.
+  - Verified direct validate request returns 200 with `valid=true`, `field_count=8`, `closed_enum_count=6`, `open_tags_count=2`, `option_count=54`.
+  - Verified `BACKEND_URL=http://127.0.0.1:8000 pytest -q tests/label_config/test_label_config_api_smoke.py` passes with 4 tests.

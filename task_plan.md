@@ -650,6 +650,25 @@ Acceptance:
 - Integration API smoke passed against live backend on port 8010: 4 tests passing.
 - Browser E2E remains environment-blocked because Python Playwright is unavailable and Chrome DevTools MCP cannot connect to local Chrome.
 
+## Phase 23 - Label Config Validate Runtime 404 Fix
+
+Goal:
+- Resolve the user-reported `Not Found` popup after uploading a label config and clicking `校验配置`.
+
+Root Cause:
+- The frontend default API base points to `http://127.0.0.1:8000/api`.
+- Port `8000` was still running an older backend process from May 15.
+- That old process returned `404 {"detail":"Not Found"}` for `POST /api/datasets/urban_violation/label-configs/validate` because it did not include the uploaded label config lifecycle routes.
+
+Resolution:
+- Stopped the stale `8000` backend process.
+- Restarted `8000` from the current backend worktree commit `a7ba76e`.
+- Verified `POST /api/datasets/urban_violation/label-configs/validate` returns 200 and validates `DATASET/urban_violation/label_config.json`.
+
+Acceptance:
+- `curl` validate request against `http://127.0.0.1:8000/api/datasets/urban_violation/label-configs/validate` returns `valid=true`.
+- `BACKEND_URL=http://127.0.0.1:8000 pytest -q tests/label_config/test_label_config_api_smoke.py` passes with 4 tests.
+
 ## Phase 4 - Acceptance Criteria
 
 Tasks:
@@ -668,3 +687,4 @@ Acceptance:
 | `cat ~/.codex/skills/planning-with-files/SKILL.md` failed because the AGENTS path does not exist on this machine. | Read skill from AGENTS-specified path. | Used installed skill path `/home/hy/.agents/skills/planning-with-files/SKILL.md`. |
 | `git status --short` failed because `/mnt/lc/LC/ares_xtws/0_train_data/data_platform` is not inside a Git repository. | Final verification. | Treated as environment fact; verified planning files directly instead. |
 | `jq '.schema_version, .dataset_type, (.fields | length), [.fields[] | select(...)] | length'` failed with `Cannot index string with string "fields"`. | Initial JSON summary check for `DATASET/urban_violation/label_config.json`. | Re-ran with grouped array expression: `jq '[.schema_version, .dataset_type, (.fields | length), ([.fields[] | select(.mode=="closed_enum")] | length), ([.fields[] | select(.mode=="open_tags")] | length)]' ...`. |
+| Frontend label config `校验配置` showed `Not Found`. | Reproduced direct request to `http://127.0.0.1:8000/api/datasets/urban_violation/label-configs/validate`. | Found stale backend process on port 8000 with no label-config routes; restarted 8000 from current backend commit and reran API smoke successfully. |
