@@ -590,6 +590,27 @@ Acceptance:
 - Browser layout check confirms the image stage is 430px high and Relation/Candidate panels are each 310px high in the 1440px desktop check.
 - Updated screenshot captured at `/tmp/uvp_review_bottom_aligned_layout.png`.
 
+## Phase 20 - QC Label Field Editing Design Document
+
+Goal:
+- Define how the QC workbench edits model label fields without overwriting model baseline data.
+- Separate fixed dictionary fields from flexible open-tag fields.
+- Explicitly handle `scene_elements` and `segmentation_targets` as open controlled tags, not closed enums.
+
+Implementation:
+- Added `docs/qc_label_field_editing_design.md`.
+- Documented the `baseSample` / `reviewDraft` / `mergedSample` / `buildPatch` editing model.
+- Defined field categories: closed enum, open controlled tags, numeric confidence, free text, and quantized bbox.
+- Designed dictionary-backed validation for category/relation/result fields.
+- Designed suggestion-backed but non-blocking validation for `scene_elements` and `segmentation_targets`.
+- Added patch payload examples for closed enum replacement, open-tag add, open-tag normalization, and tag deletion.
+
+Acceptance:
+- The design clearly states that `scene_elements` and `segmentation_targets` are not fixed enumerable fields.
+- Closed enum fields have a backend dictionary contract and save-time validation rule.
+- Open tags preserve `raw_text`, `normalized_text`, optional `canonical_code`, status, and audit history.
+- The design can be used directly by frontend, backend, and integration agents for the next implementation slice.
+
 ## Phase 4 - Acceptance Criteria
 
 Tasks:

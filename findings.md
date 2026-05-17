@@ -77,6 +77,7 @@ This file records research findings from `urban_violation_platform_markdown/` an
 - Bbox rendering must treat stored bbox values as 0-1000 quantized coordinates. The preview stage uses the actual image resolution only to preserve aspect ratio; overlay placement converts quantized x/y values to percentages of the rendered image stage.
 - Bbox visual semantics: default boxes should use pure 2px non-red lines; red is reserved for the selected active box, where the line should become thicker.
 - The sample review workbench should consume the full review-focus viewport on desktop: top status bar at the top, image/relation/candidate panels filling the middle, and vote note/review actions docked to the browser bottom.
+- QC label editing should distinguish closed enum fields from open controlled tags. `violation_category`, `sample_category`, `relation`, `verification_result`, and `visibility_level` should be dictionary-backed closed fields, while `scene_elements` and `segmentation_targets` should allow custom human tags with suggestion assistance, normalization, deduplication, and audit history.
 
 ## Open Questions
 

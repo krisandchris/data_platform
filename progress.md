@@ -181,3 +181,10 @@
   - `npm run build`: passed.
   - Headless Chrome layout check confirmed action dock bottom gap `0`, vote note textarea bottom gap `0`, image stage height `430`, and Relation/Candidate panel heights `310` each.
   - Captured updated screenshot at `/tmp/uvp_review_bottom_aligned_layout.png`.
+- Created the QC label field editing design document:
+  - Added `docs/qc_label_field_editing_design.md`.
+  - Confirmed category/relation/result fields should be treated as closed enums backed by backend dictionaries.
+  - Confirmed `scene_elements` and `segmentation_targets` should be treated as open controlled tags, not fixed enumerations.
+  - Defined open-tag persistence with `raw_text`, `normalized_text`, optional `canonical_code`, source, status, and dictionary/suggestion version.
+  - Defined patch-only modification examples for closed enum replacement, open-tag add, open-tag normalization, and open-tag deletion.
+  - Added implementation order and acceptance criteria for backend, frontend, and integration verification.
