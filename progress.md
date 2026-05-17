@@ -188,3 +188,8 @@
   - Defined open-tag persistence with `raw_text`, `normalized_text`, optional `canonical_code`, source, status, and dictionary/suggestion version.
   - Defined patch-only modification examples for closed enum replacement, open-tag add, open-tag normalization, and open-tag deletion.
   - Added implementation order and acceptance criteria for backend, frontend, and integration verification.
+- Corrected the label config loading strategy after user clarification:
+  - Added `docs/qc_label_config_upload_flow.md`.
+  - Clarified that label configs should be manually uploaded from the frontend during dataset registration/settings, then validated, versioned, activated, and loaded by the QC workbench.
+  - Documented that backend-bundled `dataset_configs/{dataset_id}.json` should not be the production source of truth.
+  - Defined the required API lifecycle: validate upload, save draft, activate version, get active config, get suggestions from active config.

@@ -611,6 +611,22 @@ Acceptance:
 - Open tags preserve `raw_text`, `normalized_text`, optional `canonical_code`, status, and audit history.
 - The design can be used directly by frontend, backend, and integration agents for the next implementation slice.
 
+## Phase 21 - Frontend Uploaded Label Config Flow
+
+Goal:
+- Correct the label dictionary loading strategy so dataset label configs are uploaded manually from the frontend instead of being bundled and auto-loaded by backend code.
+
+Implementation:
+- Added `docs/qc_label_config_upload_flow.md`.
+- Defined frontend upload, local preview, backend validation, draft save, activation, active config loading, and patch version binding.
+- Clarified that `scene_elements` and `segmentation_targets` remain `open_tags` in uploaded configs.
+- Marked the previous backend package-config loading approach as a development fixture pattern, not the target product flow.
+
+Acceptance:
+- The next implementation slice can replace backend-bundled config loading with a dataset-bound uploaded config lifecycle.
+- Frontend, backend, and integration agents have clear API, state, and validation responsibilities.
+- Missing active config behavior is explicit: review data can display read-only, but label editing/submission must be blocked.
+
 ## Phase 4 - Acceptance Criteria
 
 Tasks:
