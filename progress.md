@@ -228,3 +228,8 @@
   - Moved `vote note`, review decision buttons, `保存 Patch`, and `提交质检` out of the Candidate panel into a full-width bottom dock.
   - Updated `docs/qc_step_review_field_layout_design.md` so the design contract matches the corrected layout.
   - Re-verified the corrected preview with `google-chrome --headless=new --screenshot=/tmp/qc_step_review_field_layout_preview_50_50.png`.
+- Fixed Relation review editor text overlap in the HTML preview:
+  - Changed the Relation editor from compressed grid rows to a vertical flex flow.
+  - Disabled horizontal overflow and kept vertical scrolling for long content.
+  - Added stable textarea minimum heights and wrapping for the long observation label.
+  - Verified with `google-chrome --headless=new --screenshot=/tmp/qc_step_review_field_layout_relation_fix.png`.

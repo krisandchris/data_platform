@@ -443,11 +443,13 @@
     }
 
     .relation-editor {
-      display: grid;
-      grid-template-rows: auto auto auto minmax(0, 1fr);
+      display: flex;
+      flex-direction: column;
       gap: 10px;
       min-height: 0;
-      overflow: auto;
+      overflow-x: hidden;
+      overflow-y: auto;
+      padding-right: 2px;
     }
 
     .editor-grid {
@@ -468,12 +470,22 @@
       min-width: 0;
     }
 
+    .field--observation {
+      flex: 0 0 auto;
+    }
+
+    .field--observation .mini-label {
+      line-height: 1.35;
+      white-space: normal;
+    }
+
     .field input,
     .field select,
     .field textarea,
     .vote-note textarea {
       width: 100%;
       min-width: 0;
+      min-height: 36px;
       border: 1px solid var(--line);
       border-radius: 7px;
       background: #11151b;
@@ -484,10 +496,16 @@
 
     .field textarea,
     .vote-note textarea {
+      display: block;
+      min-height: 72px;
       resize: none;
       line-height: 1.5;
       overflow-wrap: anywhere;
       word-break: break-all;
+    }
+
+    .field--observation textarea {
+      min-height: 92px;
     }
 
     .field input:focus,
@@ -852,7 +870,7 @@
                 </div>
               </div>
 
-              <label class="field">
+              <label class="field field--observation">
                 <span class="mini-label">bbox_observation / global_context_observation</span>
                 <textarea id="observation-field" rows="3">Bbox准确框选了左侧树下被车罩覆盖的车辆主体，包含车轮和车罩部分。车辆停放在人行道边缘，紧邻树木，占据了部分人行通道。</textarea>
               </label>

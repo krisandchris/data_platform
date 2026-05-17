@@ -37,6 +37,7 @@ Analyze `urban_violation_platform_markdown/` and the dataset layout under `DATAS
 - Phase 24: STEP1/STEP2 review field and two-zone layout design - complete
 - Phase 25: STEP1/STEP2 review layout HTML preview - complete
 - Phase 26: Corrected 50/50 right rail and full-width verdict dock - complete
+- Phase 27: Relation editor text overlap fix - complete
 
 ## Phase 1 - Documentation Inventory
 
@@ -739,6 +740,22 @@ Acceptance:
 - Relation and Candidate panel content can scroll independently.
 - Vote note and review actions are no longer inside the Candidate panel.
 - Bottom dock spans both the image area and right rail.
+
+## Phase 27 - Relation Editor Text Overlap Fix
+
+Goal:
+- Fix the text layout overlap in the right side of `Relation 复核区` in the HTML preview.
+
+Implementation:
+- Updated `docs/qc_step_review_field_layout_preview.html`.
+- Replaced the Relation editor's compressed grid row layout with a vertical flex flow.
+- Kept the Relation editor independently scrollable with horizontal overflow disabled.
+- Added stable textarea heights and a dedicated wrapping rule for the long `bbox_observation / global_context_observation` label.
+
+Acceptance:
+- Relation editor labels, controls, tags, and textareas no longer overlap in the `1440x1000` preview.
+- Right-side Relation content remains reachable through vertical scrolling.
+- Headless Chrome screenshot succeeds at `/tmp/qc_step_review_field_layout_relation_fix.png`.
 
 ## Phase 4 - Acceptance Criteria
 
