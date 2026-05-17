@@ -198,3 +198,8 @@
   - Verified the config parses as `label_config_v1`, dataset type `urban_violation`, with 8 fields: 6 closed enum fields and 2 open tag fields.
   - Added `docs/subagent_label_config_upload_tasks.md` with backend, frontend, and integration task briefs.
   - Recorded API lifecycle and acceptance criteria for all three implementation agents.
+- Completed subagent execution tracking for uploaded label config workflow:
+  - Backend subagent committed `a7ba76e` with uploaded config validate/save/activate/active/suggestions APIs; `uv run pytest` passed with 20 tests.
+  - Frontend subagent committed `e93f581` with manual upload panel, label config client, active-config review gate, and DOM/API tests; `npm run test` passed with 23 tests and `npm run build` passed.
+  - Integration subagent committed `98a2560` and `454cc3e`; live API smoke against `http://127.0.0.1:8010` passed with 4 tests.
+  - Browser E2E remained blocked: Python Playwright is missing and Chrome DevTools MCP could not connect because `DevToolsActivePort` was unavailable.

@@ -637,11 +637,18 @@ Implementation:
 - Added `DATASET/urban_violation/label_config.json` as the current dataset test config file. This file is under ignored dataset data and is not committed.
 - Added `docs/subagent_label_config_upload_tasks.md` with per-agent write scopes, API contracts, execution tasks, and acceptance criteria.
 - Assigned backend, frontend, and integration implementation tasks to separate subagents.
+- Backend subagent completed commit `a7ba76e`: uploaded label config lifecycle with validate/save/activate/active/suggestions APIs.
+- Frontend subagent completed commit `e93f581`: manual upload panel, API client, active-config review gate, and related tests.
+- Integration subagent completed commits `98a2560` and `454cc3e`: label config API/browser test skeletons plus live API smoke report.
 
 Acceptance:
 - Backend subagent has a clear brief to replace backend-bundled config loading with uploaded config validation/save/activation.
 - Frontend subagent has a clear brief to add manual upload, preview, activation, and active-config-driven review controls.
 - Integration subagent has a clear brief to validate the full upload/activate/review workflow using `DATASET/urban_violation/label_config.json`.
+- Backend validation passed: `uv run pytest` reported 20 tests passing.
+- Frontend validation passed: `npm run test` reported 23 tests passing and `npm run build` passed.
+- Integration API smoke passed against live backend on port 8010: 4 tests passing.
+- Browser E2E remains environment-blocked because Python Playwright is unavailable and Chrome DevTools MCP cannot connect to local Chrome.
 
 ## Phase 4 - Acceptance Criteria
 

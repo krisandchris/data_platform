@@ -80,6 +80,7 @@ This file records research findings from `urban_violation_platform_markdown/` an
 - QC label editing should distinguish closed enum fields from open controlled tags. `violation_category`, `sample_category`, `relation`, `verification_result`, and `visibility_level` should be dictionary-backed closed fields, while `scene_elements` and `segmentation_targets` should allow custom human tags with suggestion assistance, normalization, deduplication, and audit history.
 - Dataset label configuration should be uploaded and activated through the frontend dataset workflow. Backend package-level config files are acceptable only as fixtures/examples; the product source of truth is the dataset-bound uploaded config version.
 - The test upload config for the current dataset lives at `DATASET/urban_violation/label_config.json`; it has 8 fields, with 6 `closed_enum` fields and 2 `open_tags` fields.
+- Live integration confirmed the backend upload lifecycle API with the current dataset config: validate, save, activate, active config read, suggestions, and three negative validation cases passed. Browser E2E still needs a working Playwright or Chrome DevTools environment.
 
 ## Open Questions
 
