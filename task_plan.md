@@ -35,6 +35,7 @@ Analyze `urban_violation_platform_markdown/` and the dataset layout under `DATAS
 - Phase 22: Label config upload subagent execution - complete
 - Phase 23: Label config validate runtime 404 fix - complete
 - Phase 24: STEP1/STEP2 review field and two-zone layout design - complete
+- Phase 25: STEP1/STEP2 review layout HTML preview - complete
 
 ## Phase 1 - Documentation Inventory
 
@@ -699,6 +700,25 @@ Acceptance:
 - `bbox` editing remains image-stage only and preserves 0-1000 quantized coordinates.
 - The next frontend implementation slice has clear target controls and acceptance criteria.
 
+## Phase 25 - STEP1/STEP2 Review Layout HTML Preview
+
+Goal:
+- Produce a standalone HTML preview aligned to `docs/qc_step_review_field_layout_design.md` and the current frontend review-workbench visual language.
+
+Implementation:
+- Added `docs/qc_step_review_field_layout_preview.html`.
+- Used real sample `000142_0_1762483003246` and its source image from `DATASET/urban_violation/images`.
+- Rendered the target workbench as:
+  - Left image evidence area with 0-1000 projected bbox overlays.
+  - Upper-right `Relation 复核区` with relation list plus active relation/verification editor.
+  - Lower-right `Candidate 与质检裁决` with candidate fields, evidence relation check rows, vote note, and review actions.
+- Added lightweight click interaction so clicking a bbox or Relation row updates the active Relation editor.
+
+Acceptance:
+- The file opens directly as static HTML.
+- Headless Chrome screenshot succeeds at `1440x1000`.
+- The preview uses the current frontend dark workbench styling, border radius, panel structure, bbox color rule, and bottom decision action pattern.
+
 ## Phase 4 - Acceptance Criteria
 
 Tasks:
@@ -719,3 +739,4 @@ Acceptance:
 | `jq '.schema_version, .dataset_type, (.fields | length), [.fields[] | select(...)] | length'` failed with `Cannot index string with string "fields"`. | Initial JSON summary check for `DATASET/urban_violation/label_config.json`. | Re-ran with grouped array expression: `jq '[.schema_version, .dataset_type, (.fields | length), ([.fields[] | select(.mode=="closed_enum")] | length), ([.fields[] | select(.mode=="open_tags")] | length)]' ...`. |
 | Frontend label config `校验配置` showed `Not Found`. | Reproduced direct request to `http://127.0.0.1:8000/api/datasets/urban_violation/label-configs/validate`. | Found stale backend process on port 8000 with no label-config routes; restarted 8000 from current backend commit and reran API smoke successfully. |
 | `jq '.field_definitions | ...' DATASET/urban_violation/label_config.json` failed with `Cannot iterate over null`. | Checked uploaded label config shape. | Re-ran against the actual `.fields[]` structure and confirmed 8 configured fields. |
+| Chrome DevTools MCP could not connect: `Could not find DevToolsActivePort`. | Tried to open the static preview through MCP. | Used `google-chrome --headless=new --user-data-dir=/tmp/uvp-preview-chrome --screenshot=... file://...` as the browser verification path. |

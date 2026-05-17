@@ -1,0 +1,1012 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>STEP1/STEP2 质检复核布局预览</title>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --shell: #11151b;
+      --surface: #171b22;
+      --surface-2: #1f2630;
+      --surface-3: #262e3a;
+      --line: #343d4c;
+      --line-strong: #4a5568;
+      --text: #edf2f7;
+      --muted: #a0aec0;
+      --subtle: #718096;
+      --blue: #4f8cff;
+      --green: #48bb78;
+      --amber: #d69e2e;
+      --red: #f56565;
+      --purple: #9f7aea;
+      --radius: 8px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif;
+      letter-spacing: 0;
+    }
+
+    body {
+      min-height: 100vh;
+    }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    .sample-detail-workbench {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      height: 100vh;
+      min-width: 1180px;
+      overflow: hidden;
+      background: var(--shell);
+      padding: 10px;
+      gap: 10px;
+    }
+
+    .qc-topbar {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 14px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      padding: 10px 12px;
+    }
+
+    .sample-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 18px;
+      align-items: center;
+      min-width: 0;
+    }
+
+    .meta-block {
+      display: grid;
+      gap: 3px;
+      min-width: 118px;
+    }
+
+    .meta-block span,
+    .field-label,
+    .mini-label {
+      color: var(--subtle);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .meta-block strong {
+      overflow: hidden;
+      color: var(--text);
+      font-size: 14px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .progress-meter,
+    .confidence-track {
+      width: 130px;
+      height: 7px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #0d1015;
+    }
+
+    .progress-meter i,
+    .confidence-track i {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--blue);
+    }
+
+    .chip-row,
+    .layer-toggles,
+    .top-actions,
+    .candidate-tabs,
+    .tag-row,
+    .decision-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      align-items: center;
+    }
+
+    .pill,
+    .status-token,
+    .layer-toggle,
+    .toolbar-button,
+    .candidate-tab,
+    .tag,
+    .decision-button,
+    .save-button,
+    .submit-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 28px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface-2);
+      color: var(--muted);
+      padding: 4px 9px;
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .toolbar-button {
+      border-radius: 7px;
+      color: var(--text);
+    }
+
+    .toolbar-button.primary,
+    .submit-button {
+      border-color: var(--blue);
+      background: var(--blue);
+      color: #fff;
+    }
+
+    .pill.green,
+    .status-token.green {
+      border-color: rgba(72, 187, 120, 0.46);
+      background: rgba(72, 187, 120, 0.12);
+      color: #c6f6d5;
+    }
+
+    .pill.amber,
+    .status-token.amber {
+      border-color: rgba(214, 158, 46, 0.46);
+      background: rgba(214, 158, 46, 0.12);
+      color: #faf089;
+    }
+
+    .pill.blue,
+    .status-token.blue {
+      border-color: rgba(79, 140, 255, 0.46);
+      background: rgba(79, 140, 255, 0.12);
+      color: #bfdbfe;
+    }
+
+    .pill.red,
+    .status-token.red {
+      border-color: rgba(245, 101, 101, 0.5);
+      background: rgba(245, 101, 101, 0.1);
+      color: #fed7d7;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--blue);
+    }
+
+    .dot.green {
+      background: var(--green);
+    }
+
+    .dot.amber {
+      background: var(--amber);
+    }
+
+    .dot.purple {
+      background: var(--purple);
+    }
+
+    .dot.red {
+      background: var(--red);
+    }
+
+    .review-grid {
+      display: grid;
+      grid-template-columns: minmax(560px, 1fr) minmax(640px, 0.85fr);
+      gap: 10px;
+      min-height: 0;
+    }
+
+    .review-side-stack {
+      display: grid;
+      grid-template-rows: minmax(0, 1.6fr) minmax(0, 1fr);
+      gap: 10px;
+      min-height: 0;
+    }
+
+    .work-panel {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      border-bottom: 1px solid var(--line);
+      padding: 10px 12px;
+    }
+
+    .panel-head strong {
+      color: #f7fafc;
+      font-size: 14px;
+    }
+
+    .panel-body {
+      min-height: 0;
+      overflow: auto;
+      padding: 11px;
+    }
+
+    .evidence-body {
+      display: grid;
+      grid-template-rows: auto minmax(440px, 1fr) auto;
+      gap: 10px;
+    }
+
+    .layer-toggle {
+      border-radius: 7px;
+      color: var(--text);
+    }
+
+    .image-stage {
+      display: grid;
+      place-items: center;
+      min-height: 0;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #0d1015;
+      padding: 12px;
+    }
+
+    .image-frame {
+      position: relative;
+      width: 100%;
+      max-height: 100%;
+      aspect-ratio: 16 / 9;
+      overflow: hidden;
+      border-radius: 6px;
+      background: #05070a;
+    }
+
+    .image-frame img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: fill;
+    }
+
+    .bbox {
+      position: absolute;
+      border: 2px solid currentColor;
+      background: transparent;
+      color: var(--blue);
+    }
+
+    .bbox.green {
+      color: var(--green);
+    }
+
+    .bbox.amber {
+      color: var(--amber);
+    }
+
+    .bbox.purple {
+      color: var(--purple);
+    }
+
+    .bbox.active {
+      z-index: 3;
+      border-width: 4px;
+      color: var(--red);
+    }
+
+    .bbox::after {
+      content: "";
+      position: absolute;
+      right: -5px;
+      bottom: -5px;
+      width: 9px;
+      height: 9px;
+      border: 2px solid currentColor;
+      background: #0d1015;
+    }
+
+    .scene-strip {
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) minmax(260px, 0.9fr);
+      gap: 10px;
+      min-height: 0;
+    }
+
+    .fact-block {
+      display: grid;
+      gap: 7px;
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface-2);
+      padding: 10px;
+    }
+
+    .fact-block p {
+      margin: 0;
+      color: #dbe3ef;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .tag {
+      border-color: rgba(79, 140, 255, 0.46);
+      background: rgba(79, 140, 255, 0.12);
+      color: #bfdbfe;
+      padding: 3px 8px;
+    }
+
+    .tag.green {
+      border-color: rgba(72, 187, 120, 0.45);
+      background: rgba(72, 187, 120, 0.12);
+      color: #c6f6d5;
+    }
+
+    .relation-body {
+      display: grid;
+      grid-template-columns: minmax(200px, 0.58fr) minmax(360px, 1fr);
+      gap: 10px;
+      min-height: 0;
+    }
+
+    .relation-list {
+      display: grid;
+      align-content: start;
+      gap: 8px;
+      min-height: 0;
+      overflow: auto;
+    }
+
+    .relation-row {
+      display: grid;
+      gap: 6px;
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface-2);
+      color: var(--text);
+      padding: 9px;
+      text-align: left;
+    }
+
+    .relation-row.active {
+      border-color: rgba(79, 140, 255, 0.8);
+      box-shadow: 0 0 0 1px rgba(79, 140, 255, 0.35);
+    }
+
+    .relation-row.warning {
+      border-color: rgba(214, 158, 46, 0.58);
+    }
+
+    .relation-row strong {
+      overflow: hidden;
+      font-size: 13px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .relation-row p {
+      margin: 0;
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .row-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .relation-editor {
+      display: grid;
+      grid-template-rows: auto auto auto minmax(0, 1fr);
+      gap: 10px;
+      min-height: 0;
+      overflow: auto;
+    }
+
+    .editor-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .verification-grid {
+      display: grid;
+      grid-template-columns: 1fr 1.15fr 1.15fr 0.85fr;
+      gap: 8px;
+    }
+
+    .field {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    .field input,
+    .field select,
+    .field textarea,
+    .vote-note textarea {
+      width: 100%;
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #11151b;
+      color: var(--text);
+      padding: 8px;
+      outline: none;
+    }
+
+    .field textarea,
+    .vote-note textarea {
+      resize: none;
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+      word-break: break-all;
+    }
+
+    .field input:focus,
+    .field select:focus,
+    .field textarea:focus,
+    .vote-note textarea:focus {
+      border-color: var(--blue);
+    }
+
+    .switch-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .switch {
+      display: inline-flex;
+      gap: 7px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .switch input,
+    .evidence-check input {
+      accent-color: var(--green);
+    }
+
+    .candidate-body {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      gap: 10px;
+      min-height: 0;
+    }
+
+    .candidate-tab {
+      border-radius: 7px;
+    }
+
+    .candidate-tab.active {
+      border-color: rgba(79, 140, 255, 0.8);
+      background: rgba(79, 140, 255, 0.16);
+      color: #dbeafe;
+    }
+
+    .candidate-editor {
+      display: grid;
+      grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+      gap: 10px;
+      min-height: 0;
+      overflow: auto;
+    }
+
+    .candidate-form {
+      display: grid;
+      align-content: start;
+      gap: 9px;
+      min-width: 0;
+    }
+
+    .candidate-form .field-row {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .evidence-table {
+      display: grid;
+      align-content: start;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .evidence-check {
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: start;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--surface-2);
+      padding: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .evidence-check strong {
+      display: block;
+      margin-bottom: 3px;
+      color: var(--text);
+      font-size: 12px;
+    }
+
+    .candidate-footer {
+      display: grid;
+      grid-template-columns: minmax(250px, 1fr) auto;
+      gap: 10px;
+      align-items: end;
+      border-top: 1px solid var(--line);
+      padding-top: 10px;
+    }
+
+    .vote-note {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    .vote-note textarea {
+      min-height: 54px;
+    }
+
+    .decision-actions {
+      justify-content: flex-end;
+    }
+
+    .decision-button,
+    .save-button,
+    .submit-button {
+      min-height: 38px;
+      border-radius: 7px;
+      padding: 0 11px;
+    }
+
+    .decision-button.approve {
+      color: #69db7c;
+    }
+
+    .decision-button.reject {
+      color: #ff8787;
+    }
+
+    .decision-button.manual {
+      color: #ffd43b;
+    }
+
+    .decision-button.selected {
+      border-color: currentColor;
+      background: var(--surface-3);
+    }
+
+    .save-button {
+      border-color: rgba(79, 140, 255, 0.58);
+      background: rgba(79, 140, 255, 0.12);
+      color: #dbeafe;
+    }
+
+    @media (max-width: 1320px) {
+      .sample-detail-workbench {
+        height: auto;
+        min-width: 0;
+        overflow: auto;
+      }
+
+      .qc-topbar,
+      .review-grid,
+      .scene-strip,
+      .candidate-editor,
+      .candidate-footer {
+        grid-template-columns: 1fr;
+      }
+
+      .review-side-stack {
+        grid-template-rows: auto auto;
+      }
+
+      .work-panel {
+        min-height: 520px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="sample-detail-workbench">
+    <header class="qc-topbar">
+      <div class="sample-meta">
+        <div class="meta-block">
+          <span>Sample</span>
+          <strong>000142_0_1762483003246</strong>
+        </div>
+        <div class="meta-block">
+          <span>Progress</span>
+          <strong>42 / 128</strong>
+          <div class="progress-meter"><i style="width: 33%"></i></div>
+        </div>
+        <div class="meta-block">
+          <span>Stage Judge</span>
+          <div class="chip-row">
+            <span class="pill green">Stage1 pass</span>
+            <span class="pill amber">Stage2 soft_fail</span>
+          </div>
+        </div>
+        <div class="meta-block">
+          <span>Draft State</span>
+          <strong>3 dirty fields</strong>
+        </div>
+        <div class="meta-block">
+          <span>Active Config</span>
+          <strong>urban_violation_labels_v1</strong>
+        </div>
+      </div>
+
+      <div class="top-actions">
+        <button class="toolbar-button" type="button">Prev</button>
+        <button class="toolbar-button" type="button">Next</button>
+        <button class="toolbar-button" type="button">List</button>
+      </div>
+    </header>
+
+    <div class="review-grid">
+      <section class="work-panel evidence-panel">
+        <div class="panel-head">
+          <strong>图像证据区</strong>
+          <span class="pill blue">0-1000 bbox</span>
+        </div>
+        <div class="panel-body evidence-body">
+          <div class="layer-toggles">
+            <button class="layer-toggle" type="button"><span class="dot"></span>STEP1</button>
+            <button class="layer-toggle" type="button"><span class="dot green"></span>STEP2</button>
+            <button class="layer-toggle" type="button"><span class="dot purple"></span>Candidate</button>
+          </div>
+
+          <div class="image-stage">
+            <div class="image-frame">
+              <img src="../DATASET/urban_violation/images/000142_0_1762483003246.jpg" alt="000142_0_1762483003246" />
+              <button class="bbox active" data-relation="R1" style="left: 16.3%; top: 36.2%; width: 17.3%; height: 27%;" aria-label="R1"></button>
+              <button class="bbox green" data-relation="R2" style="left: 16.3%; top: 36.2%; width: 17.3%; height: 27%;" aria-label="R2"></button>
+              <button class="bbox amber" data-relation="R3" style="left: 42.3%; top: 49.2%; width: 2.9%; height: 5.3%;" aria-label="R3"></button>
+            </div>
+          </div>
+
+          <div class="scene-strip">
+            <div class="fact-block">
+              <span class="field-label">environment_analysis</span>
+              <p>画面展示了一条林荫人行道，左侧有一辆被遮盖的车辆停放在树旁，占据部分人行道空间。右侧为石砌墙面。</p>
+            </div>
+            <div class="fact-block">
+              <span class="field-label">scene_elements / key_anchors</span>
+              <div class="tag-row">
+                <span class="tag">被遮盖的车辆</span>
+                <span class="tag">人行道</span>
+                <span class="tag">盲道</span>
+                <span class="tag green">pedestrian_walkway</span>
+                <span class="tag green">tactile_paving</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="review-side-stack">
+        <section class="work-panel relation-panel">
+          <div class="panel-head">
+            <strong>Relation 复核区</strong>
+            <span class="pill blue">3 relations</span>
+          </div>
+          <div class="panel-body relation-body">
+            <div class="relation-list">
+              <button class="relation-row active" type="button" data-relation="R1">
+                <strong>R1 · 被遮盖的车辆 占据 人行道</strong>
+                <p>supported · bbox edited · 被 Candidate 引用</p>
+                <span class="row-meta">
+                  <span class="status-token green">supported</span>
+                  <span class="status-token blue">bbox edited</span>
+                </span>
+              </button>
+              <button class="relation-row" type="button" data-relation="R2">
+                <strong>R2 · 被遮盖的车辆 靠近 盲道</strong>
+                <p>supported · 证据关系候选 · 与 R1 共框</p>
+                <span class="row-meta">
+                  <span class="status-token green">supported</span>
+                  <span class="status-token amber">shared bbox</span>
+                </span>
+              </button>
+              <button class="relation-row warning" type="button" data-relation="R3">
+                <strong>R3 · 远处被遮盖物体 靠近 人行道</strong>
+                <p>weakly_supported · tiny · 建议复核证据权重</p>
+                <span class="row-meta">
+                  <span class="status-token amber">weakly_supported</span>
+                  <span class="status-token amber">tiny</span>
+                </span>
+              </button>
+            </div>
+
+            <div class="relation-editor">
+              <div class="editor-grid">
+                <label class="field">
+                  <span class="mini-label">subject</span>
+                  <input id="subject-field" value="被遮盖的车辆" />
+                </label>
+                <label class="field">
+                  <span class="mini-label">relation</span>
+                  <select id="relation-field">
+                    <option selected>占据</option>
+                    <option>靠近</option>
+                    <option>沿边缘排列</option>
+                    <option>未阻挡中央通道</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span class="mini-label">object</span>
+                  <input id="object-field" value="人行道" />
+                </label>
+              </div>
+
+              <label class="field">
+                <span class="mini-label">description</span>
+                <textarea id="description-field" rows="2">画面左侧有一辆被遮盖的车辆，停放在人行道边缘区域。</textarea>
+              </label>
+
+              <div class="verification-grid">
+                <label class="field">
+                  <span class="mini-label">visibility</span>
+                  <select id="visibility-field">
+                    <option selected>clear</option>
+                    <option>partial</option>
+                    <option>tiny</option>
+                    <option>occluded</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span class="mini-label">loss type</span>
+                  <select id="loss-field">
+                    <option>none</option>
+                    <option selected>occlusion</option>
+                    <option>boundary_truncation</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span class="mini-label">result</span>
+                  <select id="result-field">
+                    <option selected>supported</option>
+                    <option>weakly_supported</option>
+                    <option>unsupported</option>
+                    <option>unclear</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span class="mini-label">confidence</span>
+                  <input id="verification-confidence-field" value="0.90" />
+                </label>
+              </div>
+
+              <div class="fact-block">
+                <div class="switch-row">
+                  <label class="switch"><input type="checkbox" checked /> subject_visible</label>
+                  <label class="switch"><input type="checkbox" checked /> subject_match</label>
+                  <span class="pill blue">bbox 通过图像区修改</span>
+                </div>
+                <div class="tag-row">
+                  <span class="tag">wheel</span>
+                  <span class="tag">cover</span>
+                  <span class="tag">body_outline</span>
+                  <span class="tag green">+ 添加属性</span>
+                </div>
+              </div>
+
+              <label class="field">
+                <span class="mini-label">bbox_observation / global_context_observation</span>
+                <textarea id="observation-field" rows="3">Bbox准确框选了左侧树下被车罩覆盖的车辆主体，包含车轮和车罩部分。车辆停放在人行道边缘，紧邻树木，占据了部分人行通道。</textarea>
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <section class="work-panel candidate-panel">
+          <div class="panel-head">
+            <strong>Candidate 与质检裁决</strong>
+            <span class="pill amber">needs changes</span>
+          </div>
+          <div class="panel-body candidate-body">
+            <div class="candidate-tabs">
+              <button class="candidate-tab active" type="button">C1 · no violation · 0.90</button>
+              <button class="candidate-tab" type="button">+ 人工补判</button>
+              <span class="pill green">active config ready</span>
+            </div>
+
+            <div class="candidate-editor">
+              <div class="candidate-form">
+                <div class="field-row">
+                  <label class="field">
+                    <span class="mini-label">violation_category</span>
+                    <select>
+                      <option selected>no violation</option>
+                      <option>nonmotor_vehicle_illegal_parking</option>
+                      <option>goods_blocking_road</option>
+                      <option>road_occupying_vendor</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span class="mini-label">sample_category</span>
+                    <select>
+                      <option selected>positive samples</option>
+                      <option>negative samples</option>
+                      <option>hard boundary samples</option>
+                    </select>
+                  </label>
+                </div>
+
+                <label class="field">
+                  <span class="mini-label">confidence human override</span>
+                  <input value="0.86" />
+                  <div class="confidence-track"><i style="width: 86%"></i></div>
+                </label>
+
+                <label class="field">
+                  <span class="mini-label">segmentation_targets</span>
+                  <div class="tag-row">
+                    <span class="tag">被遮盖的车辆</span>
+                    <span class="tag green">+ 自定义目标</span>
+                  </div>
+                </label>
+
+                <label class="field">
+                  <span class="mini-label">evidence_reasoning</span>
+                  <textarea rows="4">画面左侧存在一辆被遮盖的非机动车，停放在人行道上并紧邻盲道。R2 证据需要保留但降低权重，最终结论建议转为需人工精标。</textarea>
+                </label>
+              </div>
+
+              <div class="evidence-table">
+                <span class="field-label">Evidence Relations</span>
+                <label class="evidence-check">
+                  <input type="checkbox" checked />
+                  <span><strong>R1 · 被遮盖的车辆 占据 人行道</strong>主证据，bbox 已人工微调。</span>
+                  <span class="status-token green">primary</span>
+                </label>
+                <label class="evidence-check">
+                  <input type="checkbox" checked />
+                  <span><strong>R2 · 被遮盖的车辆 靠近 盲道</strong>辅助证据，与 R1 共用主体框。</span>
+                  <span class="status-token blue">linked</span>
+                </label>
+                <label class="evidence-check">
+                  <input type="checkbox" />
+                  <span><strong>R3 · 远处被遮盖物体 靠近 人行道</strong>目标过小，不建议作为候选证据。</span>
+                  <span class="status-token amber">weak</span>
+                </label>
+                <label class="field">
+                  <span class="mini-label">relation_hint</span>
+                  <input value="被遮盖的车辆 occupying pedestrian_walkway" />
+                </label>
+              </div>
+            </div>
+
+            <div class="candidate-footer">
+              <label class="vote-note">
+                <span class="mini-label">vote note</span>
+                <textarea>R1 bbox 已修正；R2 保留为辅助证据；当前结论需要进入人工精标。</textarea>
+              </label>
+              <div class="decision-actions">
+                <button class="decision-button approve" type="button">通过</button>
+                <button class="decision-button selected" type="button">需修改</button>
+                <button class="decision-button reject" type="button">驳回</button>
+                <button class="decision-button manual" type="button">人工精标</button>
+                <button class="save-button" type="button">保存 Patch</button>
+                <button class="submit-button" type="button">提交质检</button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </main>
+
+  <script>
+    const relationData = {
+      R1: {
+        subject: "被遮盖的车辆",
+        relation: "占据",
+        object: "人行道",
+        description: "画面左侧有一辆被遮盖的车辆，停放在人行道边缘区域。",
+        visibility: "clear",
+        loss: "occlusion",
+        result: "supported",
+        confidence: "0.90",
+        observation: "Bbox准确框选了左侧树下被车罩覆盖的车辆主体，包含车轮和车罩部分。车辆停放在人行道边缘，紧邻树木，占据了部分人行通道。"
+      },
+      R2: {
+        subject: "被遮盖的车辆",
+        relation: "靠近",
+        object: "盲道",
+        description: "画面左侧的被遮盖车辆靠近盲道区域。",
+        visibility: "clear",
+        loss: "occlusion",
+        result: "supported",
+        confidence: "0.90",
+        observation: "Bbox准确框选了左侧车辆。车辆停放位置紧邻画面左下角的盲道区域，存在阻碍盲道通行的风险。"
+      },
+      R3: {
+        subject: "远处被遮盖物体",
+        relation: "靠近",
+        object: "人行道",
+        description: "画面中部远处有一被遮盖物体，位于人行道旁。",
+        visibility: "tiny",
+        loss: "none",
+        result: "weakly_supported",
+        confidence: "0.60",
+        observation: "Bbox框选了远处人行道旁的一个小物体，因距离过远显得非常小。远处确实存在另一个被遮盖的物体，但无法确认为车辆或货物。"
+      }
+    };
+
+    function setActiveRelation(id) {
+      document.querySelectorAll("[data-relation]").forEach((node) => {
+        node.classList.toggle("active", node.dataset.relation === id);
+      });
+      const data = relationData[id];
+      if (!data) return;
+      document.getElementById("subject-field").value = data.subject;
+      document.getElementById("relation-field").value = data.relation;
+      document.getElementById("object-field").value = data.object;
+      document.getElementById("description-field").value = data.description;
+      document.getElementById("visibility-field").value = data.visibility;
+      document.getElementById("loss-field").value = data.loss;
+      document.getElementById("result-field").value = data.result;
+      document.getElementById("verification-confidence-field").value = data.confidence;
+      document.getElementById("observation-field").value = data.observation;
+    }
+
+    document.querySelectorAll("[data-relation]").forEach((node) => {
+      node.addEventListener("click", () => setActiveRelation(node.dataset.relation));
+    });
+  </script>
+</body>
+</html>

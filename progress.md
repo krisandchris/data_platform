@@ -216,3 +216,9 @@
   - Documented STEP2 editable targets: `fact_verifications[]`, `candidates[]`, and the special handling for failure diagnostics.
   - Defined the target right-side layout as two regions: `Relation 复核区` and `Candidate 与质检裁决`.
   - Recorded current implementation gaps: contextual Relation/Candidate editors, editable evidence relation selection, confidence override, detailed verification fields, and stage2 failure manual Candidate creation.
+- Created the STEP1/STEP2 two-zone HTML preview:
+  - Added `docs/qc_step_review_field_layout_preview.html`.
+  - Matched the current frontend review-workbench dark panel styling, bbox rules, top status bar, and bottom decision controls.
+  - Used real dataset sample `000142_0_1762483003246` and rendered R1/R2/R3 bbox overlays from 0-1000 coordinates.
+  - Added lightweight preview interaction: clicking a bbox or Relation row updates the active Relation editor fields.
+  - Chrome DevTools MCP was unavailable due to `DevToolsActivePort`; verified the preview with `google-chrome --headless=new --screenshot=/tmp/qc_step_review_field_layout_preview.png`.

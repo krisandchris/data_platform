@@ -88,6 +88,8 @@ This file records research findings from `urban_violation_platform_markdown/` an
 - STEP2 `candidates[]` should be edited in the Candidate/verdict area; `evidence_relation_indices` should render as readable Relation rows and save through stable relation references rather than naked numeric indices.
 - STEP2 failure records (`error_type`, `message`) are readonly diagnostics, but the review UI should allow a human-created Candidate patch when model stage2 produced no candidate.
 - The right review rail should be treated as two operational regions: upper `Relation 复核区` for relation/verification editing and lower `Candidate 与质检裁决` for candidate evidence, category, confidence, note, and decision.
+- The two-zone review design preview now lives at `docs/qc_step_review_field_layout_preview.html`; it uses real sample `000142_0_1762483003246`, the current dark review-workbench style, image-stage bbox overlays, Relation editor, Candidate evidence rows, and bottom decision actions.
+- Browser verification for the preview used `google-chrome --headless=new` because Chrome DevTools MCP could not connect to the local Chrome profile.
 
 ## Open Questions
 
