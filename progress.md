@@ -258,3 +258,8 @@
   - Changed the preview status chip from `校验通过` to `字段合法`.
   - Excluded Relation truth judgment, Candidate evidence sufficiency, cross-field business consistency, QC verdict, saving, patch submission, and queue-state changes from this button.
   - Verified with `google-chrome --headless=new --screenshot=/tmp/qc_field_legality_validate_action.png`.
+- Started frontend/backend implementation delegation:
+  - Backend worktree target: `/mnt/lc/LC/ares_xtws/0_train_data/data_platform_backend_agent`.
+  - Frontend worktree target: `/mnt/lc/LC/ares_xtws/0_train_data/data_platform_frontend_agent`.
+  - Shared source-of-truth docs are the current main-worktree bottom bar design, STEP1/STEP2 layout design, and HTML preview.
+  - Fixed shared API contract for this implementation round: `POST /label-edits/validate` for field legality only, and `POST /label-edits` for `save_draft` / `submit_changes`.

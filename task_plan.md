@@ -42,6 +42,7 @@ Analyze `urban_violation_platform_markdown/` and the dataset layout under `DATAS
 - Phase 29: Relation index-only left rail - complete
 - Phase 30: Relation reference fields and Candidate index rail - complete
 - Phase 31: Field-only validate action semantics - complete
+- Phase 32: Frontend/backend implementation delegation - in progress
 
 ## Phase 1 - Documentation Inventory
 
@@ -841,6 +842,43 @@ Acceptance:
 - `校验修改` does not imply quality judgment or business validation.
 - The preview bottom status reflects field legality rather than QC pass/fail.
 - `提交修改` still requires field legality validation before saving/submitting the patch.
+
+## Phase 32 - Frontend/Backend Implementation Delegation
+
+Goal:
+- Assign backend and frontend implementation agents to turn the current review-workbench design documents into working code.
+
+Backend implementation contract:
+- Worktree: `/mnt/lc/LC/ares_xtws/0_train_data/data_platform_backend_agent`.
+- Source docs:
+  - `/mnt/lc/LC/ares_xtws/0_train_data/data_platform/docs/qc_label_edit_bottom_bar_design.md`
+  - `/mnt/lc/LC/ares_xtws/0_train_data/data_platform/docs/qc_step_review_field_layout_design.md`
+  - `/mnt/lc/LC/ares_xtws/0_train_data/data_platform/docs/qc_step_review_field_layout_preview.html`
+- Add label-edit APIs around the fixture runtime:
+  - `POST /api/datasets/{dataset_id}/samples/{sample_id}/label-edits/validate`
+  - `POST /api/datasets/{dataset_id}/samples/{sample_id}/label-edits`
+- `validate` must only check field legality: type, requiredness, closed enum membership, open tag format, confidence range, bbox 0-1000 legality, text constraints.
+- `validate` must not judge Relation truth, Candidate evidence sufficiency, business consistency, QC verdict, saving, submission, or queue state.
+- `label-edits` must support `submit_action=save_draft` and `submit_action=submit_changes`, persist in the in-memory fixture service, expose latest draft/submitted state in review detail, and preserve existing review-decision endpoint compatibility.
+
+Frontend implementation contract:
+- Worktree: `/mnt/lc/LC/ares_xtws/0_train_data/data_platform_frontend_agent`.
+- Source docs are the same three main-worktree docs above.
+- Rebuild the live review workbench to match the preview:
+  - review-focused shell only
+  - left image evidence area with direct bbox editing on the rendered image stage
+  - right stack split 50/50 between `Relation 复核区` and `Candidate 与质检裁决`
+  - Relation left rail shows only `R1/R2/R3`
+  - Candidate left rail shows only `C1/C2/+`
+  - `subject_visible` / `subject_match` / `key_attributes_visible` are read-only model visibility reference below observations
+  - bottom bar buttons: `跳过样本`, `校验修改`, `保存草稿`, `提交修改`
+  - `校验修改` calls field-legality validation only and does not save or submit
+- Frontend must keep `baseSample` readonly, write user edits into `reviewDraft`, render merged state, and submit patch-only payloads.
+
+Acceptance:
+- Backend agent returns commits and passing `uv run pytest`.
+- Frontend agent returns commits and passing `npm run test` plus `npm run build`.
+- Main thread then integrates both branches and runs a frontend/backend smoke check.
 
 ## Phase 4 - Acceptance Criteria
 
