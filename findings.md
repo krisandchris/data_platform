@@ -93,6 +93,7 @@ This file records research findings from `urban_violation_platform_markdown/` an
 - Browser verification for the preview used `google-chrome --headless=new` because Chrome DevTools MCP could not connect to the local Chrome profile.
 - For annotator-only label editing, the bottom dock should not expose final QC actions such as pass/reject/manual refinement and should not require any explanation text. It should use only status chips plus `跳过样本`, `校验修改`, `保存草稿`, and `提交修改`.
 - Label-edit audit should rely on structured patch diffs and field-level validation results, not a free-text `change_note`.
+- The left side of `Relation 复核区` should be an index-only selector that displays only `R1/R2/R3`; status, triple text, verification result, bbox state, and relation explanations belong in the right-side Relation detail/editor or Candidate evidence area.
 
 ## Open Questions
 

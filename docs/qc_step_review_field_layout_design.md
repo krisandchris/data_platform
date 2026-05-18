@@ -96,14 +96,14 @@ Candidate 应在 `Candidate 与质检裁决` 区中编辑。它不是 Relation �
 ```text
 ┌─────────────────────────────── 右侧审阅栏 ───────────────────────────────┐
 │ Relation 复核区                                                          │
-│ ┌──────── Relation 列表 ────────┐ ┌──────── 当前 Relation 编辑 ─────────┐ │
-│ │ R1 状态  三元组摘要           │ │ subject | relation | object        │ │
-│ │ R2 状态  三元组摘要           │ │ visibility | result | confidence   │ │
-│ │ R3 状态  三元组摘要           │ │ subject_visible | subject_match    │ │
-│ │ orphan / changed / referenced │ │ visible attributes tags            │ │
-│ └──────────────────────────────┘ │ bbox/context observations           │ │
-│                                  │ bbox 由图像区拖拽修改              │ │
-│                                  └────────────────────────────────────┘ │
+│ ┌─索引─┐ ┌────────────────── 当前 Relation 编辑 ─────────────────────┐ │
+│ │ R1  │ │ subject | relation | object                                 │ │
+│ │ R2  │ │ visibility | result | confidence                            │ │
+│ │ R3  │ │ subject_visible | subject_match                             │ │
+│ │     │ │ visible attributes tags                                     │ │
+│ └─────┘ │ bbox/context observations                                   │ │
+│         │ bbox 由图像区拖拽修改                                      │ │
+│         └─────────────────────────────────────────────────────────────┘ │
 ├─────────────────────────────────────────────────────────────────────────┤
 │ Candidate 与质检裁决                                                     │
 │ Candidate tabs/list | category | sample_category | confidence            │
@@ -128,16 +128,16 @@ Candidate 应在 `Candidate 与质检裁决` 区中编辑。它不是 Relation �
 
 `Relation 复核区` 聚焦“事实关系是否成立、框是否准确、STEP2 对该关系的核验是否可信”。
 
-Relation 行展示：
+Relation 左侧索引轨展示：
 
-- `R1/R2/R3` 编号。
-- 状态：`已引用`、`未被 Candidate 引用`、`已修改`、`STEP2 缺失`、`STEP2 failed`。
-- 三元组摘要：`subject relation object`。
-- 核验结果 chip：`supported`、`weakly_supported`、`unsupported`、`unclear`。
-- Bbox 状态：`bbox ok`、`bbox edited`、`bbox missing`。
+- 只显示 `R1/R2/R3` 这类 Relation 索引序号。
+- 不显示三元组摘要、核验结果、bbox 状态、引用状态或说明文本。
+- 当前选中态、警告态、已修改态只能通过边框、背景、细小状态点等非文本视觉标记表达。
+- 三元组、核验结果、bbox 状态、引用状态统一放入右侧当前 Relation 编辑区或下方 Candidate 证据列表。
 
 当前 Relation 编辑区展示：
 
+- 当前 Relation 状态摘要：`已引用`、`未被 Candidate 引用`、`已修改`、`STEP2 缺失`、`STEP2 failed`。
 - 三元组编辑：`subject`、`relation`、`object`。
 - 关系说明：`description`。
 - 核验字段：`visibility_level`、`information_loss_type`、`verification_result`、`verification_confidence`。

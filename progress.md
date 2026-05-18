@@ -243,3 +243,8 @@
   - Confirmed no explanation text is required.
   - Bottom bar now contains only status chips plus `跳过样本`, `校验修改`, `保存草稿`, and `提交修改`.
   - Removed `change_note` from the recommended payload.
+- Simplified the Relation review left rail in the HTML preview:
+  - Relation selector rows now show only the index labels `R1`, `R2`, and `R3`.
+  - Removed visible status, triple summary, result, bbox, and explanation text from the left rail.
+  - Updated the design document so all detailed Relation state belongs to the right-side editor or Candidate evidence area.
+  - Verified with `google-chrome --headless=new --screenshot=/tmp/qc_relation_index_left_rail.png`.

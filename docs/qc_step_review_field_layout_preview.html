@@ -385,7 +385,7 @@
 
     .relation-body {
       display: grid;
-      grid-template-columns: minmax(200px, 0.58fr) minmax(360px, 1fr);
+      grid-template-columns: 56px minmax(0, 1fr);
       gap: 10px;
       min-height: 0;
     }
@@ -399,15 +399,18 @@
     }
 
     .relation-row {
-      display: grid;
-      gap: 6px;
+      display: inline-grid;
+      place-items: center;
       width: 100%;
+      min-height: 40px;
       border: 1px solid var(--line);
       border-radius: var(--radius);
       background: var(--surface-2);
       color: var(--text);
-      padding: 9px;
-      text-align: left;
+      padding: 0;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 900;
     }
 
     .relation-row.active {
@@ -417,29 +420,6 @@
 
     .relation-row.warning {
       border-color: rgba(214, 158, 46, 0.58);
-    }
-
-    .relation-row strong {
-      overflow: hidden;
-      font-size: 13px;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .relation-row p {
-      margin: 0;
-      overflow: hidden;
-      color: var(--muted);
-      font-size: 12px;
-      line-height: 1.45;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .row-meta {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
     }
 
     .relation-editor {
@@ -763,28 +743,13 @@
           <div class="panel-body relation-body">
             <div class="relation-list">
               <button class="relation-row active" type="button" data-relation="R1">
-                <strong>R1 · 被遮盖的车辆 占据 人行道</strong>
-                <p>supported · bbox edited · 被 Candidate 引用</p>
-                <span class="row-meta">
-                  <span class="status-token green">supported</span>
-                  <span class="status-token blue">bbox edited</span>
-                </span>
+                R1
               </button>
               <button class="relation-row" type="button" data-relation="R2">
-                <strong>R2 · 被遮盖的车辆 靠近 盲道</strong>
-                <p>supported · 证据关系候选 · 与 R1 共框</p>
-                <span class="row-meta">
-                  <span class="status-token green">supported</span>
-                  <span class="status-token amber">shared bbox</span>
-                </span>
+                R2
               </button>
               <button class="relation-row warning" type="button" data-relation="R3">
-                <strong>R3 · 远处被遮盖物体 靠近 人行道</strong>
-                <p>weakly_supported · tiny · 建议复核证据权重</p>
-                <span class="row-meta">
-                  <span class="status-token amber">weakly_supported</span>
-                  <span class="status-token amber">tiny</span>
-                </span>
+                R3
               </button>
             </div>
 

@@ -39,6 +39,7 @@ Analyze `urban_violation_platform_markdown/` and the dataset layout under `DATAS
 - Phase 26: Corrected 50/50 right rail and full-width verdict dock - complete
 - Phase 27: Relation editor text overlap fix - complete
 - Phase 28: Label edit bottom bar semantics - complete
+- Phase 29: Relation index-only left rail - complete
 
 ## Phase 1 - Documentation Inventory
 
@@ -785,6 +786,22 @@ Acceptance:
 - Bottom bar does not show or require explanation text.
 - Patch/audit records rely on structured diffs instead of `change_note`.
 - Headless Chrome screenshot succeeds at `/tmp/qc_label_edit_bottom_bar_no_note.png`.
+
+## Phase 29 - Relation Index-Only Left Rail
+
+Goal:
+- Simplify the left side of `Relation 复核区` so it only acts as a Relation index selector.
+
+Implementation:
+- Updated `docs/qc_step_review_field_layout_preview.html`.
+- Updated `docs/qc_step_review_field_layout_design.md`.
+- Changed the Relation left rail to fixed-width index buttons showing only `R1/R2/R3`.
+- Moved the design responsibility for status, triple summary, verification result, and bbox status into the right-side Relation detail area.
+
+Acceptance:
+- Relation selector rows do not show triple text, status text, result chips, bbox labels, or explanation snippets.
+- Active/warning/dirty states are represented visually without adding text to the left rail.
+- Headless Chrome screenshot succeeds at `/tmp/qc_relation_index_left_rail.png`.
 
 ## Phase 4 - Acceptance Criteria
 
