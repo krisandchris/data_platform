@@ -94,6 +94,8 @@ This file records research findings from `urban_violation_platform_markdown/` an
 - For annotator-only label editing, the bottom dock should not expose final QC actions such as pass/reject/manual refinement and should not require any explanation text. It should use only status chips plus `跳过样本`, `校验修改`, `保存草稿`, and `提交修改`.
 - Label-edit audit should rely on structured patch diffs and field-level validation results, not a free-text `change_note`.
 - The left side of `Relation 复核区` should be an index-only selector that displays only `R1/R2/R3`; status, triple text, verification result, bbox state, and relation explanations belong in the right-side Relation detail/editor or Candidate evidence area.
+- `subject_visible`, `subject_match`, and `key_attributes_visible` should not be annotator-editable fields in this workbench. They should be shown as read-only model visibility reference below `bbox_observation / global_context_observation`.
+- `Candidate 与质检裁决` should mirror the Relation panel structure: a left candidate index rail showing only `C1/C2/+`, and a right-side editor containing category, confidence, segmentation targets, reasoning, evidence relations, and hint fields.
 
 ## Open Questions
 

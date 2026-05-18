@@ -248,3 +248,8 @@
   - Removed visible status, triple summary, result, bbox, and explanation text from the left rail.
   - Updated the design document so all detailed Relation state belongs to the right-side editor or Candidate evidence area.
   - Verified with `google-chrome --headless=new --screenshot=/tmp/qc_relation_index_left_rail.png`.
+- Updated Relation/Candidate semantics after field-editing clarification:
+  - Moved `subject_visible`, `subject_match`, and visible attributes below `bbox_observation / global_context_observation`.
+  - Changed those fields from editable controls to model visibility reference display.
+  - Reworked Candidate layout to align with Relation layout: left `C1/+` index rail and right Candidate editor.
+  - Verified with `google-chrome --headless=new --screenshot=/tmp/qc_relation_candidate_aligned_layout.png`.

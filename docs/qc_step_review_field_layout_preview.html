@@ -370,6 +370,30 @@
       line-height: 1.55;
     }
 
+    .reference-block {
+      gap: 8px;
+    }
+
+    .reference-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .reference-item {
+      display: grid;
+      gap: 4px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #11151b;
+      padding: 8px;
+    }
+
+    .reference-item strong {
+      color: var(--text);
+      font-size: 12px;
+    }
+
     .tag {
       border-color: rgba(79, 140, 255, 0.46);
       background: rgba(79, 140, 255, 0.12);
@@ -398,7 +422,8 @@
       overflow: auto;
     }
 
-    .relation-row {
+    .relation-row,
+    .candidate-index {
       display: inline-grid;
       place-items: center;
       width: 100%;
@@ -413,12 +438,14 @@
       font-weight: 900;
     }
 
-    .relation-row.active {
+    .relation-row.active,
+    .candidate-index.active {
       border-color: rgba(79, 140, 255, 0.8);
       box-shadow: 0 0 0 1px rgba(79, 140, 255, 0.35);
     }
 
-    .relation-row.warning {
+    .relation-row.warning,
+    .candidate-index.warning {
       border-color: rgba(214, 158, 46, 0.58);
     }
 
@@ -515,10 +542,18 @@
 
     .candidate-body {
       display: grid;
-      grid-template-rows: auto minmax(0, 1fr);
+      grid-template-columns: 56px minmax(0, 1fr);
       gap: 10px;
       min-height: 0;
       overflow: hidden;
+    }
+
+    .candidate-list {
+      display: grid;
+      align-content: start;
+      gap: 8px;
+      min-height: 0;
+      overflow: auto;
     }
 
     .candidate-tab {
@@ -537,6 +572,14 @@
       gap: 10px;
       min-height: 0;
       overflow: auto;
+    }
+
+    .candidate-editor-header {
+      display: flex;
+      grid-column: 1 / -1;
+      flex-wrap: wrap;
+      gap: 7px;
+      align-items: center;
     }
 
     .candidate-form {
@@ -641,6 +684,7 @@
       .qc-topbar,
       .review-grid,
       .scene-strip,
+      .candidate-body,
       .candidate-editor,
       .review-action-bar {
         grid-template-columns: 1fr;
@@ -812,24 +856,29 @@
                 </label>
               </div>
 
-              <div class="fact-block">
-                <div class="switch-row">
-                  <label class="switch"><input type="checkbox" checked /> subject_visible</label>
-                  <label class="switch"><input type="checkbox" checked /> subject_match</label>
-                  <span class="pill blue">bbox 通过图像区修改</span>
-                </div>
-                <div class="tag-row">
-                  <span class="tag">wheel</span>
-                  <span class="tag">cover</span>
-                  <span class="tag">body_outline</span>
-                  <span class="tag green">+ 添加属性</span>
-                </div>
-              </div>
-
               <label class="field field--observation">
                 <span class="mini-label">bbox_observation / global_context_observation</span>
                 <textarea id="observation-field" rows="3">Bbox准确框选了左侧树下被车罩覆盖的车辆主体，包含车轮和车罩部分。车辆停放在人行道边缘，紧邻树木，占据了部分人行通道。</textarea>
               </label>
+
+              <div class="fact-block reference-block" aria-label="模型可见性参考">
+                <span class="field-label">模型可见性参考</span>
+                <div class="reference-grid">
+                  <div class="reference-item">
+                    <span class="mini-label">subject_visible</span>
+                    <strong id="subject-visible-ref">true</strong>
+                  </div>
+                  <div class="reference-item">
+                    <span class="mini-label">subject_match</span>
+                    <strong id="subject-match-ref">true</strong>
+                  </div>
+                </div>
+                <div class="tag-row" id="visible-attributes-ref">
+                  <span class="tag">wheel</span>
+                  <span class="tag">cover</span>
+                  <span class="tag">body_outline</span>
+                </div>
+              </div>
             </div>
           </div>
         </section>
@@ -840,13 +889,17 @@
             <span class="pill amber">needs changes</span>
           </div>
           <div class="panel-body candidate-body">
-            <div class="candidate-tabs">
-              <button class="candidate-tab active" type="button">C1 · no violation · 0.90</button>
-              <button class="candidate-tab" type="button">+ 人工补判</button>
-              <span class="pill green">active config ready</span>
+            <div class="candidate-list">
+              <button class="candidate-index active" type="button" data-candidate="C1">C1</button>
+              <button class="candidate-index" type="button" data-candidate="new">+</button>
             </div>
 
             <div class="candidate-editor">
+              <div class="candidate-editor-header">
+                <span class="pill blue">C1 · no violation · 0.90</span>
+                <span class="pill green">active config ready</span>
+                <span class="pill amber">2 evidence relations</span>
+              </div>
               <div class="candidate-form">
                 <div class="field-row">
                   <label class="field">
@@ -944,6 +997,9 @@
         loss: "occlusion",
         result: "supported",
         confidence: "0.90",
+        subjectVisible: "true",
+        subjectMatch: "true",
+        attributes: ["wheel", "cover", "body_outline"],
         observation: "Bbox准确框选了左侧树下被车罩覆盖的车辆主体，包含车轮和车罩部分。车辆停放在人行道边缘，紧邻树木，占据了部分人行通道。"
       },
       R2: {
@@ -955,6 +1011,9 @@
         loss: "occlusion",
         result: "supported",
         confidence: "0.90",
+        subjectVisible: "true",
+        subjectMatch: "true",
+        attributes: ["cover", "body_outline", "wheel"],
         observation: "Bbox准确框选了左侧车辆。车辆停放位置紧邻画面左下角的盲道区域，存在阻碍盲道通行的风险。"
       },
       R3: {
@@ -966,6 +1025,9 @@
         loss: "none",
         result: "weakly_supported",
         confidence: "0.60",
+        subjectVisible: "uncertain",
+        subjectMatch: "uncertain",
+        attributes: ["tiny_object", "cover_like_shape"],
         observation: "Bbox框选了远处人行道旁的一个小物体，因距离过远显得非常小。远处确实存在另一个被遮盖的物体，但无法确认为车辆或货物。"
       }
     };
@@ -985,10 +1047,23 @@
       document.getElementById("result-field").value = data.result;
       document.getElementById("verification-confidence-field").value = data.confidence;
       document.getElementById("observation-field").value = data.observation;
+      document.getElementById("subject-visible-ref").textContent = data.subjectVisible;
+      document.getElementById("subject-match-ref").textContent = data.subjectMatch;
+      document.getElementById("visible-attributes-ref").innerHTML = data.attributes
+        .map((attribute) => `<span class="tag">${attribute}</span>`)
+        .join("");
     }
 
     document.querySelectorAll("[data-relation]").forEach((node) => {
       node.addEventListener("click", () => setActiveRelation(node.dataset.relation));
+    });
+
+    document.querySelectorAll("[data-candidate]").forEach((node) => {
+      node.addEventListener("click", () => {
+        document.querySelectorAll("[data-candidate]").forEach((item) => {
+          item.classList.toggle("active", item === node);
+        });
+      });
     });
   </script>
 </body>

@@ -59,9 +59,9 @@
 | `bbox` | 可改 | 图像区 box 拖拽/缩放 | 坐标校验 | `verification:{relation_id}.bbox` | 默认可跟随 Relation bbox；若单独修正，需要显示“STEP2 bbox override”。 |
 | `visibility_level` | 可改 | 分段选择/下拉 | `visibility_level` closed enum | `verification:{relation_id}.visibility_level` | 样例值包括 `clear`、`occluded`。 |
 | `information_loss_type` | 可改 | 分段选择/下拉 | 建议加入 label config closed enum | `verification:{relation_id}.information_loss_type` | 样例值包括 `none`、`occlusion`；应配置为固定集合。 |
-| `key_attributes_visible` | 可改 | 开放 tag input | 可单独配置 open_tags，或作为自由 tag | `verification:{relation_id}.key_attributes_visible` | 样例值如 `wheel`、`cover`、`body_outline`。 |
-| `subject_visible` | 可改 | 开关 | Boolean | `verification:{relation_id}.subject_visible` | 是否可见主体。 |
-| `subject_match` | 可改 | 开关 | Boolean | `verification:{relation_id}.subject_match` | 可见主体是否与三元组主体匹配。 |
+| `key_attributes_visible` | 不作为人工修改项 | 只读参考 tag | 无 | 不进入人工 patch | 样例值如 `wheel`、`cover`、`body_outline`；作为模型可见性参考展示。 |
+| `subject_visible` | 不作为人工修改项 | 只读参考值 | 无 | 不进入人工 patch | 是否可见主体，仅作为模型核验参考。 |
+| `subject_match` | 不作为人工修改项 | 只读参考值 | 无 | 不进入人工 patch | 可见主体是否与三元组主体匹配，仅作为模型核验参考。 |
 | `bbox_observation` | 可改 | 多行文本 | 无枚举 | `verification:{relation_id}.bbox_observation` | Bbox 准确性观察。 |
 | `global_context_observation` | 可改 | 多行文本 | 无枚举 | `verification:{relation_id}.global_context_observation` | 全局上下文观察。 |
 | `verification_result` | 可改 | 分段选择 | `verification_result` closed enum | `verification:{relation_id}.verification_result` | 必须命中配置，样例值包括 `supported`、`weakly_supported`。 |
@@ -99,15 +99,17 @@ Candidate 应在 `Candidate 与质检裁决` 区中编辑。它不是 Relation �
 │ ┌─索引─┐ ┌────────────────── 当前 Relation 编辑 ─────────────────────┐ │
 │ │ R1  │ │ subject | relation | object                                 │ │
 │ │ R2  │ │ visibility | result | confidence                            │ │
-│ │ R3  │ │ subject_visible | subject_match                             │ │
-│ │     │ │ visible attributes tags                                     │ │
-│ └─────┘ │ bbox/context observations                                   │ │
-│         │ bbox 由图像区拖拽修改                                      │ │
+│ │ R3  │ │ bbox/context observations                                   │ │
+│ │     │ │ model visibility reference below observations               │ │
+│ └─────┘ │ bbox 由图像区拖拽修改                                      │ │
 │         └─────────────────────────────────────────────────────────────┘ │
 ├─────────────────────────────────────────────────────────────────────────┤
 │ Candidate 与质检裁决                                                     │
-│ Candidate tabs/list | category | sample_category | confidence            │
-│ Evidence Relations 勾选表 | segmentation targets | reasoning             │
+│ ┌─索引─┐ ┌────────────────── 当前 Candidate 编辑 ────────────────────┐ │
+│ │ C1  │ │ category | sample_category | confidence                     │ │
+│ │ C2  │ │ segmentation targets | reasoning                            │ │
+│ │ +   │ │ Evidence Relations 勾选表 | relation_hint                   │ │
+│ └─────┘ └─────────────────────────────────────────────────────────────┘ │
 ├─────────────────────────────────────────────────────────────────────────┤
 │ 全局底栏：已修改/校验/草稿状态 + 跳过样本 / 校验修改 / 保存草稿 / 提交修改 │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -141,16 +143,15 @@ Relation 左侧索引轨展示：
 - 三元组编辑：`subject`、`relation`、`object`。
 - 关系说明：`description`。
 - 核验字段：`visibility_level`、`information_loss_type`、`verification_result`、`verification_confidence`。
-- 可见性开关：`subject_visible`、`subject_match`。
-- 可见属性：`key_attributes_visible` tag input。
 - 文本观察：`bbox_observation`、`global_context_observation`。
+- 模型可见性参考：`subject_visible`、`subject_match`、`key_attributes_visible` 以只读形式放在 observation 文本框下方，不作为人工修改内容。
 - Bbox 操作提示：`在图像区拖拽或缩放当前 box`。
 
 ### 6.2 交互规则
 
 - 点击图像中的 box，自动选中并展开对应 Relation。
 - 点击 Relation 行，图像中对应 box 变为选中红色粗线。
-- 拖拽或缩放 box 后，Relation 行显示 `bbox edited` 状态。
+- 拖拽或缩放 box 后，Relation 索引轨使用非文本标记表达 dirty 状态，详细的 `bbox edited` 文本放在右侧 Relation 详情区。
 - 修改 `relation` 时必须从 active label config 的 `relation` 选项中选择。
 - STEP1 与 STEP2 三元组不一致时，显示差异条；默认以 Relation 主编辑值作为合并结果。
 - 删除 Relation 不做物理删除，生成 `op=soft_delete_relation` patch，并同步在 Candidate 证据列表中显示引用失效提示。
@@ -165,11 +166,12 @@ Relation 左侧索引轨展示：
 1. 审核 Candidate 是否正确引用 Relation 并给出违法判断。
 2. 给出本样本最终质检裁决。
 
-Candidate 选择器：
+Candidate 左侧索引轨：
 
-- 顶部使用紧凑 tabs 或列表：`C1 no violation 0.90`。
-- 多 Candidate 时只展开当前 Candidate，其他 Candidate 保持一行摘要。
-- STEP2 failure 或无 Candidate 时显示“人工补判”入口。
+- 与 Relation 区对齐，左侧只显示 `C1/C2/C3` 等 Candidate 索引。
+- 新增人工候选使用左侧 `+` 索引按钮，不在左侧显示类别、置信度或说明文本。
+- 当前选中态、warning、dirty 只通过边框、背景、细小状态点等非文本视觉标记表达。
+- Candidate 类别、置信度、证据数量、校验状态统一放入右侧当前 Candidate 编辑区顶部。
 
 Candidate 编辑内容：
 
@@ -243,8 +245,7 @@ Candidate 编辑内容：
       }
     }
   ],
-  "review_decision": "needs_changes",
-  "vote_note": "R2 证据不足，保留 R1 作为主要证据。"
+  "submit_action": "submit_changes"
 }
 ```
 
@@ -262,7 +263,8 @@ Candidate 编辑内容：
 - 去掉右侧通用“标签字段复核”大块，改成 Relation/Candidate 上下文内编辑。
 - Relation 区补齐 `subject/object/description` 和 STEP2 verification 详细字段编辑。
 - Candidate 区补齐 `evidence_relation_indices` 可编辑、`evidence_reasoning` 可编辑、`confidence` 可编辑。
-- `information_loss_type`、`key_attributes_visible` 需要进入前端类型与编辑控件。
+- `information_loss_type` 需要进入前端类型与编辑控件。
+- `key_attributes_visible`、`subject_visible`、`subject_match` 只进入只读参考展示，不进入人工编辑控件或 patch scope。
 - `violation_category` 需要明确单选/多选策略，不得因为当前 UI 单选而丢失源数据数组语义。
 - STEP2 failure 样本需要支持基于 STEP1 人工新建 Candidate，而不是只展示失败信息。
 

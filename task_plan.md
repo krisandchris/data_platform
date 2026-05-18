@@ -40,6 +40,7 @@ Analyze `urban_violation_platform_markdown/` and the dataset layout under `DATAS
 - Phase 27: Relation editor text overlap fix - complete
 - Phase 28: Label edit bottom bar semantics - complete
 - Phase 29: Relation index-only left rail - complete
+- Phase 30: Relation reference fields and Candidate index rail - complete
 
 ## Phase 1 - Documentation Inventory
 
@@ -802,6 +803,25 @@ Acceptance:
 - Relation selector rows do not show triple text, status text, result chips, bbox labels, or explanation snippets.
 - Active/warning/dirty states are represented visually without adding text to the left rail.
 - Headless Chrome screenshot succeeds at `/tmp/qc_relation_index_left_rail.png`.
+
+## Phase 30 - Relation Reference Fields and Candidate Index Rail
+
+Goal:
+- Adjust Relation and Candidate panel semantics after clarifying that `subject_visible`, `subject_match`, and `visible attributes` should not be edited by annotators.
+
+Implementation:
+- Updated `docs/qc_step_review_field_layout_preview.html`.
+- Updated `docs/qc_step_review_field_layout_design.md`.
+- Moved `subject_visible`, `subject_match`, and `key_attributes_visible` below `bbox_observation / global_context_observation`.
+- Rendered these three fields as model visibility reference, not editable switches or tag inputs.
+- Reworked `Candidate 与质检裁决` to match the Relation panel structure:
+  - left candidate index rail with `C1` and `+`
+  - right current Candidate editor with category, sample category, confidence, segmentation targets, reasoning, evidence relations, and relation hint
+
+Acceptance:
+- Subject visibility fields are visually separated from editable verification fields.
+- Candidate panel aligns with Relation panel: compact index rail on the left, editable detail area on the right.
+- Left Candidate rail does not carry category, confidence, or reasoning text.
 
 ## Phase 4 - Acceptance Criteria
 
