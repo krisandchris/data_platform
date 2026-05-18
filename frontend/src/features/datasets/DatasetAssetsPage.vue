@@ -2,8 +2,11 @@
   <div>
     <header class="page-header">
       <div>
-        <h1 class="page-title">资产 / 样本列表</h1>
-        <p class="page-subtitle">Filter assets by judge decision, stage2 failure state, QC status, and violation category.</p>
+        <h1 class="page-title">批次资产 / 样本浏览</h1>
+        <p class="page-subtitle">
+          当前批次: {{ summary?.dataset.batchName ?? summary?.dataset.name ?? id }}
+          <span v-if="summary">| 类型: {{ summary.dataset.datasetType ?? summary.dataset.name }}</span>
+        </p>
       </div>
       <div class="page-actions">
         <RouterLink class="button" :to="`/datasets/${id}/overview`">
@@ -15,22 +18,48 @@
 
     <div v-if="loading" class="loading-state">Loading assets...</div>
     <div v-else-if="error" class="error-state">{{ error }}</div>
-    <div v-else-if="assets.length === 0" class="empty-state">No assets returned by the backend.</div>
-    <AssetTable v-else :dataset-id="id" :assets="assets" @filters-changed="loadAssets" />
+    <template v-else>
+      <section v-if="assetSummary" class="grid grid--metrics asset-summary">
+        <MetricCard label="有效媒体" :value="`${assetSummary.media.valid}/${assetSummary.media.total}`" detail="当前批次媒体" tone="blue">
+          <template #icon><Image :size="23" /></template>
+        </MetricCard>
+        <MetricCard label="导入资产" :value="assetSummary.importHealth.imported" :detail="`${assetSummary.importHealth.pathWarnings} path warnings`" tone="green">
+          <template #icon><Database :size="23" /></template>
+        </MetricCard>
+        <MetricCard label="STEP1 Ready" :value="assetSummary.preannotation.stage1Ready" detail="可进入质检基础" tone="blue">
+          <template #icon><FileCheck2 :size="23" /></template>
+        </MetricCard>
+        <MetricCard label="STEP2 Ready" :value="assetSummary.preannotation.stage2Ready" :detail="`${assetSummary.preannotation.stage2Failed} failures`" tone="orange">
+          <template #icon><FileCog :size="23" /></template>
+        </MetricCard>
+        <MetricCard label="QC Submitted" :value="assetSummary.qc.submitted" :detail="`${assetSummary.qc.pending} pending`" tone="purple">
+          <template #icon><ShieldCheck :size="23" /></template>
+        </MetricCard>
+        <MetricCard label="Soft Fail" :value="assetSummary.modelJudgement.softFail" detail="模型判断需复核" tone="red">
+          <template #icon><TriangleAlert :size="23" /></template>
+        </MetricCard>
+      </section>
+
+      <div v-if="assets.length === 0" class="empty-state">No assets returned by the backend.</div>
+      <AssetTable v-else :dataset-id="id" :assets="assets" @filters-changed="loadAssets" />
+    </template>
   </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
-import { LayoutDashboard } from 'lucide-vue-next';
+import { Database, FileCheck2, FileCog, Image, LayoutDashboard, ShieldCheck, TriangleAlert } from 'lucide-vue-next';
 import { apiClient } from '../../services/urbanViolationApi';
-import type { AssetListFilters, AssetListItem } from '../../shared/types/contract';
+import MetricCard from '../../shared/components/MetricCard.vue';
+import type { AssetListFilters, AssetListItem, AssetSummary, DatasetSummary } from '../../shared/types/contract';
 import AssetTable from './components/AssetTable.vue';
 
 const props = defineProps<{ id: string }>();
 
 const assets = ref<AssetListItem[]>([]);
+const summary = ref<DatasetSummary>();
+const assetSummary = ref<AssetSummary>();
 const loading = ref(true);
 const error = ref<string>();
 
@@ -38,7 +67,15 @@ const loadAssets = async (filters: AssetListFilters = {}) => {
   loading.value = true;
   error.value = undefined;
   try {
-    assets.value = await apiClient.listAssets(props.id, filters);
+    const [nextAssets, nextSummary] = await Promise.all([
+      apiClient.listAssets(props.id, filters),
+      summary.value ? Promise.resolve(summary.value) : apiClient.getDatasetSummary(props.id),
+    ]);
+    const nextAssetSummary = assetSummary.value
+      ?? await apiClient.getAssetSummary(props.id).catch(() => nextSummary.assetSummary);
+    assets.value = nextAssets;
+    summary.value = nextSummary;
+    assetSummary.value = nextAssetSummary;
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Unable to load assets';
   } finally {
@@ -48,3 +85,9 @@ const loadAssets = async (filters: AssetListFilters = {}) => {
 
 onMounted(() => loadAssets());
 </script>
+
+<style scoped>
+.asset-summary {
+  margin-bottom: 18px;
+}
+</style>

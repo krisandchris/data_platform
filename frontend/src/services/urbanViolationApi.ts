@@ -5,6 +5,7 @@ import { toBrowserMediaUrl } from './media';
 import type {
   AssetListFilters,
   AssetListItem,
+  AssetSummary,
   AuditArtifact,
   BackendAuditArtifact,
   BackendDataset,
@@ -22,9 +23,12 @@ import type {
   DatasetSummary,
   FactVerification,
   HumanReview,
+  ImportJobCreatePayload,
   ImportJobDetail,
   ImportJobId,
   ImportJobState,
+  ImportJobSummary,
+  ImportValidationReport,
   ImportWarning,
   JudgeDecision,
   LabelConfig,
@@ -85,8 +89,15 @@ export class LabelEditValidationError extends Error {
 export interface UrbanViolationApi {
   listDatasets(): Promise<Dataset[]>;
   getDatasetSummary(datasetId: DatasetId): Promise<DatasetSummary>;
+  getAssetSummary(datasetId: DatasetId): Promise<AssetSummary>;
   listAssets(datasetId: DatasetId, filters?: AssetListFilters): Promise<AssetListItem[]>;
+  listImportJobs(datasetId: DatasetId): Promise<ImportJobSummary[]>;
+  createImportJob(datasetId: DatasetId, payload: ImportJobCreatePayload): Promise<ImportJobDetail>;
   getImportJob(datasetId: DatasetId, jobId: ImportJobId): Promise<ImportJobDetail>;
+  scanImportJob(datasetId: DatasetId, jobId: ImportJobId): Promise<ImportJobDetail>;
+  validateImportJob(datasetId: DatasetId, jobId: ImportJobId): Promise<ImportJobDetail>;
+  confirmImportJob(datasetId: DatasetId, jobId: ImportJobId): Promise<ImportJobDetail>;
+  retryImportJob(datasetId: DatasetId, jobId: ImportJobId): Promise<ImportJobDetail>;
   getPreannotationSummary(datasetId: DatasetId): Promise<PreannotationSummary>;
   listQcQueue(datasetId: DatasetId): Promise<QcQueueItem[]>;
   getReviewSample(datasetId: DatasetId, sampleId: SampleId): Promise<ReviewSampleDetail>;
@@ -128,20 +139,30 @@ export class HttpUrbanViolationApi implements UrbanViolationApi {
     return normalizeDatasetSummary(payload, datasetId);
   }
 
+  async getAssetSummary(datasetId: DatasetId): Promise<AssetSummary> {
+    const payload = await this.http.get<unknown>(`/datasets/${encodeURIComponent(datasetId)}/assets/summary`);
+    return normalizeAssetSummary(payload, datasetId);
+  }
+
   async listAssets(datasetId: DatasetId, filters: AssetListFilters = {}): Promise<AssetListItem[]> {
     const search = new URLSearchParams();
     const queryMap: Record<keyof AssetListFilters, string> = {
       judgeDecision: 'judge_decision',
+      stage1Status: 'stage1_status',
       stage2State: 'failure_status',
       qcStatus: 'qc_status',
       violationCategory: 'category',
       sampleCategory: 'sample_category',
+      confidenceMin: 'confidence_min',
+      confidenceMax: 'confidence_max',
+      mediaStatus: 'media_status',
+      labelEditStatus: 'label_edit_status',
       search: 'search',
     };
 
     Object.entries(filters).forEach(([key, value]) => {
       if (value && value !== 'all') {
-        search.set(queryMap[key as keyof AssetListFilters] ?? key, value);
+        search.set(queryMap[key as keyof AssetListFilters] ?? key, String(value));
       }
     });
 
@@ -152,11 +173,51 @@ export class HttpUrbanViolationApi implements UrbanViolationApi {
     return listPayload(payload, 'assets').map((item) => normalizeAssetItem(item, datasetId));
   }
 
+  async listImportJobs(datasetId: DatasetId): Promise<ImportJobSummary[]> {
+    const payload = await this.http.get<unknown>(`/datasets/${encodeURIComponent(datasetId)}/import-jobs`);
+    return listPayload(payload, 'import_jobs').map((item) => normalizeImportJobSummary(item, datasetId));
+  }
+
+  async createImportJob(datasetId: DatasetId, payload: ImportJobCreatePayload): Promise<ImportJobDetail> {
+    const response = await this.http.post<unknown>(
+      `/datasets/${encodeURIComponent(datasetId)}/import-jobs`,
+      toBackendImportJobCreatePayload(payload),
+    );
+    return normalizeImportJob(response, datasetId, 'new-import-job');
+  }
+
   async getImportJob(datasetId: DatasetId, jobId: ImportJobId): Promise<ImportJobDetail> {
     const payload = await this.http.get<unknown>(
       `/datasets/${encodeURIComponent(datasetId)}/import-jobs/${encodeURIComponent(jobId)}`,
     );
     return normalizeImportJob(payload, datasetId, jobId);
+  }
+
+  async scanImportJob(datasetId: DatasetId, jobId: ImportJobId): Promise<ImportJobDetail> {
+    return this.runImportJobAction(datasetId, jobId, 'scan');
+  }
+
+  async validateImportJob(datasetId: DatasetId, jobId: ImportJobId): Promise<ImportJobDetail> {
+    return this.runImportJobAction(datasetId, jobId, 'validate');
+  }
+
+  async confirmImportJob(datasetId: DatasetId, jobId: ImportJobId): Promise<ImportJobDetail> {
+    return this.runImportJobAction(datasetId, jobId, 'confirm');
+  }
+
+  async retryImportJob(datasetId: DatasetId, jobId: ImportJobId): Promise<ImportJobDetail> {
+    return this.runImportJobAction(datasetId, jobId, 'retry');
+  }
+
+  private async runImportJobAction(
+    datasetId: DatasetId,
+    jobId: ImportJobId,
+    action: 'scan' | 'validate' | 'confirm' | 'retry',
+  ): Promise<ImportJobDetail> {
+    const response = await this.http.post<unknown>(
+      `/datasets/${encodeURIComponent(datasetId)}/import-jobs/${encodeURIComponent(jobId)}/${action}`,
+    );
+    return normalizeImportJob(response, datasetId, jobId);
   }
 
   async getPreannotationSummary(datasetId: DatasetId): Promise<PreannotationSummary> {
@@ -312,13 +373,43 @@ const listPayload = (payload: unknown, preferredKey: string): unknown[] => {
 const isBackendDataset = (value: unknown): value is BackendDataset =>
   isRecord(value) && typeof value.dataset_id === 'string';
 
+const deriveDatasetType = (datasetId: string, name = '') => {
+  if (datasetId.includes('__')) {
+    return datasetId.split('__')[0];
+  }
+  return name || datasetId || 'unknown_type';
+};
+
+const deriveBatchKey = (datasetId: string) => {
+  if (datasetId.includes('__')) {
+    return datasetId.split('__').slice(1).join('__');
+  }
+  return datasetId || 'default_batch';
+};
+
 const normalizeDataset = (value: unknown, fallbackId = 'unknown-dataset'): Dataset => {
   if (isBackendDataset(value)) {
+    const datasetType = stringValue(value.dataset_type, deriveDatasetType(value.dataset_id, value.name));
+    const batchKey = stringValue(value.batch_key, deriveBatchKey(value.dataset_id));
+    const lifecycleStatus = stringValue(value.lifecycle_status, 'active') as Dataset['status'];
     return {
       id: value.dataset_id,
       name: value.name,
       version: 'live',
-      status: 'active',
+      status: lifecycleStatus,
+      datasetType,
+      batchKey,
+      batchName: stringValue(value.batch_name, value.name),
+      lifecycleStatus,
+      displayName: value.name,
+      fieldSchemaVersion: optionalString(value.field_schema_version),
+      activeLabelConfigVersion: optionalString(value.active_label_config_version),
+      activeImportJobId: optionalString(value.active_import_job_id),
+      qcQueueId: optionalString(value.qc_queue_id),
+      assetTotal: value.total_assets,
+      stage1Total: value.stage1_count,
+      stage2SuccessTotal: value.stage2_success_count,
+      stage2FailureTotal: value.stage2_failure_count,
       description: `${value.total_assets} assets imported from backend dataset ${value.dataset_id}.`,
       rootPath: value.root_path,
       createdAt: value.created_at,
@@ -328,17 +419,53 @@ const normalizeDataset = (value: unknown, fallbackId = 'unknown-dataset'): Datas
   }
 
   const record = isRecord(value) ? value : {};
+  const id = stringValue(record.id ?? record.datasetId ?? record.dataset_id, fallbackId);
+  const name = stringValue(record.name ?? record.display_name, fallbackId);
+  const datasetType = stringValue(record.datasetType ?? record.dataset_type, deriveDatasetType(id, name));
+  const batchKey = stringValue(record.batchKey ?? record.batch_key, deriveBatchKey(id));
+  const lifecycleStatus = stringValue(
+    record.lifecycleStatus ?? record.lifecycle_status ?? record.status,
+    'active',
+  ) as Dataset['status'];
   return {
-    id: stringValue(record.id, fallbackId),
-    name: stringValue(record.name, fallbackId),
+    id,
+    name,
     version: stringValue(record.version, 'live'),
-    status: stringValue(record.status, 'active') as Dataset['status'],
+    status: lifecycleStatus,
+    datasetType,
+    batchKey,
+    batchName: optionalString(record.batchName ?? record.batch_name),
+    lifecycleStatus,
+    displayName: optionalString(record.displayName ?? record.display_name),
+    fieldSchemaVersion: optionalString(record.fieldSchemaVersion ?? record.field_schema_version),
+    activeLabelConfigVersion: optionalString(record.activeLabelConfigVersion ?? record.active_label_config_version),
+    activeImportJobId: optionalString(record.activeImportJobId ?? record.active_import_job_id),
+    qcQueueId: optionalString(record.qcQueueId ?? record.qc_queue_id),
+    assetTotal: maybeNumber(record.assetTotal ?? record.asset_total ?? record.total_assets),
+    stage1Total: maybeNumber(record.stage1Total ?? record.stage1_total ?? record.stage1_count),
+    stage2SuccessTotal: maybeNumber(record.stage2SuccessTotal ?? record.stage2_success_total ?? record.stage2_success_count),
+    stage2FailureTotal: maybeNumber(record.stage2FailureTotal ?? record.stage2_failure_total ?? record.stage2_failure_count),
+    qcProgress: normalizeQcProgress(record.qcProgress ?? record.qc_progress),
+    latestImportJob: isRecord(record.latestImportJob ?? record.latest_import_job)
+      ? normalizeImportJobSummary(record.latestImportJob ?? record.latest_import_job, id)
+      : undefined,
     description: stringValue(record.description, ''),
     rootPath: stringValue(record.rootPath ?? record.root_path, ''),
     createdAt: stringValue(record.createdAt ?? record.created_at, new Date(0).toISOString()),
     updatedAt: stringValue(record.updatedAt ?? record.updated_at ?? record.createdAt, new Date(0).toISOString()),
     tags: arrayValue<string>(record.tags),
     owner: stringValue(record.owner, ''),
+  };
+};
+
+const normalizeQcProgress = (value: unknown): Dataset['qcProgress'] | undefined => {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  return {
+    pending: numberValue(value.pending),
+    submitted: numberValue(value.submitted),
+    total: maybeNumber(value.total),
   };
 };
 
@@ -350,19 +477,27 @@ const normalizeDatasetSummary = (payload: unknown, datasetId: DatasetId): Datase
   const stage1Parsed = numberValue(rawTotals.stage1Parsed ?? rawTotals.stage1_count, numberValue(record.stage1_count));
   const stage2Parsed = numberValue(rawTotals.stage2Parsed ?? rawTotals.stage2_success_count, numberValue(record.stage2_success_count));
   const rawAssets = numberValue(rawTotals.rawAssets ?? rawTotals.total_assets, numberValue(record.total_assets));
+  const totals = {
+    rawAssets,
+    stage1Parsed,
+    stage2Parsed,
+    stage2Failures: numberValue(rawTotals.stage2Failures ?? rawTotals.stage2_failure_count, numberValue(record.stage2_failure_count)),
+  };
+  const coverage = {
+    stage1: numberValue(rawCoverage.stage1, rawAssets > 0 ? stage1Parsed / rawAssets : 0),
+    stage2: numberValue(rawCoverage.stage2, rawAssets > 0 ? stage2Parsed / rawAssets : 0),
+  };
+  const latestImportJobValue = firstRecord(
+    record.latestImportJob,
+    record.latest_import_job,
+    record.activeImportJob,
+    record.active_import_job,
+  );
 
   return {
     dataset,
-    totals: {
-      rawAssets,
-      stage1Parsed,
-      stage2Parsed,
-      stage2Failures: numberValue(rawTotals.stage2Failures ?? rawTotals.stage2_failure_count, numberValue(record.stage2_failure_count)),
-    },
-    coverage: {
-      stage1: numberValue(rawCoverage.stage1, rawAssets > 0 ? stage1Parsed / rawAssets : 0),
-      stage2: numberValue(rawCoverage.stage2, rawAssets > 0 ? stage2Parsed / rawAssets : 0),
-    },
+    totals,
+    coverage,
     qc: normalizeQcSummary(record.qc),
     judgeDecisionDistribution: normalizeDistributionList(record.judgeDecisionDistribution ?? record.judge_decision_distribution),
     violationCategoryDistribution: normalizeDistributionList(record.violationCategoryDistribution ?? record.violation_category_distribution),
@@ -371,6 +506,17 @@ const normalizeDatasetSummary = (payload: unknown, datasetId: DatasetId): Datase
     sampleCategoryDistribution: normalizeDistributionList(record.sampleCategoryDistribution ?? record.sample_category_distribution),
     importWarnings: normalizeWarnings(record.importWarnings ?? record.import_warnings),
     recentRuns: arrayValue<DatasetSummary['recentRuns'][number]>(record.recentRuns ?? record.recent_runs),
+    latestImportJob: latestImportJobValue
+      ? normalizeImportJobSummary(latestImportJobValue, dataset.id)
+      : dataset.latestImportJob,
+    assetSummary: normalizeAssetSummary(record.assetSummary ?? record.asset_summary ?? record, dataset.id, {
+      dataset,
+      totals,
+      coverage,
+      qc: normalizeQcSummary(record.qc),
+      categoryDistribution: normalizeDistributionList(record.violationCategoryDistribution ?? record.violation_category_distribution),
+      sampleCategoryDistribution: normalizeDistributionList(record.sampleCategoryDistribution ?? record.sample_category_distribution),
+    }),
     metadata: {
       imageSource: stringValue((record.metadata as Record<string, unknown> | undefined)?.imageSource, 'backend API'),
       region: stringValue((record.metadata as Record<string, unknown> | undefined)?.region, 'unknown'),
@@ -389,6 +535,92 @@ const normalizeQcSummary = (value: unknown): DatasetSummary['qc'] => {
     passed: numberValue(record.passed),
     rejected: numberValue(record.rejected),
     needsHumanReview: numberValue(record.needsHumanReview ?? record.needs_human_review),
+  };
+};
+
+const normalizeAssetSummary = (
+  value: unknown,
+  datasetId: DatasetId,
+  fallback?: {
+    dataset: Dataset;
+    totals: DatasetSummary['totals'];
+    coverage: DatasetSummary['coverage'];
+    qc: DatasetSummary['qc'];
+    categoryDistribution: CountDistribution[];
+    sampleCategoryDistribution: CountDistribution[];
+  },
+): AssetSummary => {
+  const record = isRecord(value) ? value : {};
+  const media = isRecord(record.media) ? record.media : record;
+  const importHealth = isRecord(record.importHealth ?? record.import_health)
+    ? (record.importHealth ?? record.import_health) as Record<string, unknown>
+    : record;
+  const preannotation = isRecord(record.preannotation)
+    ? record.preannotation
+    : isRecord(record.preannotation_coverage)
+      ? record.preannotation_coverage
+      : record;
+  const modelJudgement = isRecord(record.modelJudgement ?? record.model_judgement)
+    ? (record.modelJudgement ?? record.model_judgement) as Record<string, unknown>
+    : record;
+  const qc = isRecord(record.qc) ? record.qc : {};
+  const totals = fallback?.totals;
+  const rawTotal = numberValue(media.total ?? media.rawAssets ?? media.raw_assets ?? media.total_assets, totals?.rawAssets ?? 0);
+  const stage2Ready = numberValue(
+    preannotation.stage2Ready ?? preannotation.stage2_ready ?? preannotation.stage2Parsed ?? preannotation.stage2_success_count,
+    totals?.stage2Parsed ?? 0,
+  );
+  const stage2Failed = numberValue(
+    preannotation.stage2Failed ?? preannotation.stage2_failed ?? preannotation.stage2Failures ?? preannotation.stage2_failure_count,
+    totals?.stage2Failures ?? 0,
+  );
+
+  return {
+    datasetId: stringValue(record.datasetId ?? record.dataset_id, datasetId),
+    datasetType: optionalString(record.datasetType ?? record.dataset_type ?? fallback?.dataset.datasetType),
+    batchKey: optionalString(record.batchKey ?? record.batch_key ?? fallback?.dataset.batchKey),
+    media: {
+      total: rawTotal,
+      valid: numberValue(media.valid ?? media.valid_assets ?? media.valid_count, rawTotal),
+      missing: numberValue(media.missing ?? media.missing_assets ?? media.missing_count),
+      loadFailed: numberValue(media.loadFailed ?? media.load_failed),
+      resolutionAbnormal: numberValue(media.resolutionAbnormal ?? media.resolution_abnormal),
+    },
+    importHealth: {
+      imported: numberValue(importHealth.imported ?? importHealth.imported_assets, rawTotal),
+      duplicates: numberValue(importHealth.duplicates ?? importHealth.duplicate_sample_ids),
+      orphanAnnotations: numberValue(importHealth.orphanAnnotations ?? importHealth.orphan_annotations),
+      pathWarnings: numberValue(importHealth.pathWarnings ?? importHealth.path_warnings),
+      schemaWarnings: numberValue(importHealth.schemaWarnings ?? importHealth.schema_warnings),
+    },
+    preannotation: {
+      stage1Ready: numberValue(
+        preannotation.stage1Ready ?? preannotation.stage1_ready ?? preannotation.stage1Parsed ?? preannotation.stage1_count,
+        totals?.stage1Parsed ?? 0,
+      ),
+      stage2Ready,
+      stage2Failed,
+      stage2Missing: numberValue(preannotation.stage2Missing ?? preannotation.stage2_missing, Math.max(rawTotal - stage2Ready - stage2Failed, 0)),
+    },
+    modelJudgement: {
+      pass: numberValue(modelJudgement.pass ?? modelJudgement.passed),
+      softFail: numberValue(modelJudgement.softFail ?? modelJudgement.soft_fail),
+      unknown: numberValue(modelJudgement.unknown, rawTotal ? 0 : 0),
+    },
+    qc: {
+      queued: numberValue(qc.queued ?? qc.total, fallback?.qc.total ?? 0),
+      pending: numberValue(qc.pending, fallback?.qc.pending ?? 0),
+      skipped: numberValue(qc.skipped),
+      draft: numberValue(qc.draft ?? qc.needsHumanReview ?? qc.needs_human_review, fallback?.qc.needsHumanReview ?? 0),
+      submitted: numberValue(qc.submitted ?? qc.passed, fallback ? fallback.qc.passed + fallback.qc.rejected : 0),
+    },
+    categoryDistribution: normalizeDistributionList(
+      record.categoryDistribution ?? record.category_distribution ?? fallback?.categoryDistribution,
+    ),
+    sampleCategoryDistribution: normalizeDistributionList(
+      record.sampleCategoryDistribution ?? record.sample_category_distribution ?? fallback?.sampleCategoryDistribution,
+    ),
+    updatedAt: optionalString(record.updatedAt ?? record.updated_at),
   };
 };
 
@@ -584,6 +816,15 @@ const toBackendLabelEditPayload = (payload: LabelEditPatchPayload | LabelEditSub
   return body;
 };
 
+const toBackendImportJobCreatePayload = (payload: ImportJobCreatePayload) => ({
+  dataset_type: payload.datasetType,
+  batch_key: payload.batchKey,
+  batch_name: payload.batchName,
+  source_mode: payload.sourceMode,
+  source_uri: payload.sourceUri,
+  description: payload.description,
+});
+
 const normalizeLabelEditIssue = (value: unknown): LabelEditValidationIssue => {
   const record = isRecord(value) ? value : {};
   return {
@@ -735,17 +976,23 @@ const normalizeAssetItem = (value: unknown, datasetId: DatasetId): AssetListItem
   return {
     id: assetId,
     datasetId: stringValue(record.datasetId ?? record.dataset_id, datasetId),
+    datasetType: optionalString(record.datasetType ?? record.dataset_type),
+    batchKey: optionalString(record.batchKey ?? record.batch_key),
     sampleId,
     imageUrl,
     thumbnailUrl,
     width: numberValue(record.width ?? backend.width, 1280),
     height: numberValue(record.height ?? backend.height, 720),
+    mediaStatus: stringValue(record.mediaStatus ?? record.media_status, imageUrl ? 'valid' : 'unknown') as AssetListItem['mediaStatus'],
+    importStatus: stringValue(record.importStatus ?? record.import_status, 'imported'),
     sourcePath: stringValue(record.sourcePath ?? record.source_image_path_internal ?? backend.source_image_path_internal, ''),
     importedAt: stringValue(record.importedAt ?? record.imported_at, ''),
     stage1Status: stringValue(record.stage1Status ?? record.stage1_status, 'ready') as AssetListItem['stage1Status'],
     stage2Status: normalizeStageStatus(rawStage2Status, hasStage2Failure ? 'failed' : 'ready'),
+    preannotationStatus: optionalString(record.preannotationStatus ?? record.preannotation_status),
     judgeDecision: stringValue(record.judgeDecision ?? record.judge_decision ?? record.stage2_judge_decision, 'pass') as AssetListItem['judgeDecision'],
     qcStatus: normalizeQcStatus(record.qcStatus ?? record.qc_status),
+    labelEditStatus: stringValue(record.labelEditStatus ?? record.label_edit_status, 'none') as AssetListItem['labelEditStatus'],
     hasStage2Failure,
     violationCategories: normalizeStringList(record.violationCategories ?? record.violation_categories),
     sampleCategories: normalizeStringList(record.sampleCategories ?? record.sample_categories),
@@ -1013,50 +1260,133 @@ const normalizeQcQueueItem = (value: unknown, datasetId: DatasetId): QcQueueItem
   };
 };
 
+const normalizeImportJobSummary = (payload: unknown, datasetId: DatasetId): ImportJobSummary => {
+  const detail = normalizeImportJob(payload, datasetId, 'unknown-import-job');
+  const validation = detail.validationReport;
+  return {
+    id: detail.id,
+    datasetId: detail.datasetId,
+    state: detail.state,
+    title: detail.title,
+    createdAt: detail.createdAt,
+    updatedAt: detail.updatedAt,
+    blockingIssueCount: validation?.blockingErrors.length ?? detail.warnings.filter((item) => item.severity === 'blocking').length,
+    warningCount: validation?.warnings.length ?? detail.warnings.filter((item) => item.severity !== 'blocking').length,
+    totals: detail.totals,
+  };
+};
+
+const normalizeImportValidationReport = (
+  value: unknown,
+  datasetId: DatasetId,
+  jobId: ImportJobId,
+  fallback: Pick<ImportJobDetail, 'totals' | 'coverage' | 'warnings' | 'validationRows'>,
+): ImportValidationReport => {
+  const record = isRecord(value) ? value : {};
+  const warnings = normalizeWarnings(record.warnings ?? record.non_blocking_warnings ?? record.nonBlockingWarnings);
+  const blockingErrors = normalizeWarnings(record.blockingErrors ?? record.blocking_errors ?? record.errors)
+    .map((item) => ({ ...item, severity: 'blocking' as const }));
+  const allWarnings = warnings.length ? warnings : fallback.warnings.filter((item) => item.severity !== 'blocking');
+  const allBlocking = blockingErrors.length
+    ? blockingErrors
+    : fallback.warnings.filter((item) => item.severity === 'blocking');
+
+  return {
+    datasetId: stringValue(record.datasetId ?? record.dataset_id, datasetId),
+    jobId: stringValue(record.jobId ?? record.job_id, jobId),
+    valid: booleanValue(record.valid, allBlocking.length === 0),
+    totals: normalizeTotals(record.totals ?? record, fallback.totals),
+    coverage: normalizeCoverage(record.coverage, fallback.coverage),
+    blockingErrors: allBlocking,
+    warnings: allWarnings,
+    rows: normalizeImportValidationRows(record.rows ?? record.validationRows ?? record.validation_rows).length
+      ? normalizeImportValidationRows(record.rows ?? record.validationRows ?? record.validation_rows)
+      : fallback.validationRows,
+    checkedAt: optionalString(record.checkedAt ?? record.checked_at),
+  };
+};
+
 const normalizeImportJob = (payload: unknown, datasetId: DatasetId, jobId: ImportJobId): ImportJobDetail => {
   const record = isRecord(payload) ? payload : {};
   const backend = record as Partial<BackendImportJob>;
   const state = stringValue(record.state ?? backend.state, 'Draft') as ImportJobState;
-  const expectedAssets = numberValue(record.expected_assets ?? record.expectedAssets ?? backend.expected_assets);
-  const importedAssets = numberValue(record.imported_assets ?? record.importedAssets ?? backend.imported_assets);
-  const stage2Parsed = numberValue(record.stage2_success_count ?? record.stage2SuccessCount, importedAssets);
-  const failureCount = numberValue(record.failure_count ?? record.failureCount ?? backend.failure_count);
+  const rawTotals = isRecord(record.totals) ? record.totals : record;
+  const expectedAssets = numberValue(rawTotals.rawAssets ?? rawTotals.raw_assets ?? record.expected_assets ?? record.expectedAssets ?? backend.expected_assets);
+  const importedAssets = numberValue(rawTotals.stage1Parsed ?? rawTotals.stage1_parsed ?? record.imported_assets ?? record.importedAssets ?? backend.imported_assets, expectedAssets);
+  const stage2Parsed = numberValue(rawTotals.stage2Parsed ?? rawTotals.stage2_parsed ?? record.stage2_success_count ?? record.stage2SuccessCount, importedAssets);
+  const failureCount = numberValue(rawTotals.stage2Failures ?? rawTotals.stage2_failures ?? record.failure_count ?? record.failureCount ?? backend.failure_count);
   const validationErrors = arrayValue<string>(record.validation_errors ?? record.validationErrors ?? backend.validation_errors);
-
-  if ('totals' in record && 'validationRows' in record) {
-    return record as unknown as ImportJobDetail;
-  }
-
-  return {
-    id: stringValue(record.id ?? record.job_id ?? backend.job_id, jobId),
+  const id = stringValue(record.id ?? record.job_id ?? backend.job_id, jobId);
+  const totals = normalizeTotals(rawTotals, {
+    rawAssets: expectedAssets,
+    stage1Parsed: importedAssets,
+    stage2Parsed,
+    stage2Failures: failureCount,
+  });
+  const coverage = normalizeCoverage(record.coverage, {
+    stage1: totals.rawAssets > 0 ? totals.stage1Parsed / totals.rawAssets : 0,
+    stage2: totals.rawAssets > 0 ? totals.stage2Parsed / totals.rawAssets : 0,
+  });
+  const warnings = normalizeWarnings(record.warnings ?? record.importWarnings ?? record.import_warnings);
+  const normalizedWarnings = warnings.length
+    ? warnings
+    : validationErrors.map((message, index) => ({
+        id: `validation-${index + 1}`,
+        severity: 'blocking' as const,
+        title: 'Validation error',
+        message,
+      }));
+  const validationRows = normalizeImportValidationRows(record.validationRows ?? record.validation_rows);
+  const detail: ImportJobDetail = {
+    id,
     datasetId: stringValue(record.datasetId ?? record.dataset_id ?? backend.dataset_id, datasetId),
+    datasetType: optionalString(record.datasetType ?? record.dataset_type ?? backend.dataset_type),
+    batchKey: optionalString(record.batchKey ?? record.batch_key ?? backend.batch_key),
+    title: optionalString(record.title ?? record.name),
+    sourceMode: optionalString(record.sourceMode ?? record.source_mode) as ImportJobDetail['sourceMode'],
+    sourceUri: optionalString(record.sourceUri ?? record.source_uri ?? record.source_root),
     state,
-    activeStep: importStateStep(state),
+    activeStep: numberValue(record.activeStep ?? record.active_step, importStateStep(state)),
     createdAt: stringValue(record.createdAt ?? record.created_at, ''),
     updatedAt: stringValue(record.updatedAt ?? record.updated_at, ''),
-    totals: {
-      rawAssets: expectedAssets,
-      stage1Parsed: importedAssets,
-      stage2Parsed,
-      stage2Failures: failureCount,
-    },
-    coverage: {
-      stage1: expectedAssets > 0 ? importedAssets / expectedAssets : 0,
-      stage2: expectedAssets > 0 ? stage2Parsed / expectedAssets : 0,
-    },
-    warnings: validationErrors.map((message, index) => ({
-      id: `validation-${index + 1}`,
-      severity: 'blocking',
-      title: 'Validation error',
-      message,
-    })),
-    validationRows: normalizeImportValidationRows(record.validationRows ?? record.validation_rows),
+    totals,
+    coverage,
+    warnings: normalizedWarnings,
+    validationRows,
     mappingSteps: normalizeImportMappingSteps(record.mappingSteps ?? record.mapping_steps, {
-      expectedAssets,
-      importedAssets,
-      stage2Parsed,
-      failureCount,
+      expectedAssets: totals.rawAssets,
+      importedAssets: totals.stage1Parsed,
+      stage2Parsed: totals.stage2Parsed,
+      failureCount: totals.stage2Failures,
     }),
+  };
+
+  const validationReportValue = firstRecord(record.validationReport, record.validation_report, record.report);
+  detail.validationReport = normalizeImportValidationReport(validationReportValue ?? record, detail.datasetId, detail.id, detail);
+  return detail;
+};
+
+const normalizeTotals = (
+  value: unknown,
+  fallback: DatasetSummary['totals'],
+): DatasetSummary['totals'] => {
+  const record = isRecord(value) ? value : {};
+  return {
+    rawAssets: numberValue(record.rawAssets ?? record.raw_assets ?? record.total_assets, fallback.rawAssets),
+    stage1Parsed: numberValue(record.stage1Parsed ?? record.stage1_parsed ?? record.stage1_count, fallback.stage1Parsed),
+    stage2Parsed: numberValue(record.stage2Parsed ?? record.stage2_parsed ?? record.stage2_success_count, fallback.stage2Parsed),
+    stage2Failures: numberValue(record.stage2Failures ?? record.stage2_failures ?? record.stage2_failure_count, fallback.stage2Failures),
+  };
+};
+
+const normalizeCoverage = (
+  value: unknown,
+  fallback: DatasetSummary['coverage'],
+): DatasetSummary['coverage'] => {
+  const record = isRecord(value) ? value : {};
+  return {
+    stage1: numberValue(record.stage1, fallback.stage1),
+    stage2: numberValue(record.stage2, fallback.stage2),
   };
 };
 
@@ -1134,5 +1464,8 @@ const importStateStep = (state: ImportJobState) => {
   if (state === 'PreviewReady') {
     return 4;
   }
-  return 5;
+  if (state === 'Importing' || state === 'ImportFailed') {
+    return 5;
+  }
+  return 6;
 };

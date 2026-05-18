@@ -2,6 +2,7 @@ import type { SubmitReviewPayload, UrbanViolationApi } from './urbanViolationApi
 import type {
   AssetListFilters,
   AssetListItem,
+  AssetSummary,
   Dataset,
   DatasetSummary,
   HumanReview,
@@ -21,7 +22,25 @@ const dataset: Dataset = {
   id: 'ds_urban_violation_001',
   name: 'urban_violation',
   version: 'v1.0',
-  status: 'active',
+  status: 'qc_ready',
+  datasetType: 'urban_violation',
+  batchKey: '0508_fixture',
+  batchName: '0508 测试批次',
+  lifecycleStatus: 'qc_ready',
+  displayName: '城市违规',
+  fieldSchemaVersion: '2026-05-18',
+  activeLabelConfigVersion: 'urban_violation_labels_v1',
+  activeImportJobId: 'import-stage2-0508',
+  qcQueueId: 'qcq_urban_violation_0508_fixture',
+  assetTotal: 797,
+  stage1Total: 797,
+  stage2SuccessTotal: 780,
+  stage2FailureTotal: 19,
+  qcProgress: {
+    pending: 186,
+    submitted: 528,
+    total: 780,
+  },
   description: 'Urban traffic violation dataset with stage1 and stage2 pre-annotation outputs.',
   createdAt: '2025-05-08T10:21:33+08:00',
   updatedAt: '2025-05-08T15:45:12+08:00',
@@ -36,6 +55,8 @@ const assets: AssetListItem[] = [
   {
     id: 'asset-000142',
     datasetId: dataset.id,
+    datasetType: dataset.datasetType,
+    batchKey: dataset.batchKey,
     sampleId: '000142_0_1762483003246',
     imageUrl: mediaUrl('000142_0_1762483003246'),
     thumbnailUrl: mediaUrl('000142_0_1762483003246', 'thumb'),
@@ -43,10 +64,14 @@ const assets: AssetListItem[] = [
     height: 720,
     sourcePath: 'images/000142_0_1762483003246.jpg',
     importedAt: '2025-05-08T11:54:21+08:00',
+    mediaStatus: 'valid',
+    importStatus: 'imported',
     stage1Status: 'ready',
     stage2Status: 'passed',
+    preannotationStatus: 'stage2_ready',
     judgeDecision: 'pass',
     qcStatus: 'qc_pending',
+    labelEditStatus: 'none',
     hasStage2Failure: false,
     violationCategories: ['nonmotor_vehicle_illegal_parking'],
     sampleCategories: ['positive samples'],
@@ -57,6 +82,8 @@ const assets: AssetListItem[] = [
   {
     id: 'asset-001710',
     datasetId: dataset.id,
+    datasetType: dataset.datasetType,
+    batchKey: dataset.batchKey,
     sampleId: '001710_0_1763108687181',
     imageUrl: mediaUrl('001710_0_1763108687181'),
     thumbnailUrl: mediaUrl('001710_0_1763108687181', 'thumb'),
@@ -64,10 +91,14 @@ const assets: AssetListItem[] = [
     height: 720,
     sourcePath: 'images/001710_0_1763108687181.jpg',
     importedAt: '2025-05-08T11:54:20+08:00',
+    mediaStatus: 'valid',
+    importStatus: 'imported',
     stage1Status: 'ready',
     stage2Status: 'failed',
+    preannotationStatus: 'stage2_failed',
     judgeDecision: 'soft_fail',
     qcStatus: 'needs_review',
+    labelEditStatus: 'draft',
     hasStage2Failure: true,
     violationCategories: ['stage2_failure'],
     sampleCategories: ['hard boundary samples'],
@@ -77,6 +108,8 @@ const assets: AssetListItem[] = [
   {
     id: 'asset-000233',
     datasetId: dataset.id,
+    datasetType: dataset.datasetType,
+    batchKey: dataset.batchKey,
     sampleId: '000233_0_1762483885120',
     imageUrl: mediaUrl('000233_0_1762483885120'),
     thumbnailUrl: mediaUrl('000233_0_1762483885120', 'thumb'),
@@ -84,10 +117,14 @@ const assets: AssetListItem[] = [
     height: 720,
     sourcePath: 'images/000233_0_1762483885120.jpg',
     importedAt: '2025-05-08T11:53:58+08:00',
+    mediaStatus: 'valid',
+    importStatus: 'imported',
     stage1Status: 'ready',
     stage2Status: 'passed',
+    preannotationStatus: 'stage2_ready',
     judgeDecision: 'pass',
     qcStatus: 'passed',
+    labelEditStatus: 'submitted',
     hasStage2Failure: false,
     violationCategories: ['goods_blocking_road'],
     sampleCategories: ['positive samples'],
@@ -98,6 +135,8 @@ const assets: AssetListItem[] = [
   {
     id: 'asset-000376',
     datasetId: dataset.id,
+    datasetType: dataset.datasetType,
+    batchKey: dataset.batchKey,
     sampleId: '000376_0_1762484770192',
     imageUrl: mediaUrl('000376_0_1762484770192'),
     thumbnailUrl: mediaUrl('000376_0_1762484770192', 'thumb'),
@@ -105,10 +144,14 @@ const assets: AssetListItem[] = [
     height: 720,
     sourcePath: 'images/000376_0_1762484770192.jpg',
     importedAt: '2025-05-08T11:53:36+08:00',
+    mediaStatus: 'valid',
+    importStatus: 'imported',
     stage1Status: 'ready',
     stage2Status: 'ready',
+    preannotationStatus: 'stage2_ready',
     judgeDecision: 'soft_fail',
     qcStatus: 'needs_review',
+    labelEditStatus: 'none',
     hasStage2Failure: false,
     violationCategories: ['no violation'],
     sampleCategories: ['negative samples'],
@@ -119,6 +162,8 @@ const assets: AssetListItem[] = [
   {
     id: 'asset-000511',
     datasetId: dataset.id,
+    datasetType: dataset.datasetType,
+    batchKey: dataset.batchKey,
     sampleId: '000511_0_1762485111234',
     imageUrl: mediaUrl('000511_0_1762485111234'),
     thumbnailUrl: mediaUrl('000511_0_1762485111234', 'thumb'),
@@ -126,10 +171,14 @@ const assets: AssetListItem[] = [
     height: 720,
     sourcePath: 'images/000511_0_1762485111234.jpg',
     importedAt: '2025-05-08T11:52:48+08:00',
+    mediaStatus: 'valid',
+    importStatus: 'imported',
     stage1Status: 'ready',
     stage2Status: 'ready',
+    preannotationStatus: 'stage2_ready',
     judgeDecision: 'soft_fail',
     qcStatus: 'manual_label_required',
+    labelEditStatus: 'changed',
     hasStage2Failure: false,
     violationCategories: ['motor_vehicle_illegal_parking'],
     sampleCategories: ['hard boundary samples'],
@@ -138,6 +187,55 @@ const assets: AssetListItem[] = [
     updatedAt: '2025-05-08T11:52:48+08:00',
   },
 ];
+
+const assetSummary: AssetSummary = {
+  datasetId: dataset.id,
+  datasetType: dataset.datasetType,
+  batchKey: dataset.batchKey,
+  media: {
+    total: 797,
+    valid: 797,
+    missing: 0,
+    loadFailed: 0,
+    resolutionAbnormal: 0,
+  },
+  importHealth: {
+    imported: 797,
+    duplicates: 0,
+    orphanAnnotations: 1,
+    pathWarnings: 2,
+    schemaWarnings: 0,
+  },
+  preannotation: {
+    stage1Ready: 797,
+    stage2Ready: 780,
+    stage2Failed: 19,
+    stage2Missing: 0,
+  },
+  modelJudgement: {
+    pass: 569,
+    softFail: 211,
+    unknown: 17,
+  },
+  qc: {
+    queued: 797,
+    pending: 186,
+    skipped: 0,
+    draft: 66,
+    submitted: 528,
+  },
+  categoryDistribution: [
+    { key: 'no violation', label: 'no violation', count: 387, ratio: 0.4962 },
+    { key: 'nonmotor_vehicle_illegal_parking', label: 'nonmotor_vehicle_illegal_parking', count: 302, ratio: 0.3872 },
+    { key: 'goods_blocking_road', label: 'goods_blocking_road', count: 221, ratio: 0.2833 },
+  ],
+  sampleCategoryDistribution: [
+    { key: 'positive samples', label: 'Positive', count: 612, ratio: 0.7846 },
+    { key: 'negative samples', label: 'Negative', count: 104, ratio: 0.1333 },
+    { key: 'hard boundary samples', label: 'Hard boundary', count: 64, ratio: 0.0821 },
+  ],
+  updatedAt: '2025-05-08T15:45:12+08:00',
+};
 
 const datasetSummary: DatasetSummary = {
   dataset,
@@ -209,6 +307,23 @@ const datasetSummary: DatasetSummary = {
       createdAt: '2025-05-08T15:42:25+08:00',
     },
   ],
+  latestImportJob: {
+    id: 'import-stage2-0508',
+    datasetId: dataset.id,
+    state: 'PreviewReady',
+    title: '0508 fixture local directory import',
+    createdAt: '2025-05-08T10:21:33+08:00',
+    updatedAt: '2025-05-08T15:42:25+08:00',
+    blockingIssueCount: 0,
+    warningCount: 2,
+    totals: {
+      rawAssets: 797,
+      stage1Parsed: 797,
+      stage2Parsed: 780,
+      stage2Failures: 19,
+    },
+  },
+  assetSummary,
   recentRuns: [
     {
       runId: 'stage2_run_0508',
@@ -241,8 +356,13 @@ const datasetSummary: DatasetSummary = {
 const importJob: ImportJobDetail = {
   id: 'import-stage2-0508',
   datasetId: dataset.id,
+  datasetType: dataset.datasetType,
+  batchKey: dataset.batchKey,
+  title: '0508 fixture local directory import',
+  sourceMode: 'local_directory',
+  sourceUri: 'DATASET/urban_violation',
   state: 'PreviewReady',
-  activeStep: 3,
+  activeStep: 4,
   createdAt: '2025-05-08T10:21:33+08:00',
   updatedAt: '2025-05-08T15:42:25+08:00',
   totals: datasetSummary.totals,
@@ -283,6 +403,18 @@ const importJob: ImportJobDetail = {
     { id: 'failures', label: 'failures/*.json', count: 19, entity: 'PreAnnotationFailure' },
     { id: 'audit', label: 'records / requests / responses / meta', count: 7930, entity: 'AuditArtifact' },
   ],
+};
+
+importJob.validationReport = {
+  datasetId: dataset.id,
+  jobId: importJob.id,
+  valid: true,
+  totals: importJob.totals,
+  coverage: importJob.coverage,
+  blockingErrors: [],
+  warnings: importJob.warnings,
+  rows: importJob.validationRows,
+  checkedAt: importJob.updatedAt,
 };
 
 const preannotationSummary: PreannotationSummary = {
@@ -640,6 +772,8 @@ const filterAssets = (filters: AssetListFilters = {}) =>
   assets.filter((asset) => {
     const matchesJudge =
       !filters.judgeDecision || filters.judgeDecision === 'all' || asset.judgeDecision === filters.judgeDecision;
+    const matchesStage1 =
+      !filters.stage1Status || filters.stage1Status === 'all' || asset.stage1Status === filters.stage1Status;
     const matchesStage2 =
       !filters.stage2State ||
       filters.stage2State === 'all' ||
@@ -653,15 +787,32 @@ const filterAssets = (filters: AssetListFilters = {}) =>
       !filters.sampleCategory ||
       filters.sampleCategory === 'all' ||
       asset.sampleCategories.includes(filters.sampleCategory);
+    const matchesConfidenceMin =
+      filters.confidenceMin === undefined ||
+      (asset.highestConfidence !== undefined && asset.highestConfidence >= filters.confidenceMin);
+    const matchesConfidenceMax =
+      filters.confidenceMax === undefined ||
+      (asset.highestConfidence !== undefined && asset.highestConfidence <= filters.confidenceMax);
+    const matchesMedia =
+      !filters.mediaStatus || filters.mediaStatus === 'all' || asset.mediaStatus === filters.mediaStatus;
+    const matchesLabelEdit =
+      !filters.labelEditStatus ||
+      filters.labelEditStatus === 'all' ||
+      asset.labelEditStatus === filters.labelEditStatus;
     const query = filters.search?.trim().toLowerCase();
     const matchesSearch = !query || asset.sampleId.toLowerCase().includes(query);
 
     return (
       matchesJudge &&
+      matchesStage1 &&
       matchesStage2 &&
       matchesQc &&
       matchesCategory &&
       matchesSampleCategory &&
+      matchesConfidenceMin &&
+      matchesConfidenceMax &&
+      matchesMedia &&
+      matchesLabelEdit &&
       matchesSearch
     );
   });
@@ -723,13 +874,49 @@ export const fixtureApiClient: UrbanViolationApi = {
     await delay();
     return clone(datasetSummary);
   },
+  async getAssetSummary() {
+    await delay();
+    return clone(assetSummary);
+  },
   async listAssets(_datasetId, filters) {
     await delay();
     return clone(filterAssets(filters));
   },
+  async listImportJobs() {
+    await delay();
+    return clone([datasetSummary.latestImportJob!]);
+  },
+  async createImportJob(_datasetId, payload) {
+    await delay();
+    return clone({
+      ...importJob,
+      id: `import-${payload.batchKey ?? dataset.batchKey ?? 'draft'}`,
+      title: payload.batchName ?? 'New batch import',
+      state: 'Draft',
+      activeStep: 1,
+      sourceMode: payload.sourceMode,
+      sourceUri: payload.sourceUri,
+    });
+  },
   async getImportJob() {
     await delay();
     return clone(importJob);
+  },
+  async scanImportJob() {
+    await delay();
+    return clone({ ...importJob, state: 'Validating', activeStep: 3 });
+  },
+  async validateImportJob() {
+    await delay();
+    return clone({ ...importJob, state: 'PreviewReady', activeStep: 4 });
+  },
+  async confirmImportJob() {
+    await delay();
+    return clone({ ...importJob, state: 'QCQueueGenerated', activeStep: 6 });
+  },
+  async retryImportJob() {
+    await delay();
+    return clone({ ...importJob, state: 'Scanning', activeStep: 3 });
   },
   async getPreannotationSummary() {
     await delay();

@@ -8,10 +8,12 @@ from fastapi.responses import FileResponse
 from urban_violation_backend.api_schemas import (
     AssetDetailResponse,
     AssetListResponse,
+    AssetSummaryResponse,
     DatasetSummaryResponse,
     ExportRequest,
     ExportResponse,
     HealthResponse,
+    ImportJobCreateRequest,
     ImportJobStatusResponse,
     LabelEditSubmitRequest,
     LabelEditSubmitResponse,
@@ -161,6 +163,13 @@ def build_router(service: FixtureRuntimeService) -> APIRouter:
         qc_status: str | None = Query(default=None),
         failure_status: str | None = Query(default=None),
         sample_category: str | None = Query(default=None),
+        step1_status: str | None = Query(default=None),
+        step2_status: str | None = Query(default=None),
+        model_decision: str | None = Query(default=None),
+        confidence_min: float | None = Query(default=None, ge=0.0, le=1.0),
+        confidence_max: float | None = Query(default=None, ge=0.0, le=1.0),
+        media_status: str | None = Query(default=None),
+        edited_status: str | None = Query(default=None),
         runtime: FixtureRuntimeService = Depends(get_service),
     ) -> AssetListResponse:
         try:
@@ -171,7 +180,27 @@ def build_router(service: FixtureRuntimeService) -> APIRouter:
                 qc_status=qc_status,
                 failure_status=failure_status,
                 sample_category=sample_category,
+                step1_status=step1_status,
+                step2_status=step2_status,
+                model_decision=model_decision,
+                confidence_min=confidence_min,
+                confidence_max=confidence_max,
+                media_status=media_status,
+                edited_status=edited_status,
             )
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    @router.get(
+        "/api/datasets/{dataset_id}/assets/summary",
+        response_model=AssetSummaryResponse,
+    )
+    async def assets_summary(
+        dataset_id: str,
+        runtime: FixtureRuntimeService = Depends(get_service),
+    ) -> AssetSummaryResponse:
+        try:
+            return runtime.get_asset_summary(dataset_id=dataset_id)
         except DatasetNotFoundError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
@@ -271,6 +300,34 @@ def build_router(service: FixtureRuntimeService) -> APIRouter:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
     @router.get(
+        "/api/datasets/{dataset_id}/import-jobs",
+        response_model=list[ImportJobStatusResponse],
+    )
+    async def list_import_jobs(
+        dataset_id: str,
+        runtime: FixtureRuntimeService = Depends(get_service),
+    ) -> list[ImportJobStatusResponse]:
+        try:
+            return runtime.list_import_jobs(dataset_id=dataset_id)
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    @router.post(
+        "/api/datasets/{dataset_id}/import-jobs",
+        response_model=ImportJobStatusResponse,
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def create_import_job(
+        dataset_id: str,
+        payload: ImportJobCreateRequest,
+        runtime: FixtureRuntimeService = Depends(get_service),
+    ) -> ImportJobStatusResponse:
+        try:
+            return runtime.create_import_job(dataset_id=dataset_id, request=payload)
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    @router.get(
         "/api/datasets/{dataset_id}/import-jobs/{job_id}",
         response_model=ImportJobStatusResponse,
     )
@@ -281,6 +338,70 @@ def build_router(service: FixtureRuntimeService) -> APIRouter:
     ) -> ImportJobStatusResponse:
         try:
             return runtime.get_import_job(dataset_id=dataset_id, job_id=job_id)
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        except ImportJobNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    @router.post(
+        "/api/datasets/{dataset_id}/import-jobs/{job_id}/scan",
+        response_model=ImportJobStatusResponse,
+    )
+    async def scan_import_job(
+        dataset_id: str,
+        job_id: str,
+        runtime: FixtureRuntimeService = Depends(get_service),
+    ) -> ImportJobStatusResponse:
+        try:
+            return runtime.scan_import_job(dataset_id=dataset_id, job_id=job_id)
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        except ImportJobNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    @router.post(
+        "/api/datasets/{dataset_id}/import-jobs/{job_id}/validate",
+        response_model=ImportJobStatusResponse,
+    )
+    async def validate_import_job(
+        dataset_id: str,
+        job_id: str,
+        runtime: FixtureRuntimeService = Depends(get_service),
+    ) -> ImportJobStatusResponse:
+        try:
+            return runtime.validate_import_job(dataset_id=dataset_id, job_id=job_id)
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        except ImportJobNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    @router.post(
+        "/api/datasets/{dataset_id}/import-jobs/{job_id}/confirm",
+        response_model=ImportJobStatusResponse,
+    )
+    async def confirm_import_job(
+        dataset_id: str,
+        job_id: str,
+        runtime: FixtureRuntimeService = Depends(get_service),
+    ) -> ImportJobStatusResponse:
+        try:
+            return runtime.confirm_import_job(dataset_id=dataset_id, job_id=job_id)
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        except ImportJobNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    @router.post(
+        "/api/datasets/{dataset_id}/import-jobs/{job_id}/retry",
+        response_model=ImportJobStatusResponse,
+    )
+    async def retry_import_job(
+        dataset_id: str,
+        job_id: str,
+        runtime: FixtureRuntimeService = Depends(get_service),
+    ) -> ImportJobStatusResponse:
+        try:
+            return runtime.retry_import_job(dataset_id=dataset_id, job_id=job_id)
         except DatasetNotFoundError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
         except ImportJobNotFoundError as exc:

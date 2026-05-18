@@ -624,6 +624,9 @@ interface RelationView {
   dirty: boolean;
 }
 
+type BBoxTone = NonNullable<OverlayBox['tone']>;
+type RelationIdentityTone = Exclude<BBoxTone, 'purple'>;
+
 const instance = getCurrentInstance();
 const router = instance?.appContext.config.globalProperties.$router as
   | { push: (target: string) => Promise<unknown> | void }
@@ -645,7 +648,8 @@ const actionMessage = ref('');
 const validationPending = ref(false);
 const savePending = ref(false);
 const submitPending = ref(false);
-const DEFAULT_RELATION_TONES: NonNullable<OverlayBox['tone']>[] = ['blue', 'green', 'orange', 'cyan', 'yellow', 'teal'];
+const DEFAULT_RELATION_TONES: RelationIdentityTone[] = ['blue', 'green', 'orange', 'cyan', 'yellow', 'teal'];
+const ORPHAN_RELATION_TONE: BBoxTone = 'purple';
 
 if (reviewDraft.value.candidateDrafts.length) {
   activeCandidateId.value = reviewDraft.value.candidateDrafts[0].id;
@@ -780,7 +784,7 @@ const overlayBoxes = computed<OverlayBox[]>(() => {
         id: `stage1-${item.badge}`,
         label: item.badge,
         bbox: item.draft.bbox,
-        tone: item.orphan ? 'purple' : relationTone(item.badge),
+        tone: relationBoxTone(item),
         relationIndex: item.badge,
         selected: imageRelationSelected(item.badge),
         editable: canEditLabels.value,
@@ -795,7 +799,7 @@ const overlayBoxes = computed<OverlayBox[]>(() => {
         id: `stage2-${badge}`,
         label: `S2 ${badge}`,
         bbox: relationView?.draft.bbox ?? verification.bbox,
-        tone: relationView?.orphan ? 'purple' : relationTone(badge),
+        tone: relationView ? relationBoxTone(relationView) : relationTone(badge),
         relationIndex: badge,
         selected: imageRelationSelected(badge),
       });
@@ -809,7 +813,7 @@ const overlayBoxes = computed<OverlayBox[]>(() => {
           id: `candidate-${activeCandidateId.value}-${relationId}`,
           label: `${activeCandidateId.value} ${relationId}`,
           bbox: relation.draft.bbox,
-          tone: 'purple',
+          tone: candidateBoxTone(relationId),
           relationIndex: relationId,
           selected: imageRelationSelected(relationId),
         });
@@ -909,7 +913,15 @@ function imageRelationSelected(relationId: string | number) {
   return activeImageRelationKey.value === relationBadge(relationId);
 }
 
-function relationTone(relationId: string): NonNullable<OverlayBox['tone']> {
+function relationBoxTone(relation: Pick<RelationView, 'badge' | 'orphan'>): BBoxTone {
+  return relation.orphan ? ORPHAN_RELATION_TONE : relationTone(relation.badge);
+}
+
+function candidateBoxTone(relationId: string): RelationIdentityTone {
+  return relationTone(relationId);
+}
+
+function relationTone(relationId: string): RelationIdentityTone {
   const seed = Array.from(relationId).reduce((total, char) => total + char.charCodeAt(0), 0);
   return DEFAULT_RELATION_TONES[seed % DEFAULT_RELATION_TONES.length];
 }

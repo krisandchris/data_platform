@@ -476,6 +476,11 @@ describe('import and review routes', () => {
         id: 'ds-live',
         jobId: 'job-1',
       },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
     });
     await flushPromises();
 
@@ -681,6 +686,27 @@ describe('import and review routes', () => {
     expect(defaultToneClasses).not.toContain('bbox-shell__box--purple');
     expect(defaultToneClasses).not.toContain('bbox-shell__box--red');
     expect(defaultToneClasses).not.toContain('bbox-shell__box--black');
+
+    const candidateToneClasses = wrapper
+      .findAll('.bbox-shell__box')
+      .filter((box) => /^C1 R1$/.test(box.attributes('aria-label') ?? ''))
+      .flatMap((box) => box.classes().filter((className) => className.startsWith('bbox-shell__box--')));
+    expect(candidateToneClasses.length).toBeGreaterThan(0);
+    expect(candidateToneClasses).not.toContain('bbox-shell__box--purple');
+    expect(candidateToneClasses).not.toContain('bbox-shell__box--red');
+    expect(candidateToneClasses).not.toContain('bbox-shell__box--black');
+    expect(
+      candidateToneClasses.some((className) =>
+        [
+          'bbox-shell__box--blue',
+          'bbox-shell__box--green',
+          'bbox-shell__box--orange',
+          'bbox-shell__box--cyan',
+          'bbox-shell__box--yellow',
+          'bbox-shell__box--teal',
+        ].includes(className),
+      ),
+    ).toBe(true);
 
     await unreferencedBoxes[0].trigger('click');
     await flushPromises();

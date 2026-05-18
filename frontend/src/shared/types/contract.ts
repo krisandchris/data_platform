@@ -3,7 +3,26 @@ export type AssetId = string;
 export type SampleId = string;
 export type ImportJobId = string;
 
-export type DatasetLifecycleStatus = 'draft' | 'active' | 'archived';
+export type DatasetLifecycleStatus =
+  | 'draft'
+  | 'registered'
+  | 'scanning'
+  | 'validation_failed'
+  | 'validated'
+  | 'importing'
+  | 'import_failed'
+  | 'imported'
+  | 'preannotation_pending'
+  | 'preannotating'
+  | 'preannotation_failed'
+  | 'preannotation_ready'
+  | 'label_config_required'
+  | 'qc_ready'
+  | 'qc_in_progress'
+  | 'qc_completed'
+  | 'export_ready'
+  | 'active'
+  | 'archived';
 export type ImportJobState =
   | 'Draft'
   | 'Uploading'
@@ -36,6 +55,9 @@ export type VerificationResult = 'supported' | 'weakly_supported' | 'unsupported
 export type ReviewDecision = 'approved' | 'needs_changes' | 'rejected';
 export type LabelConfigMode = 'closed_enum' | 'open_tags' | string;
 export type LabelConfigStatus = 'draft' | 'active' | 'archived' | 'rejected' | string;
+export type AssetMediaStatus = 'valid' | 'missing' | 'load_failed' | 'resolution_abnormal' | 'unknown';
+export type AssetLabelEditStatus = 'none' | 'draft' | 'submitted' | 'changed' | 'unknown';
+export type ImportSourceMode = 'local_directory' | 'uploaded_package' | 'object_storage_prefix' | 'manifest_only';
 
 export interface ApiErrorPayload {
   code: string;
@@ -48,12 +70,43 @@ export interface Dataset {
   name: string;
   version: string;
   status: DatasetLifecycleStatus;
+  datasetType?: string;
+  batchKey?: string;
+  batchName?: string;
+  lifecycleStatus?: DatasetLifecycleStatus;
+  displayName?: string;
+  fieldSchemaVersion?: string;
+  activeLabelConfigVersion?: string;
+  activeImportJobId?: ImportJobId;
+  qcQueueId?: string;
+  assetTotal?: number;
+  stage1Total?: number;
+  stage2SuccessTotal?: number;
+  stage2FailureTotal?: number;
+  qcProgress?: {
+    pending: number;
+    submitted: number;
+    total?: number;
+  };
+  latestImportJob?: ImportJobSummary;
   description?: string;
   rootPath?: string;
   createdAt: string;
   updatedAt: string;
   tags: string[];
   owner?: string;
+}
+
+export type DatasetBatch = Dataset;
+
+export interface DatasetType {
+  datasetType: string;
+  displayName: string;
+  fieldSchemaVersion?: string;
+  activeLabelConfigVersion?: string;
+  status?: string;
+  batchCount: number;
+  batches: DatasetBatch[];
 }
 
 export interface DatasetRunSummary {
@@ -71,6 +124,18 @@ export interface CountDistribution {
   label: string;
   count: number;
   ratio: number;
+}
+
+export interface ImportJobSummary {
+  id: ImportJobId;
+  datasetId: DatasetId;
+  state: ImportJobState;
+  title?: string;
+  createdAt: string;
+  updatedAt: string;
+  blockingIssueCount: number;
+  warningCount: number;
+  totals?: DatasetSummary['totals'];
 }
 
 export interface DatasetSummary {
@@ -99,6 +164,8 @@ export interface DatasetSummary {
   sampleCategoryDistribution: CountDistribution[];
   importWarnings: ImportWarning[];
   recentRuns: DatasetRunSummary[];
+  latestImportJob?: ImportJobSummary;
+  assetSummary?: AssetSummary;
   metadata: {
     imageSource: string;
     region: string;
@@ -116,6 +183,47 @@ export interface ImportWarning {
   createdAt?: string;
 }
 
+export interface AssetSummary {
+  datasetId: DatasetId;
+  datasetType?: string;
+  batchKey?: string;
+  media: {
+    total: number;
+    valid: number;
+    missing: number;
+    loadFailed: number;
+    resolutionAbnormal: number;
+  };
+  importHealth: {
+    imported: number;
+    duplicates: number;
+    orphanAnnotations: number;
+    pathWarnings: number;
+    schemaWarnings: number;
+  };
+  preannotation: {
+    stage1Ready: number;
+    stage2Ready: number;
+    stage2Failed: number;
+    stage2Missing: number;
+  };
+  modelJudgement: {
+    pass: number;
+    softFail: number;
+    unknown: number;
+  };
+  qc: {
+    queued: number;
+    pending: number;
+    skipped: number;
+    draft: number;
+    submitted: number;
+  };
+  categoryDistribution: CountDistribution[];
+  sampleCategoryDistribution: CountDistribution[];
+  updatedAt?: string;
+}
+
 export interface ImportValidationRow {
   sampleId: SampleId;
   imagePath: string;
@@ -123,6 +231,18 @@ export interface ImportValidationRow {
   stage2Path?: string;
   failurePath?: string;
   status: 'ready' | 'stage2_failed' | 'stage2_missing' | 'orphan_annotation';
+}
+
+export interface ImportValidationReport {
+  datasetId: DatasetId;
+  jobId: ImportJobId;
+  valid: boolean;
+  totals: DatasetSummary['totals'];
+  coverage: DatasetSummary['coverage'];
+  blockingErrors: ImportWarning[];
+  warnings: ImportWarning[];
+  rows: ImportValidationRow[];
+  checkedAt?: string;
 }
 
 export interface ImportMappingStep {
@@ -135,6 +255,11 @@ export interface ImportMappingStep {
 export interface ImportJobDetail {
   id: ImportJobId;
   datasetId: DatasetId;
+  datasetType?: string;
+  batchKey?: string;
+  title?: string;
+  sourceMode?: ImportSourceMode;
+  sourceUri?: string;
   state: ImportJobState;
   activeStep: number;
   createdAt: string;
@@ -144,25 +269,44 @@ export interface ImportJobDetail {
   warnings: ImportWarning[];
   validationRows: ImportValidationRow[];
   mappingSteps: ImportMappingStep[];
+  validationReport?: ImportValidationReport;
+}
+
+export interface ImportJobCreatePayload {
+  datasetType?: string;
+  batchKey?: string;
+  batchName?: string;
+  sourceMode?: ImportSourceMode;
+  sourceUri?: string;
+  description?: string;
 }
 
 export interface AssetListFilters {
   judgeDecision?: JudgeDecision | 'all';
+  stage1Status?: StageStatus | 'all';
   stage2State?: 'all' | 'ready' | 'failed';
   qcStatus?: QcStatus | 'all';
   violationCategory?: string | 'all';
   sampleCategory?: string | 'all';
+  confidenceMin?: number;
+  confidenceMax?: number;
+  mediaStatus?: AssetMediaStatus | 'all';
+  labelEditStatus?: AssetLabelEditStatus | 'all';
   search?: string;
 }
 
 export interface RawAsset {
   id: AssetId;
   datasetId: DatasetId;
+  datasetType?: string;
+  batchKey?: string;
   sampleId: SampleId;
   imageUrl?: string;
   thumbnailUrl?: string;
   width: number;
   height: number;
+  mediaStatus?: AssetMediaStatus;
+  importStatus?: string;
   sourcePath?: string;
   importedAt: string;
 }
@@ -170,8 +314,10 @@ export interface RawAsset {
 export interface AssetListItem extends RawAsset {
   stage1Status: StageStatus;
   stage2Status: StageStatus;
+  preannotationStatus?: string;
   judgeDecision: JudgeDecision;
   qcStatus: QcStatus;
+  labelEditStatus?: AssetLabelEditStatus;
   hasStage2Failure: boolean;
   violationCategories: string[];
   sampleCategories: string[];
@@ -465,6 +611,14 @@ export interface BackendDataset {
   dataset_id: DatasetId;
   name: string;
   root_path: string;
+  dataset_type?: string;
+  batch_key?: string;
+  batch_name?: string;
+  lifecycle_status?: DatasetLifecycleStatus;
+  active_label_config_version?: string;
+  field_schema_version?: string;
+  active_import_job_id?: ImportJobId;
+  qc_queue_id?: string;
   total_assets: number;
   stage1_count: number;
   stage2_success_count: number;
@@ -475,6 +629,8 @@ export interface BackendDataset {
 export interface BackendImportJob {
   job_id: ImportJobId;
   dataset_id: DatasetId;
+  dataset_type?: string;
+  batch_key?: string;
   state: ImportJobState;
   expected_assets: number;
   imported_assets: number;

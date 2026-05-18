@@ -2,17 +2,27 @@
   <div>
     <header class="page-header">
       <div>
-        <h1 class="page-title">导入任务 / 目录扫描与校验</h1>
-        <p class="page-subtitle">Import job {{ jobId }} validates manifest pairing, missing files, bbox readiness, and stage2 failure split.</p>
+        <h1 class="page-title">批次创建 / 导入校验</h1>
+        <p class="page-subtitle">
+          批次 {{ id }} 的导入任务 {{ jobId }}，用于扫描、校验、预览并确认写入当前批次。
+        </p>
       </div>
       <div class="page-actions">
-        <button class="button" type="button">
-          <Download :size="17" />
-          导出校验报告
+        <button class="button" type="button" :disabled="actionLoading" @click="runAction('scan')">
+          <ScanSearch :size="17" />
+          重新扫描
         </button>
-        <button class="button button--primary" type="button">
+        <button class="button" type="button" :disabled="actionLoading" @click="runAction('validate')">
+          <FileCheck2 :size="17" />
+          校验任务
+        </button>
+        <button v-if="job?.state === 'ImportFailed' || job?.state === 'ValidationFailed'" class="button" type="button" :disabled="actionLoading" @click="runAction('retry')">
+          <RotateCcw :size="17" />
+          重试导入
+        </button>
+        <button class="button button--primary" type="button" :disabled="actionLoading || hasBlockingIssues" @click="runAction('confirm')">
           <CheckCircle2 :size="17" />
-          确认导入
+          确认入库
         </button>
       </div>
     </header>
@@ -21,6 +31,7 @@
     <div v-else-if="error" class="error-state">{{ error }}</div>
     <template v-else-if="job">
       <ImportStepper :active-step="job.activeStep" />
+      <p v-if="actionMessage" class="action-message">{{ actionMessage }}</p>
 
       <section class="grid grid--metrics import-metrics">
         <MetricCard label="Raw Images" :value="job.totals.rawAssets" detail="total" tone="blue">
@@ -40,7 +51,7 @@
       <section class="grid grid--two import-grid">
         <div class="panel">
           <div class="panel__header">
-            <h2 class="panel__title">样本对齐结果</h2>
+            <h2 class="panel__title">扫描校验 / 导入预览</h2>
             <StatusChip :value="job.state" />
           </div>
           <div class="import-table-wrap">
@@ -71,16 +82,26 @@
 
         <aside class="panel">
           <div class="panel__header">
-            <h2 class="panel__title">校验结果</h2>
+            <h2 class="panel__title">阻塞错误 / 非阻塞告警</h2>
           </div>
           <div class="panel__body validation-list">
-            <article v-for="warning in job.warnings" :key="warning.id">
+            <article v-for="warning in blockingIssues" :key="warning.id" class="blocking">
               <TriangleAlert :size="18" />
               <div>
                 <strong>{{ warning.title }}</strong>
                 <p>{{ warning.message }}</p>
               </div>
             </article>
+            <article v-for="warning in nonBlockingWarnings" :key="warning.id">
+              <TriangleAlert :size="18" />
+              <div>
+                <strong>{{ warning.title }}</strong>
+                <p>{{ warning.message }}</p>
+              </div>
+            </article>
+            <div v-if="blockingIssues.length === 0 && nonBlockingWarnings.length === 0" class="empty-inline">
+              当前校验没有返回阻塞错误或告警。
+            </div>
           </div>
         </aside>
       </section>
@@ -98,18 +119,31 @@
           </article>
         </div>
       </section>
+
+      <section class="panel import-grid">
+        <div class="panel__header">
+          <h2 class="panel__title">完成后下一步</h2>
+        </div>
+        <div class="next-actions">
+          <RouterLink class="button" :to="`/datasets/${id}/overview`">返回批次概览</RouterLink>
+          <RouterLink class="button" :to="`/datasets/${id}/assets`">查看当前批次资产</RouterLink>
+          <RouterLink class="button button--primary" :to="`/datasets/${id}/qc`">进入质检队列</RouterLink>
+        </div>
+      </section>
     </template>
     <div v-else class="empty-state">No import job returned by the backend.</div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
-import { CheckCircle2, Download, FileCheck2, FileCog, FolderTree, Image, TriangleAlert } from 'lucide-vue-next';
+import { computed, ref } from 'vue';
+import { RouterLink } from 'vue-router';
+import { CheckCircle2, FileCheck2, FileCog, FolderTree, Image, RotateCcw, ScanSearch, TriangleAlert } from 'lucide-vue-next';
 import { apiClient } from '../../services/urbanViolationApi';
 import MetricCard from '../../shared/components/MetricCard.vue';
 import StatusChip from '../../shared/components/StatusChip.vue';
 import { useAsyncState } from '../../shared/composables/useAsyncState';
+import type { ImportJobDetail } from '../../shared/types/contract';
 import ImportStepper from './components/ImportStepper.vue';
 
 const props = defineProps<{
@@ -117,8 +151,31 @@ const props = defineProps<{
   jobId: string;
 }>();
 
-const { data, loading, error } = useAsyncState(() => apiClient.getImportJob(props.id, props.jobId));
-const job = computed(() => data.value);
+const { data: job, loading, error } = useAsyncState(() => apiClient.getImportJob(props.id, props.jobId));
+const actionLoading = ref(false);
+const actionMessage = ref('');
+const blockingIssues = computed(() => job.value?.validationReport?.blockingErrors ?? job.value?.warnings.filter((warning) => warning.severity === 'blocking') ?? []);
+const nonBlockingWarnings = computed(() => job.value?.validationReport?.warnings ?? job.value?.warnings.filter((warning) => warning.severity !== 'blocking') ?? []);
+const hasBlockingIssues = computed(() => blockingIssues.value.length > 0);
+
+const runAction = async (action: 'scan' | 'validate' | 'confirm' | 'retry') => {
+  actionLoading.value = true;
+  actionMessage.value = '';
+  try {
+    const actions: Record<typeof action, () => Promise<ImportJobDetail>> = {
+      scan: () => apiClient.scanImportJob(props.id, props.jobId),
+      validate: () => apiClient.validateImportJob(props.id, props.jobId),
+      confirm: () => apiClient.confirmImportJob(props.id, props.jobId),
+      retry: () => apiClient.retryImportJob(props.id, props.jobId),
+    };
+    job.value = await actions[action]();
+    actionMessage.value = '任务状态已更新。';
+  } catch (err) {
+    actionMessage.value = err instanceof Error ? err.message : '导入任务操作失败';
+  } finally {
+    actionLoading.value = false;
+  }
+};
 </script>
 
 <style scoped>
@@ -132,7 +189,7 @@ const job = computed(() => data.value);
 }
 
 .import-table {
-  min-width: 920px;
+  min-width: 980px;
   width: 100%;
   border-collapse: collapse;
 }
@@ -171,9 +228,22 @@ const job = computed(() => data.value);
   color: #b45309;
 }
 
+.validation-list article.blocking {
+  border-color: #ffb4b4;
+  background: #fff3f3;
+  color: var(--red);
+}
+
 .validation-list p {
   margin: 4px 0 0;
   color: #8a4b00;
+}
+
+.empty-inline {
+  padding: 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  color: var(--muted);
 }
 
 .mapping-flow {
@@ -200,6 +270,19 @@ const job = computed(() => data.value);
 .mapping-flow span,
 .mapping-flow small {
   color: var(--muted);
+}
+
+.action-message {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.next-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 16px;
 }
 
 @media (max-width: 1050px) {

@@ -12,9 +12,12 @@ from urban_violation_backend.api_schemas import (
     AssetDetailResponse,
     AssetListItem,
     AssetListResponse,
+    AssetSummaryMetrics,
+    AssetSummaryResponse,
     CountDistributionItem,
     DatasetSummaryResponse,
     ExportResponse,
+    ImportJobCreateRequest,
     ImportMappingStep,
     ImportJobStatusResponse,
     ImportValidationRow,
@@ -53,7 +56,12 @@ from urban_violation_backend.labels import (
     filter_label_suggestions,
     validate_label_config,
 )
-from urban_violation_backend.schemas import HumanReview, ImportJob
+from urban_violation_backend.schemas import (
+    DatasetLifecycleStatus,
+    HumanReview,
+    ImportJob,
+    ImportJobState,
+)
 
 
 class DatasetNotFoundError(ValueError):
@@ -152,13 +160,30 @@ class FixtureRuntimeService:
         label_config_repo: InMemoryLabelConfigRepository | None = None,
     ) -> None:
         self._dataset_root = dataset_root.resolve()
-        self._dataset_id = dataset_id
+        self._dataset_type = dataset_id
+        self._legacy_dataset_id = dataset_id
+        self._batch_key = "0508_fixture"
+        self._dataset_id = f"{self._dataset_type}__{self._batch_key}"
+        self._accepted_dataset_ids = {self._dataset_id, self._legacy_dataset_id}
+        self._qc_queue_id = f"qcq_{self._dataset_type}_{self._batch_key}"
+        self._field_schema_version = "2026-05-18"
         self._label_config_repo = label_config_repo or InMemoryLabelConfigRepository()
         self._bundle = import_fixture_samples(dataset_root=self._dataset_root, sample_ids=sample_ids)
         self._samples: dict[str, FixtureSample] = {
             sample.sample_id: sample for sample in self._bundle.samples
         }
-        self._import_job: ImportJob = self._bundle.import_job
+        self._import_job_counter = 0
+        fixture_import_job = self._bundle.import_job.model_copy(
+            update={
+                "dataset_id": self._dataset_id,
+                "dataset_type": self._dataset_type,
+                "batch_key": self._batch_key,
+                "warnings": [],
+            }
+        )
+        self._import_jobs: dict[str, ImportJob] = {fixture_import_job.job_id: fixture_import_job}
+        self._import_job = fixture_import_job
+        self._active_import_job_id = fixture_import_job.job_id
         self._reviews: dict[str, list[HumanReview]] = {sample_id: [] for sample_id in self._samples}
         self._label_edits: dict[str, list[LabelEditState]] = {
             sample_id: [] for sample_id in self._samples
@@ -166,6 +191,7 @@ class FixtureRuntimeService:
         self._review_counter = 0
         self._label_edit_counter = 0
         self._updated_at = datetime.now(timezone.utc)
+        self._lifecycle_status = self._derive_lifecycle_status()
 
         stage1_entries = read_stage1_manifest(self._dataset_root)
         stage2_entries = read_stage2_manifest(self._dataset_root)
@@ -183,12 +209,91 @@ class FixtureRuntimeService:
 
     @property
     def dataset_id(self) -> str:
-        """Return configured dataset id."""
-        return self._dataset_id
+        """Return legacy dataset id for backward-compatible health payload."""
+        return self._legacy_dataset_id
+
+    def _resolve_dataset_type(self, dataset_id: str) -> str:
+        """Resolve dataset type from legacy or batch dataset id."""
+        self._require_dataset(dataset_id)
+        return self._dataset_type
 
     def _require_dataset(self, dataset_id: str) -> None:
-        if dataset_id != self._dataset_id:
+        if dataset_id not in self._accepted_dataset_ids:
             raise DatasetNotFoundError(f"Dataset not found: {dataset_id}")
+
+    def _current_active_label_config_version(self) -> int | None:
+        """Return active label config version number for current dataset type."""
+        try:
+            active = self._label_config_repo.get_active(dataset_id=self._dataset_type)
+        except ActiveLabelConfigNotFoundError:
+            return None
+        match = re.search(r"(\d+)$", active.version)
+        return int(match.group(1)) if match else None
+
+    def _has_active_label_config(self) -> bool:
+        try:
+            self._label_config_repo.get_active(dataset_id=self._dataset_type)
+            return True
+        except ActiveLabelConfigNotFoundError:
+            return False
+
+    def _derive_lifecycle_status(self) -> DatasetLifecycleStatus:
+        """Derive batch lifecycle from latest import job and current review/config state."""
+        latest_state = self._import_job.state
+        if latest_state in {ImportJobState.DRAFT, ImportJobState.UPLOADING, ImportJobState.UPLOADED}:
+            return DatasetLifecycleStatus.REGISTERED
+        if latest_state in {ImportJobState.SCANNING, ImportJobState.VALIDATING}:
+            return DatasetLifecycleStatus.SCANNING
+        if latest_state == ImportJobState.VALIDATION_FAILED:
+            return DatasetLifecycleStatus.VALIDATION_FAILED
+        if latest_state in {ImportJobState.VALIDATION_PASSED, ImportJobState.PREVIEW_READY}:
+            return DatasetLifecycleStatus.VALIDATED
+        if latest_state == ImportJobState.IMPORTING:
+            return DatasetLifecycleStatus.IMPORTING
+        if latest_state == ImportJobState.IMPORT_FAILED:
+            return DatasetLifecycleStatus.IMPORT_FAILED
+
+        reviewed_total = sum(1 for history in self._reviews.values() if history)
+        if reviewed_total >= len(self._samples) and len(self._samples) > 0:
+            return DatasetLifecycleStatus.QC_COMPLETED
+        if reviewed_total > 0:
+            return DatasetLifecycleStatus.QC_IN_PROGRESS
+        if not self._samples:
+            return DatasetLifecycleStatus.PREANNOTATION_PENDING
+
+        has_stage_payload = all(sample.stage1 is not None for sample in self._samples.values())
+        if not has_stage_payload:
+            return DatasetLifecycleStatus.PREANNOTATION_PENDING
+        if not self._has_active_label_config():
+            return DatasetLifecycleStatus.LABEL_CONFIG_REQUIRED
+        return DatasetLifecycleStatus.QC_READY
+
+    def _set_import_job(self, job: ImportJob) -> ImportJob:
+        self._import_jobs[job.job_id] = job
+        self._import_job = job
+        self._active_import_job_id = job.job_id
+        self._lifecycle_status = self._derive_lifecycle_status()
+        return job
+
+    def _build_stage2_warning_messages(self) -> list[str]:
+        failure_count = self._bundle.dataset.stage2_failure_count
+        if failure_count == 0:
+            return []
+        return [
+            (
+                f"Detected {failure_count} STEP2 failure artifacts; treated as non-blocking diagnostics "
+                "and import can continue."
+            )
+        ]
+
+    def _bind_label_config_to_dataset(
+        self,
+        stored: StoredLabelConfig,
+        dataset_id: str,
+    ) -> StoredLabelConfig:
+        """Project type-scoped label config to a dataset-scoped response shape."""
+        rebound_validation = stored.validation.model_copy(update={"dataset_id": dataset_id})
+        return stored.model_copy(update={"dataset_id": dataset_id, "validation": rebound_validation})
 
     def _require_sample(self, dataset_id: str, sample_id: str) -> FixtureSample:
         self._require_dataset(dataset_id)
@@ -240,7 +345,7 @@ class FixtureRuntimeService:
         ]
 
     def list_datasets(self) -> list[DatasetSummaryResponse]:
-        """Return available datasets (single fixture dataset in P0)."""
+        """Return available batch datasets for current dataset type."""
         return [self.get_dataset_summary(self._dataset_id)]
 
     def get_dataset_summary(self, dataset_id: str) -> DatasetSummaryResponse:
@@ -278,7 +383,16 @@ class FixtureRuntimeService:
                     category_counter[category] += 1
 
         return DatasetSummaryResponse(
-            dataset_id=dataset.dataset_id,
+            dataset_id=self._dataset_id,
+            dataset_type=self._dataset_type,
+            display_name="城市违规",
+            field_schema_version=self._field_schema_version,
+            active_label_config_version=self._current_active_label_config_version(),
+            batch_key=self._batch_key,
+            lifecycle_status=self._lifecycle_status,
+            active_import_job_id=self._active_import_job_id,
+            qc_queue_id=self._qc_queue_id,
+            legacy_dataset_id=self._legacy_dataset_id,
             name=dataset.name,
             total_assets=dataset.total_assets,
             stage1_count=dataset.stage1_count,
@@ -303,8 +417,9 @@ class FixtureRuntimeService:
     ) -> LabelConfigValidationReport:
         """Validate one uploaded label config without persisting it."""
         self._require_dataset(dataset_id)
-        report, _ = validate_label_config(dataset_id=dataset_id, payload=request.config)
-        return report
+        dataset_type = self._resolve_dataset_type(dataset_id)
+        report, _ = validate_label_config(dataset_id=dataset_type, payload=request.config)
+        return report.model_copy(update={"dataset_id": dataset_id})
 
     def save_label_config(
         self,
@@ -313,31 +428,39 @@ class FixtureRuntimeService:
     ) -> StoredLabelConfig:
         """Validate and save one uploaded label config version."""
         self._require_dataset(dataset_id)
-        report, config = validate_label_config(dataset_id=dataset_id, payload=request.config)
+        dataset_type = self._resolve_dataset_type(dataset_id)
+        report, config = validate_label_config(dataset_id=dataset_type, payload=request.config)
         if not report.valid or config is None:
             raise LabelConfigValidationFailedError(report)
 
-        return self._label_config_repo.save(
-            dataset_id=dataset_id,
+        stored = self._label_config_repo.save(
+            dataset_id=dataset_type,
             file_name=request.file_name,
             report=report,
             config=config,
             activate=request.activate,
         )
+        self._lifecycle_status = self._derive_lifecycle_status()
+        return self._bind_label_config_to_dataset(stored=stored, dataset_id=dataset_id)
 
     def activate_label_config(self, dataset_id: str, config_id: str) -> StoredLabelConfig:
         """Activate a previously saved label config version."""
         self._require_dataset(dataset_id)
+        dataset_type = self._resolve_dataset_type(dataset_id)
         try:
-            return self._label_config_repo.activate(dataset_id=dataset_id, config_id=config_id)
+            stored = self._label_config_repo.activate(dataset_id=dataset_type, config_id=config_id)
+            self._lifecycle_status = self._derive_lifecycle_status()
+            return self._bind_label_config_to_dataset(stored=stored, dataset_id=dataset_id)
         except LabelConfigVersionNotFoundError as exc:
             raise LabelConfigVersionAccessError(str(exc)) from exc
 
     def get_active_label_config(self, dataset_id: str) -> StoredLabelConfig:
         """Return the currently active label config for one dataset."""
         self._require_dataset(dataset_id)
+        dataset_type = self._resolve_dataset_type(dataset_id)
         try:
-            return self._label_config_repo.get_active(dataset_id=dataset_id)
+            stored = self._label_config_repo.get_active(dataset_id=dataset_type)
+            return self._bind_label_config_to_dataset(stored=stored, dataset_id=dataset_id)
         except ActiveLabelConfigNotFoundError as exc:
             raise ActiveLabelConfigAccessError(str(exc)) from exc
 
@@ -349,8 +472,9 @@ class FixtureRuntimeService:
     ) -> LabelSuggestionResponse:
         """Return filtered options from the active label config only."""
         self._require_dataset(dataset_id)
+        dataset_type = self._resolve_dataset_type(dataset_id)
         try:
-            active = self._label_config_repo.get_active(dataset_id=dataset_id)
+            active = self._label_config_repo.get_active(dataset_id=dataset_type)
         except ActiveLabelConfigNotFoundError as exc:
             raise ActiveLabelConfigAccessError(str(exc)) from exc
         try:
@@ -689,6 +813,13 @@ class FixtureRuntimeService:
         qc_status: str | None = None,
         failure_status: str | None = None,
         sample_category: str | None = None,
+        step1_status: str | None = None,
+        step2_status: str | None = None,
+        model_decision: str | None = None,
+        confidence_min: float | None = None,
+        confidence_max: float | None = None,
+        media_status: str | None = None,
+        edited_status: str | None = None,
     ) -> AssetListResponse:
         """List assets with query filter support."""
         self._require_dataset(dataset_id)
@@ -708,9 +839,88 @@ class FixtureRuntimeService:
                 items = [item for item in items if item.stage2_status == "success"]
         if sample_category:
             items = [item for item in items if sample_category in item.sample_categories]
+        if step1_status:
+            if step1_status == "available":
+                pass
+            elif step1_status == "missing":
+                items = []
+        if step2_status:
+            items = [item for item in items if item.stage2_status == step2_status]
+        if model_decision:
+            items = [item for item in items if item.judge_decision == model_decision]
+        if confidence_min is not None:
+            items = [
+                item
+                for item in items
+                if item.highest_confidence is not None and item.highest_confidence >= confidence_min
+            ]
+        if confidence_max is not None:
+            items = [
+                item
+                for item in items
+                if item.highest_confidence is not None and item.highest_confidence <= confidence_max
+            ]
+        if media_status:
+            if media_status == "invalid":
+                items = []
+            elif media_status != "valid":
+                items = []
+        if edited_status:
+            edited_sample_ids = {sample_id for sample_id, history in self._label_edits.items() if history}
+            if edited_status == "edited":
+                items = [item for item in items if item.sample_id in edited_sample_ids]
+            elif edited_status == "unedited":
+                items = [item for item in items if item.sample_id not in edited_sample_ids]
 
         items.sort(key=lambda item: item.sample_id)
-        return AssetListResponse(dataset_id=dataset_id, total=len(items), items=items)
+        return AssetListResponse(
+            dataset_id=self._dataset_id,
+            dataset_type=self._dataset_type,
+            batch_key=self._batch_key,
+            total=len(items),
+            items=items,
+        )
+
+    def get_asset_summary(self, dataset_id: str) -> AssetSummaryResponse:
+        """Return batch-scoped summary metrics for asset browsing."""
+        self._require_dataset(dataset_id)
+        items = [self._build_asset_item(sample) for sample in self._samples.values()]
+        total = len(items)
+        review_submitted = sum(1 for item in items if item.qc_status == "reviewed")
+        review_pending = total - review_submitted
+        stage2_success = sum(1 for item in items if item.stage2_status == "success")
+        stage2_failure = total - stage2_success
+        edited_count = sum(1 for history in self._label_edits.values() if history)
+        judge_counter: Counter[str] = Counter(item.judge_decision for item in items)
+        category_counter: Counter[str] = Counter()
+        sample_category_counter: Counter[str] = Counter()
+        qc_status_counter: Counter[str] = Counter(item.qc_status for item in items)
+
+        for item in items:
+            category_counter.update(item.violation_categories)
+            sample_category_counter.update(item.sample_categories)
+
+        return AssetSummaryResponse(
+            dataset_id=self._dataset_id,
+            dataset_type=self._dataset_type,
+            batch_key=self._batch_key,
+            lifecycle_status=self._lifecycle_status,
+            metrics=AssetSummaryMetrics(
+                total_assets=total,
+                media_valid_total=total,
+                media_invalid_total=0,
+                stage1_total=total,
+                stage2_success_total=stage2_success,
+                stage2_failure_total=stage2_failure,
+                review_pending_total=review_pending,
+                review_submitted_total=review_submitted,
+                manual_edit_sample_total=edited_count,
+            ),
+            judge_decision_distribution=self._distribution(judge_counter, total),
+            category_distribution=self._distribution(category_counter),
+            sample_category_distribution=self._distribution(sample_category_counter),
+            qc_status_distribution=self._distribution(qc_status_counter, total),
+        )
 
     def get_asset_detail(self, dataset_id: str, sample_id: str) -> AssetDetailResponse:
         """Return detailed sample view including stage outputs and review history."""
@@ -720,7 +930,9 @@ class FixtureRuntimeService:
         latest_review = reviews[-1] if reviews else None
         latest_label_edit = label_edits[-1] if label_edits else None
         return AssetDetailResponse(
-            dataset_id=dataset_id,
+            dataset_id=self._dataset_id,
+            dataset_type=self._dataset_type,
+            batch_key=self._batch_key,
             sample_id=sample_id,
             asset=self._build_asset_item(sample),
             stage1=sample.stage1,
@@ -752,30 +964,141 @@ class FixtureRuntimeService:
             created_at=datetime.now(timezone.utc),
         )
         self._reviews[sample_id].append(review)
+        self._lifecycle_status = self._derive_lifecycle_status()
         return review
 
-    def get_import_job(self, dataset_id: str, job_id: str) -> ImportJobStatusResponse:
-        """Fetch status for the fixture import job."""
+    def _get_import_job(self, dataset_id: str, job_id: str) -> ImportJob:
         self._require_dataset(dataset_id)
-        if job_id != self._import_job.job_id:
+        job = self._import_jobs.get(job_id)
+        if job is None:
             raise ImportJobNotFoundError(f"Import job not found: {job_id}")
+        return job
+
+    def _build_mapping_steps(self, job: ImportJob) -> list[ImportMappingStep]:
         stage2_success_count = sum(1 for sample in self._samples.values() if sample.stage2 is not None)
-        return ImportJobStatusResponse(
-            **self._import_job.model_dump(),
-            stage2_success_count=stage2_success_count,
-            validation_rows=self._build_validation_rows(),
-            mapping_steps=[
-                ImportMappingStep(id="raw", label="Raw assets", count=len(self._samples), entity="RawAsset"),
-                ImportMappingStep(id="stage1", label="Stage1 records", count=len(self._samples), entity="PreAnnotationStep1"),
-                ImportMappingStep(id="stage2", label="Stage2 records", count=stage2_success_count, entity="PreAnnotationStep2"),
-                ImportMappingStep(
-                    id="failures",
-                    label="Stage2 failures",
-                    count=self._import_job.failure_count,
-                    entity="PreAnnotationFailure",
-                ),
-            ],
+        return [
+            ImportMappingStep(id="raw", label="Raw assets", count=job.imported_assets, entity="RawAsset"),
+            ImportMappingStep(id="stage1", label="Stage1 records", count=job.imported_assets, entity="PreAnnotationStep1"),
+            ImportMappingStep(id="stage2", label="Stage2 records", count=stage2_success_count, entity="PreAnnotationStep2"),
+            ImportMappingStep(
+                id="failures",
+                label="Stage2 failures",
+                count=job.failure_count,
+                entity="PreAnnotationFailure",
+            ),
+            ImportMappingStep(
+                id="audit",
+                label="Import diagnostics",
+                count=len(job.warnings),
+                entity="AuditArtifact",
+            ),
+        ]
+
+    def _build_import_job_status(self, job: ImportJob) -> ImportJobStatusResponse:
+        stage2_success_count = sum(1 for sample in self._samples.values() if sample.stage2 is not None)
+        payload = job.model_dump()
+        payload.update(
+            {
+                "dataset_id": self._dataset_id,
+                "dataset_type": self._dataset_type,
+                "batch_key": self._batch_key,
+                "lifecycle_status": self._lifecycle_status,
+                "stage2_success_count": stage2_success_count,
+                "warning_count": len(job.warnings),
+                "warnings": job.warnings,
+                "validation_rows": self._build_validation_rows(),
+                "mapping_steps": self._build_mapping_steps(job),
+            }
         )
+        return ImportJobStatusResponse(
+            **payload
+        )
+
+    def list_import_jobs(self, dataset_id: str) -> list[ImportJobStatusResponse]:
+        """List all import jobs for the current batch."""
+        self._require_dataset(dataset_id)
+        jobs = sorted(self._import_jobs.values(), key=lambda value: value.job_id)
+        return [self._build_import_job_status(job) for job in jobs]
+
+    def create_import_job(
+        self,
+        dataset_id: str,
+        request: ImportJobCreateRequest,
+    ) -> ImportJobStatusResponse:
+        """Create a draft import job in memory for the current batch."""
+        self._require_dataset(dataset_id)
+        self._import_job_counter += 1
+        requested_sample_ids = request.requested_sample_ids or sorted(self._samples.keys())
+        job = ImportJob(
+            job_id=f"fixture-import-{self._batch_key}-{self._import_job_counter}",
+            dataset_id=self._dataset_id,
+            dataset_type=self._dataset_type,
+            batch_key=self._batch_key,
+            state=ImportJobState.DRAFT,
+            expected_assets=len(requested_sample_ids),
+            imported_assets=0,
+            failure_count=0,
+            requested_sample_ids=requested_sample_ids,
+            validation_errors=[],
+            warnings=[],
+        )
+        self._set_import_job(job)
+        return self._build_import_job_status(job)
+
+    def get_import_job(self, dataset_id: str, job_id: str) -> ImportJobStatusResponse:
+        """Fetch one import job state for current batch."""
+        job = self._get_import_job(dataset_id=dataset_id, job_id=job_id)
+        return self._build_import_job_status(job)
+
+    def scan_import_job(self, dataset_id: str, job_id: str) -> ImportJobStatusResponse:
+        """Execute scan phase; records interim state only."""
+        job = self._get_import_job(dataset_id=dataset_id, job_id=job_id)
+        scanned = job.model_copy(update={"state": ImportJobState.SCANNING, "imported_assets": 0})
+        self._set_import_job(scanned)
+        return self._build_import_job_status(scanned)
+
+    def validate_import_job(self, dataset_id: str, job_id: str) -> ImportJobStatusResponse:
+        """Execute validate phase; STEP2 failures are non-blocking warnings."""
+        job = self._get_import_job(dataset_id=dataset_id, job_id=job_id)
+        validated = job.model_copy(
+            update={
+                "state": ImportJobState.VALIDATION_PASSED,
+                "failure_count": self._bundle.dataset.stage2_failure_count,
+                "warnings": self._build_stage2_warning_messages(),
+                "validation_errors": [],
+            }
+        )
+        self._set_import_job(validated)
+        return self._build_import_job_status(validated)
+
+    def confirm_import_job(self, dataset_id: str, job_id: str) -> ImportJobStatusResponse:
+        """Execute confirm/import phase and persist as latest batch import."""
+        job = self._get_import_job(dataset_id=dataset_id, job_id=job_id)
+        confirmed = job.model_copy(
+            update={
+                "state": ImportJobState.IMPORTED,
+                "imported_assets": len(self._samples),
+                "failure_count": self._bundle.dataset.stage2_failure_count,
+                "warnings": self._build_stage2_warning_messages(),
+                "validation_errors": [],
+            }
+        )
+        self._set_import_job(confirmed)
+        return self._build_import_job_status(confirmed)
+
+    def retry_import_job(self, dataset_id: str, job_id: str) -> ImportJobStatusResponse:
+        """Reset one job to draft for a new scan/validate/confirm round."""
+        job = self._get_import_job(dataset_id=dataset_id, job_id=job_id)
+        retried = job.model_copy(
+            update={
+                "state": ImportJobState.DRAFT,
+                "imported_assets": 0,
+                "warnings": [],
+                "validation_errors": [],
+            }
+        )
+        self._set_import_job(retried)
+        return self._build_import_job_status(retried)
 
     def _build_validation_rows(self) -> list[ImportValidationRow]:
         """Build manifest pairing rows for the import validation page."""
@@ -807,11 +1130,23 @@ class FixtureRuntimeService:
     def list_qc_queue(self, dataset_id: str) -> QCQueueResponse:
         """Return QC queue built from loaded fixture samples."""
         self._require_dataset(dataset_id)
+        label_config_version: str | None = None
+        try:
+            label_config_version = self._label_config_repo.get_active(
+                dataset_id=self._dataset_type
+            ).version
+        except ActiveLabelConfigNotFoundError:
+            label_config_version = None
         items: list[QCQueueItem] = []
         for sample in sorted(self._samples.values(), key=lambda value: value.sample_id):
             asset = self._build_asset_item(sample)
             items.append(
                 QCQueueItem(
+                    qc_queue_id=self._qc_queue_id,
+                    dataset_id=self._dataset_id,
+                    dataset_type=self._dataset_type,
+                    batch_key=self._batch_key,
+                    label_config_version=label_config_version,
                     sample_id=sample.sample_id,
                     asset_id=sample.raw_asset.asset_id,
                     judge_decision=sample.stage1.judge_decision,
@@ -823,7 +1158,14 @@ class FixtureRuntimeService:
                     updated_at=asset.updated_at,
                 )
             )
-        return QCQueueResponse(dataset_id=dataset_id, total=len(items), items=items)
+        return QCQueueResponse(
+            dataset_id=self._dataset_id,
+            dataset_type=self._dataset_type,
+            batch_key=self._batch_key,
+            qc_queue_id=self._qc_queue_id,
+            total=len(items),
+            items=items,
+        )
 
     def search(self, dataset_id: str, query: str) -> SearchResponse:
         """Search fixture data across sample IDs, categories, relations, and reasoning text."""

@@ -15,10 +15,6 @@
           <Box :size="18" />
           <span>资产</span>
         </RouterLink>
-        <RouterLink class="nav-item" to="/datasets/urban_violation/import-jobs/fixture-import-urban-violation">
-          <UploadCloud :size="18" />
-          <span>导入任务</span>
-        </RouterLink>
         <RouterLink class="nav-item" to="/datasets/urban_violation/preannotations">
           <FileStack :size="18" />
           <span>预标注运行</span>
@@ -78,7 +74,6 @@ import {
   Layers,
   PanelLeftClose,
   Search,
-  UploadCloud,
 } from 'lucide-vue-next';
 
 const route = useRoute();

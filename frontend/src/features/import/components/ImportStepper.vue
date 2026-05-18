@@ -12,13 +12,13 @@ defineProps<{
   activeStep: number;
 }>();
 
-const steps = ['基础信息', '上传模式', '目录扫描', '导入预览', '完成'];
+const steps = ['批次信息', '数据源', '扫描校验', '导入预览', '确认入库', '完成'];
 </script>
 
 <style scoped>
 .import-stepper {
   display: grid;
-  grid-template-columns: repeat(5, minmax(110px, 1fr));
+  grid-template-columns: repeat(6, minmax(110px, 1fr));
   gap: 10px;
   margin: 0;
   padding: 0;

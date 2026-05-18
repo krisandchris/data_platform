@@ -301,3 +301,16 @@
   - Candidate active evidence relations no longer make boxes red by default.
   - Verification passed: `cd frontend && npm run test -- bboxOverlay routesAndPages` 17 passed; `cd frontend && npm run test` 28 passed; `cd frontend && npm run build` passed.
   - Live smoke on `8024/5184` confirmed initial review page bbox elements had `selected_element_count=0`, while purple/default palette classes remained present and black bbox classes remained absent; screenshot saved at `/tmp/uvp_qc_selected_entry.png`.
+- Completed dataset/asset/import management design and implementation pass:
+  - Added `docs/dataset_asset_import_usage_logic_design.md` for dataset type, batch lifecycle, batch-scoped QC queue, asset browsing, and import task orchestration.
+  - Added `docs/dataset_management_implementation_tasks.md` to split backend, frontend, and integration-test ownership.
+  - Backend implementation added batch-aware dataset summaries, import job detail/validation, asset summary/filtering, and canonical batch-aware QC responses.
+  - Frontend implementation added dataset type/batch management pages, overview, asset browser, import job detail, and batch-scoped QC navigation.
+  - Integration verified the important fixture distinction: import diagnostics report 19 failures while current failed assets report 17 failed stage2 assets.
+  - Main-thread verification passed: `uv run pytest` 30 passed; `cd frontend && npm run test` 35 passed; `cd frontend && npm run build` passed.
+  - Main-thread API smoke passed for dataset list, summary, import job detail/validation, asset summary/filtering, QC queue, and sample review detail.
+  - Headless Chrome smoke passed for dataset list, overview, assets, import job, QC queue, and sample review pages.
+  - Confirmed with the user that the QC workbench uses the current main-directory state as source of truth.
+  - Restored `task_plan.md`, `findings.md`, and `progress.md` after the integration validation run had overwritten them with a short report, then re-added the dataset-management implementation notes.
+  - Stopped the dev stack and killed one residual Vite process; hardened `scripts/dev-stack.sh stop` to clean owned residual frontend/backend processes by command and port.
+  - Verified `bash -n scripts/dev-stack.sh` passed and no backend/Vite dev-server process remained.

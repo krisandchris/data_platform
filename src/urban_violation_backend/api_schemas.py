@@ -9,6 +9,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from urban_violation_backend.schemas import (
+    DatasetLifecycleStatus,
     HumanReview,
     Stage1Preannotation,
     Stage2Preannotation,
@@ -114,6 +115,15 @@ class DatasetSummaryResponse(StrictModel):
     """High-level counters for one dataset."""
 
     dataset_id: str
+    dataset_type: str = "urban_violation"
+    display_name: str = "城市违规"
+    field_schema_version: str = "2026-05-18"
+    active_label_config_version: int | None = None
+    batch_key: str = "0508_fixture"
+    lifecycle_status: DatasetLifecycleStatus = DatasetLifecycleStatus.IMPORTED
+    active_import_job_id: str | None = None
+    qc_queue_id: str | None = None
+    legacy_dataset_id: str | None = None
     name: str
     total_assets: int = Field(ge=0)
     stage1_count: int = Field(ge=0)
@@ -162,14 +172,46 @@ class AssetListResponse(StrictModel):
     """Pageless asset list response for fixture data."""
 
     dataset_id: str
+    dataset_type: str = "urban_violation"
+    batch_key: str = "0508_fixture"
     total: int = Field(ge=0)
     items: list[AssetListItem] = Field(default_factory=list)
+
+
+class AssetSummaryMetrics(StrictModel):
+    """Batch-scoped summary metrics used by dataset asset overview."""
+
+    total_assets: int = Field(ge=0)
+    media_valid_total: int = Field(ge=0)
+    media_invalid_total: int = Field(ge=0)
+    stage1_total: int = Field(ge=0)
+    stage2_success_total: int = Field(ge=0)
+    stage2_failure_total: int = Field(ge=0)
+    review_pending_total: int = Field(ge=0)
+    review_submitted_total: int = Field(ge=0)
+    manual_edit_sample_total: int = Field(ge=0)
+
+
+class AssetSummaryResponse(StrictModel):
+    """Batch-scoped asset summary response."""
+
+    dataset_id: str
+    dataset_type: str = "urban_violation"
+    batch_key: str = "0508_fixture"
+    lifecycle_status: DatasetLifecycleStatus = DatasetLifecycleStatus.IMPORTED
+    metrics: AssetSummaryMetrics
+    judge_decision_distribution: list["CountDistributionItem"] = Field(default_factory=list)
+    category_distribution: list["CountDistributionItem"] = Field(default_factory=list)
+    sample_category_distribution: list["CountDistributionItem"] = Field(default_factory=list)
+    qc_status_distribution: list["CountDistributionItem"] = Field(default_factory=list)
 
 
 class AssetDetailResponse(StrictModel):
     """Detailed review payload for one sample."""
 
     dataset_id: str
+    dataset_type: str = "urban_violation"
+    batch_key: str = "0508_fixture"
     sample_id: str
     asset: AssetListItem
     stage1: Stage1Preannotation
@@ -210,15 +252,26 @@ class ImportJobStatusResponse(StrictModel):
 
     job_id: str
     dataset_id: str
+    dataset_type: str = "urban_violation"
+    batch_key: str = "0508_fixture"
     state: str
+    lifecycle_status: DatasetLifecycleStatus = DatasetLifecycleStatus.IMPORTED
     expected_assets: int = Field(ge=0)
     imported_assets: int = Field(ge=0)
     stage2_success_count: int = Field(default=0, ge=0)
     failure_count: int = Field(ge=0)
+    warning_count: int = Field(default=0, ge=0)
+    warnings: list[str] = Field(default_factory=list)
     requested_sample_ids: list[str] = Field(default_factory=list)
     validation_errors: list[str] = Field(default_factory=list)
     validation_rows: list["ImportValidationRow"] = Field(default_factory=list)
     mapping_steps: list["ImportMappingStep"] = Field(default_factory=list)
+
+
+class ImportJobCreateRequest(StrictModel):
+    """Create one import job for current dataset batch."""
+
+    requested_sample_ids: list[str] = Field(default_factory=list)
 
 
 class ImportValidationRow(StrictModel):
@@ -244,6 +297,11 @@ class ImportMappingStep(StrictModel):
 class QCQueueItem(StrictModel):
     """Queue row used by the QC endpoint."""
 
+    qc_queue_id: str
+    dataset_id: str
+    dataset_type: str
+    batch_key: str
+    label_config_version: str | None = None
     sample_id: str
     asset_id: str
     judge_decision: Literal["pass", "soft_fail", "unknown"]
@@ -259,6 +317,9 @@ class QCQueueResponse(StrictModel):
     """Response model for QC queue listing."""
 
     dataset_id: str
+    dataset_type: str = "urban_violation"
+    batch_key: str = "0508_fixture"
+    qc_queue_id: str = "qcq_urban_violation_0508_fixture"
     total: int = Field(ge=0)
     items: list[QCQueueItem] = Field(default_factory=list)
 

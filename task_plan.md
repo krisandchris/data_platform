@@ -1045,6 +1045,94 @@ Acceptance:
 - The final plan can be used directly as an execution brief.
 - Remaining open questions are separated from executable work.
 
+## Phase 42 - Dataset Type/Batch Lifecycle Design
+
+Status: complete
+
+Goal:
+- Reframe datasets around dataset type and batch identity.
+- Support `urban_violation` as the shared dataset type while batch suffixes such as date/scene identify concrete import batches.
+- Include that QC queue entries are batch-scoped rather than type-wide.
+
+Implementation:
+- Documented dataset lifecycle and batch-state model in `docs/dataset_asset_import_usage_logic_design.md`.
+- Established that the same dataset type shares field design and active `label_config`, while each batch owns import state, asset statistics, and QC queue slices.
+
+Acceptance:
+- Dataset list can group by type while opening concrete batch pages.
+- QC queue entry points include a batch key and do not silently mix batches under the same dataset type.
+
+## Phase 43 - Batch-Scoped Asset Statistics And Browsing Design
+
+Status: complete
+
+Goal:
+- Fold the former standalone asset browser into dataset management.
+- Expose asset statistics and asset browsing at the dataset-batch level.
+
+Implementation:
+- Documented asset summary, failure-status filters, stage1/stage2 status surfaces, and browser-safe media URL behavior.
+- Chose batch detail pages as the ownership location for asset statistics and samples.
+
+Acceptance:
+- A user can inspect total assets, stage2 success/failure counts, and failed assets for a concrete batch.
+- Asset browsing remains connected to dataset/batch context and can route to QC review for the same sample.
+
+## Phase 44 - Import Job Orchestration Inside Dataset Creation
+
+Status: complete
+
+Goal:
+- Treat import tasks as part of dataset-batch creation and refresh rather than a separate top-level product module.
+- Preserve import diagnostics as execution records under a batch.
+
+Implementation:
+- Documented import job state, validation/retry behavior, and the relationship between import failures and asset/QC statistics.
+- Preserved the distinction between historical import diagnostics and current asset failure state.
+
+Acceptance:
+- Import job detail is reachable from a dataset batch.
+- Validation can report preserved failure diagnostics without changing current asset counts incorrectly.
+
+## Phase 45 - Dataset Management Frontend/Backend/Test Task Breakdown
+
+Status: complete
+
+Goal:
+- Split remaining dataset management work into backend, frontend, and integration-test execution tasks.
+- Protect the current QC review workbench layout and behavior.
+
+Implementation:
+- Added `docs/dataset_management_implementation_tasks.md`.
+- Assigned backend to dataset/batch/import/asset/QC APIs, frontend to dataset-management pages, and integration testing to end-to-end verification.
+- Marked current review-workbench layout and behavior as protected during this implementation pass.
+
+Acceptance:
+- Subagents had disjoint ownership and explicit acceptance gates.
+- Review-workbench files from subagent work are not allowed to overwrite the main-worktree QC workbench source of truth.
+
+## Phase 46 - Dataset Management Implementation Delegation And Integration
+
+Status: complete
+
+Goal:
+- Implement the dataset, asset, and import job management plan and verify frontend/backend integration.
+- Keep the QC workbench source of truth as the current main directory state.
+
+Implementation:
+- Backend subagent implemented batch-aware dataset summaries, import job detail/validation, asset summaries/filtering, and canonical batch-aware QC responses.
+- Frontend subagent implemented dataset type/batch list, overview, asset browser, import job detail, and navigation into batch-scoped QC.
+- Integration subagent verified API behavior, regression tests, and browser smoke where local tooling permitted.
+- Main-thread verification confirmed the integrated product against the current main worktree.
+
+Acceptance:
+- `uv run pytest` passed with 30 tests.
+- `cd frontend && npm run test` passed with 35 tests.
+- `cd frontend && npm run build` passed.
+- API smoke passed for dataset list, batch summary, import job detail/validation, asset summary/filtering, QC list, and sample review detail.
+- Headless Chrome smoke passed for dataset list, overview, assets, import job, QC queue, and two sample review routes.
+- The QC workbench remains governed by the main directory version; no subagent review-workbench replacement is treated as authoritative.
+
 ## Errors Encountered
 
 | Error | Attempt | Resolution |
@@ -1059,3 +1147,5 @@ Acceptance:
 | Live browser smoke initially showed `Media preview pending from backend URL`. | Vite proxy mode proxied `/api` but not root `/media`, so image requests fell through to the frontend HTML route. | Added `/media` proxy in `frontend/vite.config.ts`; image request returned `200 image/jpeg` and screenshot rendered the actual image. |
 | Chrome DevTools MCP could not connect for integrated click verification: `Could not find DevToolsActivePort`. | Tried to use DevTools MCP after screenshot smoke. | Kept headless Chrome screenshot/DOM dump and direct API smoke as the browser verification path. |
 | `/bin/bash: 行 1: python: 未找到命令` during color DOM smoke. | Used bare `python` in a shell one-liner. | Re-ran with repo convention `uv run python` and completed the DOM checks. |
+| Planning files were overwritten with a short validation summary. | Integration validation agent initialized `task_plan.md`, `findings.md`, and `progress.md` in the main workspace. | Restored all three files from `HEAD` and appended Phase 42-46 plus the latest validation notes. |
+| A Vite process remained after `scripts/dev-stack.sh stop`. | `status` reported stopped, but `ps` still showed the Vite child process on the frontend command. | Killed the residual process and hardened `scripts/dev-stack.sh stop` to clean matching owned frontend/backend processes by command and port. |

@@ -2,8 +2,11 @@
   <div
     ref="shellRef"
     class="bbox-shell"
+    :class="{ 'bbox-shell--pannable': viewport.zoom > MIN_ZOOM, 'bbox-shell--panning': isPanning }"
     :style="{ '--bbox-aspect': `${imageWidth} / ${imageHeight}` }"
+    @pointerdown="startImagePan"
     @wheel.prevent="handleWheelZoom"
+    @auxclick.prevent
   >
     <div ref="stageRef" class="bbox-shell__stage" :style="stageStyle">
       <img
@@ -31,9 +34,10 @@
         tabindex="0"
         :aria-label="box.label"
         @click.stop="emit('selectBox', box)"
+        @auxclick.stop.prevent
         @keydown.enter.prevent="emit('selectBox', box)"
         @keydown.space.prevent="emit('selectBox', box)"
-        @pointerdown.stop="startBoxEdit($event, box, 'move')"
+        @pointerdown.stop="handleBoxPointerDown($event, box, 'move')"
       >
         <button
           v-if="box.editable"
@@ -41,7 +45,8 @@
           type="button"
           aria-label="Resize bounding box"
           @click.stop
-          @pointerdown.stop.prevent="startBoxEdit($event, box, 'resize')"
+          @auxclick.stop.prevent
+          @pointerdown.stop.prevent="handleBoxPointerDown($event, box, 'resize')"
         ></button>
       </div>
     </div>
@@ -88,8 +93,8 @@ const imageFailed = ref(false);
 const shellRef = ref<HTMLElement>();
 const stageRef = ref<HTMLElement>();
 const shellSize = ref({ width: 0, height: 0 });
-const zoom = ref(1);
-const zoomOrigin = ref({ x: 50, y: 50 });
+const viewport = ref({ zoom: 1, panX: 0, panY: 0 });
+const isPanning = ref(false);
 const safeImageUrl = computed(() => toBrowserMediaUrl(props.imageUrl));
 const BBOX_COORDINATE_MAX = 1000;
 const MIN_ZOOM = 1;
@@ -102,6 +107,12 @@ let dragState:
       mode: 'move' | 'resize';
       startPoint: { x: number; y: number };
       startBbox: [number, number, number, number];
+    }
+  | undefined;
+let panDragState:
+  | {
+      startClient: { x: number; y: number };
+      startPan: { x: number; y: number };
     }
   | undefined;
 
@@ -135,14 +146,14 @@ const stageStyle = computed(() => {
   return {
     width: `${width}px`,
     height: `${height}px`,
-    transform: `scale(${zoom.value})`,
-    transformOrigin: `${zoomOrigin.value.x}% ${zoomOrigin.value.y}%`,
+    transform: `translate(${roundPan(viewport.value.panX)}px, ${roundPan(viewport.value.panY)}px) scale(${viewport.value.zoom})`,
+    transformOrigin: '0 0',
   };
 });
 
-watch(safeImageUrl, () => {
+watch([safeImageUrl, () => props.imageWidth, () => props.imageHeight], () => {
   imageFailed.value = false;
-  resetZoom();
+  resetViewport();
 });
 
 onMounted(() => {
@@ -160,6 +171,7 @@ onMounted(() => {
       width: rect.width,
       height: rect.height,
     };
+    clampViewportPan();
   });
   if (shellRef.value) {
     resizeObserver.observe(shellRef.value);
@@ -169,6 +181,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   resizeObserver?.disconnect();
   stopBoxEdit();
+  stopImagePan();
 });
 
 const boxStyle = (bbox: BBox) => {
@@ -187,29 +200,62 @@ function updateShellSize() {
     width: rect?.width || props.imageWidth,
     height: rect?.height || props.imageHeight,
   };
+  clampViewportPan();
 }
 
 function handleWheelZoom(event: WheelEvent) {
-  const rect = stageRef.value?.getBoundingClientRect();
-  if (!rect || rect.width <= 0 || rect.height <= 0) {
+  const metrics = viewportMetrics();
+  if (!metrics) {
     return;
   }
 
-  zoomOrigin.value = {
-    x: clamp(((event.clientX - rect.left) / rect.width) * 100, 0, 100),
-    y: clamp(((event.clientY - rect.top) / rect.height) * 100, 0, 100),
-  };
-
+  const current = viewport.value;
   const factor = event.deltaY < 0 ? ZOOM_FACTOR : 1 / ZOOM_FACTOR;
-  zoom.value = roundZoom(clamp(zoom.value * factor, MIN_ZOOM, MAX_ZOOM));
+  const nextZoom = roundZoom(clamp(current.zoom * factor, MIN_ZOOM, MAX_ZOOM));
+  if (nextZoom <= MIN_ZOOM) {
+    resetViewport();
+    return;
+  }
+
+  const localX = clamp(
+    (event.clientX - metrics.baseLeft - current.panX) / current.zoom,
+    0,
+    metrics.stageWidth,
+  );
+  const localY = clamp(
+    (event.clientY - metrics.baseTop - current.panY) / current.zoom,
+    0,
+    metrics.stageHeight,
+  );
+  const nextPan = clampPan(
+    event.clientX - metrics.baseLeft - localX * nextZoom,
+    event.clientY - metrics.baseTop - localY * nextZoom,
+    nextZoom,
+  );
+
+  viewport.value = {
+    zoom: nextZoom,
+    ...nextPan,
+  };
 }
 
-function resetZoom() {
-  zoom.value = 1;
-  zoomOrigin.value = { x: 50, y: 50 };
+function resetViewport() {
+  viewport.value = { zoom: 1, panX: 0, panY: 0 };
+}
+
+function handleBoxPointerDown(event: PointerEvent, box: OverlayBox, mode: 'move' | 'resize') {
+  if (isMiddleButton(event)) {
+    startImagePan(event);
+    return;
+  }
+  startBoxEdit(event, box, mode);
 }
 
 function startBoxEdit(event: PointerEvent, box: OverlayBox, mode: 'move' | 'resize') {
+  if (event.button !== 0) {
+    return;
+  }
+  event.preventDefault();
   emit('selectBox', box);
   if (!box.editable) {
     return;
@@ -223,6 +269,7 @@ function startBoxEdit(event: PointerEvent, box: OverlayBox, mode: 'move' | 'resi
   };
   window.addEventListener('pointermove', updateBoxEdit);
   window.addEventListener('pointerup', stopBoxEdit, { once: true });
+  window.addEventListener('pointercancel', stopBoxEdit, { once: true });
 }
 
 function updateBoxEdit(event: PointerEvent) {
@@ -246,6 +293,53 @@ function updateBoxEdit(event: PointerEvent) {
 function stopBoxEdit() {
   dragState = undefined;
   window.removeEventListener('pointermove', updateBoxEdit);
+  window.removeEventListener('pointerup', stopBoxEdit);
+  window.removeEventListener('pointercancel', stopBoxEdit);
+}
+
+function startImagePan(event: PointerEvent) {
+  if (!isMiddleButton(event)) {
+    return;
+  }
+  event.preventDefault();
+  if (viewport.value.zoom <= MIN_ZOOM) {
+    return;
+  }
+
+  panDragState = {
+    startClient: { x: event.clientX, y: event.clientY },
+    startPan: { x: viewport.value.panX, y: viewport.value.panY },
+  };
+  isPanning.value = true;
+  window.addEventListener('pointermove', updateImagePan);
+  window.addEventListener('pointerup', stopImagePan, { once: true });
+  window.addEventListener('pointercancel', stopImagePan, { once: true });
+}
+
+function updateImagePan(event: PointerEvent) {
+  if (!panDragState) {
+    return;
+  }
+  event.preventDefault();
+  const dx = event.clientX - panDragState.startClient.x;
+  const dy = event.clientY - panDragState.startClient.y;
+  const nextPan = clampPan(
+    panDragState.startPan.x + dx,
+    panDragState.startPan.y + dy,
+    viewport.value.zoom,
+  );
+  viewport.value = {
+    ...viewport.value,
+    ...nextPan,
+  };
+}
+
+function stopImagePan() {
+  panDragState = undefined;
+  isPanning.value = false;
+  window.removeEventListener('pointermove', updateImagePan);
+  window.removeEventListener('pointerup', stopImagePan);
+  window.removeEventListener('pointercancel', stopImagePan);
 }
 
 function pointerToImagePoint(event: PointerEvent) {
@@ -256,6 +350,63 @@ function pointerToImagePoint(event: PointerEvent) {
   return {
     x: ((event.clientX - rect.left) / rect.width) * BBOX_COORDINATE_MAX,
     y: ((event.clientY - rect.top) / rect.height) * BBOX_COORDINATE_MAX,
+  };
+}
+
+function isMiddleButton(event: PointerEvent) {
+  return event.button === 1 || Boolean(event.buttons & 4);
+}
+
+function clampViewportPan() {
+  if (viewport.value.zoom <= MIN_ZOOM) {
+    viewport.value = { ...viewport.value, panX: 0, panY: 0 };
+    return;
+  }
+  viewport.value = {
+    ...viewport.value,
+    ...clampPan(viewport.value.panX, viewport.value.panY, viewport.value.zoom),
+  };
+}
+
+function clampPan(panX: number, panY: number, zoomValue: number) {
+  const metrics = viewportMetrics();
+  if (!metrics || zoomValue <= MIN_ZOOM) {
+    return { panX: 0, panY: 0 };
+  }
+  return {
+    panX: clampPanAxis(panX, metrics.shellWidth, metrics.stageWidth, metrics.baseOffsetX, zoomValue),
+    panY: clampPanAxis(panY, metrics.shellHeight, metrics.stageHeight, metrics.baseOffsetY, zoomValue),
+  };
+}
+
+function clampPanAxis(value: number, shellLength: number, stageLength: number, baseOffset: number, zoomValue: number) {
+  const scaledLength = stageLength * zoomValue;
+  if (scaledLength <= shellLength) {
+    return (stageLength - scaledLength) / 2;
+  }
+  return clamp(value, shellLength - baseOffset - scaledLength, -baseOffset);
+}
+
+function viewportMetrics() {
+  const { width: stageWidth, height: stageHeight } = stageDimensions.value;
+  const shellWidth = shellSize.value.width;
+  const shellHeight = shellSize.value.height;
+  const shellRect = shellRef.value?.getBoundingClientRect();
+  if (stageWidth <= 0 || stageHeight <= 0 || shellWidth <= 0 || shellHeight <= 0) {
+    return undefined;
+  }
+
+  const baseOffsetX = Math.max(0, (shellWidth - stageWidth) / 2);
+  const baseOffsetY = Math.max(0, (shellHeight - stageHeight) / 2);
+  return {
+    shellWidth,
+    shellHeight,
+    stageWidth,
+    stageHeight,
+    baseOffsetX,
+    baseOffsetY,
+    baseLeft: (shellRect?.left ?? 0) + baseOffsetX,
+    baseTop: (shellRect?.top ?? 0) + baseOffsetY,
   };
 }
 
@@ -307,6 +458,10 @@ function clamp(value: number, min: number, max: number) {
 function roundZoom(value: number) {
   return Math.round(value * 100) / 100;
 }
+
+function roundPan(value: number) {
+  return Math.round(value * 100) / 100;
+}
 </script>
 
 <style scoped>
@@ -332,9 +487,20 @@ function roundZoom(value: number) {
   max-height: 100%;
   overflow: hidden;
   background: #111827;
-  transform: scale(1);
+  transform: translate(0, 0) scale(1);
+  transform-origin: 0 0;
   transition: transform 0.12s ease;
   will-change: transform;
+}
+
+.bbox-shell--panning,
+.bbox-shell--panning * {
+  cursor: grabbing !important;
+  user-select: none;
+}
+
+.bbox-shell--panning .bbox-shell__stage {
+  transition: none;
 }
 
 .bbox-shell__image {
@@ -363,7 +529,7 @@ function roundZoom(value: number) {
   opacity: 0.92;
   outline: none;
   pointer-events: none;
-  transition: border-color 0.15s ease, border-width 0.15s ease, opacity 0.15s ease;
+  transition: border-color 0.15s ease, opacity 0.15s ease;
 }
 
 .bbox-shell__box:focus-visible {
@@ -373,7 +539,6 @@ function roundZoom(value: number) {
 
 .bbox-shell__box--selected {
   border-color: #ff3b30;
-  border-width: 4px;
   opacity: 1;
   z-index: 5;
 }

@@ -56,8 +56,147 @@ describe('HTTP API adapter', () => {
       id: 'ds-live',
       name: 'urban_violation',
       status: 'active',
+      datasetType: 'urban_violation',
+      batchKey: 'ds-live',
       rootPath: '/mnt/internal/urban_violation',
     });
+  });
+
+  it('normalizes dataset batch fields, asset summary, and latest import context', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          dataset: {
+            dataset_id: 'urban_violation__0508_fixture',
+            name: '0508 fixture',
+            dataset_type: 'urban_violation',
+            batch_key: '0508_fixture',
+            lifecycle_status: 'qc_ready',
+            active_label_config_version: 'urban_violation_labels_v1',
+            active_import_job_id: 'job-0508',
+            total_assets: 797,
+            stage1_count: 797,
+            stage2_success_count: 780,
+            stage2_failure_count: 19,
+            created_at: '2026-05-18T00:00:00Z',
+          },
+          totals: {
+            rawAssets: 797,
+            stage1Parsed: 797,
+            stage2Parsed: 780,
+            stage2Failures: 19,
+          },
+          coverage: {
+            stage1: 1,
+            stage2: 0.9787,
+          },
+          latest_import_job: {
+            job_id: 'job-0508',
+            dataset_id: 'urban_violation__0508_fixture',
+            state: 'PreviewReady',
+            expected_assets: 797,
+            imported_assets: 797,
+            failure_count: 19,
+          },
+          asset_summary: {
+            media: { total: 797, valid: 797, missing: 0 },
+            preannotation: { stage1_ready: 797, stage2_ready: 780, stage2_failed: 19 },
+            qc: { total: 797, pending: 186, submitted: 528 },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          dataset_id: 'urban_violation__0508_fixture',
+          dataset_type: 'urban_violation',
+          batch_key: '0508_fixture',
+          media: { total: 797, valid: 797, missing: 0 },
+          import_health: { imported: 797, orphan_annotations: 1, path_warnings: 2 },
+          preannotation: { stage1_ready: 797, stage2_ready: 780, stage2_failed: 19 },
+          qc: { total: 797, pending: 186, submitted: 528 },
+        }),
+      );
+    const api = new HttpUrbanViolationApi(new HttpClient({ baseUrl: 'http://backend.test', fetcher }));
+
+    const summary = await api.getDatasetSummary('urban_violation__0508_fixture');
+    const assetSummary = await api.getAssetSummary('urban_violation__0508_fixture');
+
+    expect(summary.dataset).toMatchObject({
+      id: 'urban_violation__0508_fixture',
+      datasetType: 'urban_violation',
+      batchKey: '0508_fixture',
+      lifecycleStatus: 'qc_ready',
+      activeLabelConfigVersion: 'urban_violation_labels_v1',
+    });
+    expect(summary.latestImportJob).toMatchObject({ id: 'job-0508', state: 'PreviewReady' });
+    expect(summary.assetSummary?.preannotation).toMatchObject({ stage2Ready: 780, stage2Failed: 19 });
+    expect(fetcher.mock.calls[1][0]).toBe('http://backend.test/datasets/urban_violation__0508_fixture/assets/summary');
+    expect(assetSummary).toMatchObject({
+      datasetType: 'urban_violation',
+      batchKey: '0508_fixture',
+      media: { total: 797, valid: 797 },
+      preannotation: { stage1Ready: 797, stage2Ready: 780, stage2Failed: 19 },
+    });
+  });
+
+  it('uses batch-scoped import job orchestration endpoints', async () => {
+    const jobPayload = {
+      job_id: 'job-0508',
+      dataset_id: 'urban_violation__0508_fixture',
+      dataset_type: 'urban_violation',
+      batch_key: '0508_fixture',
+      state: 'PreviewReady',
+      expected_assets: 797,
+      imported_assets: 797,
+      stage2_success_count: 780,
+      failure_count: 19,
+      warnings: [{ id: 'w-stage2', severity: 'warning', title: 'STEP2 failures', message: '19 failures preserved.' }],
+    };
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ import_jobs: [jobPayload] }))
+      .mockResolvedValueOnce(jsonResponse({ ...jobPayload, state: 'Draft' }))
+      .mockResolvedValueOnce(jsonResponse({ ...jobPayload, state: 'Scanning' }))
+      .mockResolvedValueOnce(jsonResponse({ ...jobPayload, state: 'PreviewReady' }))
+      .mockResolvedValueOnce(jsonResponse({ ...jobPayload, state: 'QCQueueGenerated' }))
+      .mockResolvedValueOnce(jsonResponse({ ...jobPayload, state: 'Scanning' }));
+    const api = new HttpUrbanViolationApi(new HttpClient({ baseUrl: 'http://backend.test/api', fetcher }));
+
+    const jobs = await api.listImportJobs('urban_violation__0508_fixture');
+    const created = await api.createImportJob('urban_violation__0508_fixture', {
+      datasetType: 'urban_violation',
+      batchKey: '0508_fixture',
+      sourceMode: 'local_directory',
+      sourceUri: 'DATASET/urban_violation',
+    });
+    const scanned = await api.scanImportJob('urban_violation__0508_fixture', 'job-0508');
+    const validated = await api.validateImportJob('urban_violation__0508_fixture', 'job-0508');
+    const confirmed = await api.confirmImportJob('urban_violation__0508_fixture', 'job-0508');
+    const retried = await api.retryImportJob('urban_violation__0508_fixture', 'job-0508');
+
+    expect(jobs[0]).toMatchObject({ id: 'job-0508', state: 'PreviewReady', warningCount: 1 });
+    expect(created.state).toBe('Draft');
+    expect(scanned.state).toBe('Scanning');
+    expect(validated.validationReport?.warnings[0].message).toContain('19 failures');
+    expect(confirmed.state).toBe('QCQueueGenerated');
+    expect(retried.state).toBe('Scanning');
+    expect(fetcher.mock.calls.map((call) => String(call[0]))).toEqual([
+      'http://backend.test/api/datasets/urban_violation__0508_fixture/import-jobs',
+      'http://backend.test/api/datasets/urban_violation__0508_fixture/import-jobs',
+      'http://backend.test/api/datasets/urban_violation__0508_fixture/import-jobs/job-0508/scan',
+      'http://backend.test/api/datasets/urban_violation__0508_fixture/import-jobs/job-0508/validate',
+      'http://backend.test/api/datasets/urban_violation__0508_fixture/import-jobs/job-0508/confirm',
+      'http://backend.test/api/datasets/urban_violation__0508_fixture/import-jobs/job-0508/retry',
+    ]);
+    expect(fetcher.mock.calls[1][1]?.body).toBe(
+      JSON.stringify({
+        dataset_type: 'urban_violation',
+        batch_key: '0508_fixture',
+        source_mode: 'local_directory',
+        source_uri: 'DATASET/urban_violation',
+      }),
+    );
   });
 
   it('uses snake_case backend filters and blocks local absolute media paths', async () => {

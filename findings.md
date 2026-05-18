@@ -106,9 +106,20 @@ This file records research findings from `urban_violation_platform_markdown/` an
 - Bbox selected-state semantics after the latest review tweak: the red selected outline must be driven only by image evidence area bbox interactions, not by the right-side default active Relation or active Candidate evidence state on page entry.
 - Candidate editing semantics after the latest review tweak: `segmentation_targets` may be an empty array, and deleting an existing Candidate should be represented as a structured `delete_candidate` label-edit operation.
 
+## Dataset Management Findings
+
+- Dataset management should be modeled as dataset type plus batch. `urban_violation` is the shared type; concrete batches such as `0508_fixture` carry import state, asset statistics, and QC queue membership.
+- The same dataset type shares one field design and active label configuration. Batch pages should inherit that type-level configuration instead of duplicating dictionaries per batch.
+- QC queue membership is batch-scoped. Opening a QC queue from dataset management must preserve the concrete batch context and should not merge all batches of the same type by default.
+- Asset browsing is not a separate top-level module for this product shape. It belongs under the dataset batch as asset statistics, sample browsing, failure filtering, and review entry points.
+- Import tasks are part of dataset-batch creation/refresh. Import job detail should be shown as a batch execution record with validation diagnostics, retry hooks, and links back to affected assets.
+- Current fixture semantics distinguish preserved import diagnostics from current asset status: the fixture import job records 19 failure diagnostics, while the current failed asset filter returns 17 failed stage2 assets.
+- The current main-directory QC review workbench is the source of truth. Subagent output may verify routes around it, but must not replace the established review-workbench layout or interaction behavior.
+
 ## Open Questions
 
 - Whether the platform should import full raw request/response payloads or store them as audit artifacts only while exposing normalized parsed fields to the UI.
 - Whether stage2 failure entries should enter QC queue by default or live in a separate import-failure remediation queue.
 - Whether category labels should remain machine labels such as `nonmotor_vehicle_illegal_parking` or be mapped to Chinese display labels in backend dictionaries.
-- The target frontend framework is implied by docs as Vue-style structure, but the actual codebase has not been created or inspected in this directory.
+- Whether future dataset batch keys should be strictly date-based, scene-based, or allow a combined convention like `{date}_{scene}`.
+- Whether import job validation should become persistent audit history or remain an on-demand recalculation in the initial product pass.

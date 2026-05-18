@@ -26,6 +26,29 @@ class ImportJobState(str, Enum):
     QC_QUEUE_GENERATED = "QCQueueGenerated"
 
 
+class DatasetLifecycleStatus(str, Enum):
+    """Dataset batch lifecycle states for import/preannotation/qc orchestration."""
+
+    DRAFT = "draft"
+    REGISTERED = "registered"
+    SCANNING = "scanning"
+    VALIDATION_FAILED = "validation_failed"
+    VALIDATED = "validated"
+    IMPORTING = "importing"
+    IMPORT_FAILED = "import_failed"
+    IMPORTED = "imported"
+    PREANNOTATION_PENDING = "preannotation_pending"
+    PREANNOTATING = "preannotating"
+    PREANNOTATION_FAILED = "preannotation_failed"
+    PREANNOTATION_READY = "preannotation_ready"
+    LABEL_CONFIG_REQUIRED = "label_config_required"
+    QC_READY = "qc_ready"
+    QC_IN_PROGRESS = "qc_in_progress"
+    QC_COMPLETED = "qc_completed"
+    EXPORT_READY = "export_ready"
+    ARCHIVED = "archived"
+
+
 class StrictModel(BaseModel):
     """Base model that rejects unknown fields for safer contracts."""
 
@@ -36,6 +59,15 @@ class Dataset(StrictModel):
     """Dataset metadata and aggregate counters."""
 
     dataset_id: str
+    dataset_type: str = "urban_violation"
+    display_name: str = "城市违规"
+    field_schema_version: str = "2026-05-18"
+    active_label_config_version: int | None = None
+    batch_key: str = "0508_fixture"
+    lifecycle_status: DatasetLifecycleStatus = DatasetLifecycleStatus.IMPORTED
+    active_import_job_id: str | None = None
+    qc_queue_id: str | None = None
+    legacy_dataset_id: str | None = None
     name: str
     root_path: str
     total_assets: int = Field(ge=0)
@@ -50,12 +82,15 @@ class ImportJob(StrictModel):
 
     job_id: str
     dataset_id: str
+    dataset_type: str = "urban_violation"
+    batch_key: str = "0508_fixture"
     state: ImportJobState
     expected_assets: int = Field(ge=0)
     imported_assets: int = Field(ge=0)
     failure_count: int = Field(ge=0)
     requested_sample_ids: list[str] = Field(default_factory=list)
     validation_errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class RawAsset(StrictModel):

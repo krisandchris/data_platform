@@ -284,6 +284,33 @@ stop_process() {
   info "$label stopped"
 }
 
+stop_matching_processes() {
+  local label="$1"
+  local needle="$2"
+  local port_arg="$3"
+  local pid args
+
+  while read -r pid args; do
+    [[ "$pid" =~ ^[0-9]+$ ]] || continue
+    [[ "$pid" != "$$" ]] || continue
+    [[ "$args" == *"$needle"* ]] || continue
+    [[ "$args" == *"$port_arg"* ]] || continue
+
+    info "stopping residual $label pid $pid"
+    kill "$pid" 2>/dev/null || true
+    for _ in {1..20}; do
+      if ! is_running "$pid"; then
+        break
+      fi
+      sleep 0.25
+    done
+    if is_running "$pid"; then
+      warn "residual $label pid $pid did not stop after TERM; sending KILL"
+      kill -9 "$pid" 2>/dev/null || true
+    fi
+  done < <(ps -eo pid=,args=)
+}
+
 start_stack() {
   start_backend
   start_frontend
@@ -294,7 +321,9 @@ start_stack() {
 stop_stack() {
   load_stack_env
   stop_process frontend "$FRONTEND_PID_FILE"
+  stop_matching_processes frontend "$FRONTEND_DIR/node_modules/.bin/vite" "--port $FRONTEND_PORT"
   stop_process backend "$BACKEND_PID_FILE"
+  stop_matching_processes backend "urban_violation_backend.app:app" "--port $BACKEND_PORT"
   rm -f "$STACK_ENV_FILE"
 }
 

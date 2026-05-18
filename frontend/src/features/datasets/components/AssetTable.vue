@@ -3,7 +3,16 @@
     <div class="asset-table__toolbar">
       <div class="filters">
         <label>
-          状态
+          STEP1
+          <select v-model="localFilters.stage1Status">
+            <option value="all">全部</option>
+            <option value="ready">ready</option>
+            <option value="missing">missing</option>
+            <option value="failed">failed</option>
+          </select>
+        </label>
+        <label>
+          模型判断
           <select v-model="localFilters.judgeDecision">
             <option value="all">全部</option>
             <option value="pass">pass</option>
@@ -19,7 +28,7 @@
           </select>
         </label>
         <label>
-          质检
+          QC
           <select v-model="localFilters.qcStatus">
             <option value="all">全部</option>
             <option value="qc_pending">qc_pending</option>
@@ -34,6 +43,36 @@
             <option value="all">全部</option>
             <option v-for="category in categories" :key="category" :value="category">{{ category }}</option>
           </select>
+        </label>
+        <label>
+          sample category
+          <select v-model="localFilters.sampleCategory">
+            <option value="all">全部</option>
+            <option v-for="category in sampleCategories" :key="category" :value="category">{{ category }}</option>
+          </select>
+        </label>
+        <label>
+          媒体
+          <select v-model="localFilters.mediaStatus">
+            <option value="all">全部</option>
+            <option value="valid">valid</option>
+            <option value="missing">missing</option>
+            <option value="load_failed">load_failed</option>
+          </select>
+        </label>
+        <label>
+          人工修改
+          <select v-model="localFilters.labelEditStatus">
+            <option value="all">全部</option>
+            <option value="none">none</option>
+            <option value="draft">draft</option>
+            <option value="submitted">submitted</option>
+            <option value="changed">changed</option>
+          </select>
+        </label>
+        <label>
+          最低置信度
+          <input v-model.number="localFilters.confidenceMin" type="number" min="0" max="1" step="0.05" placeholder="0.00" />
         </label>
         <label class="filters__search">
           sample_id
@@ -59,8 +98,10 @@
           <th>stage</th>
           <th>decision</th>
           <th>category</th>
+          <th>sample category</th>
           <th>confidence</th>
           <th>qc</th>
+          <th>edit</th>
           <th>updated</th>
         </tr>
       </thead>
@@ -72,8 +113,9 @@
           <td>
             <div class="thumb">
               <img v-if="safeMedia(asset)" :src="safeMedia(asset)" alt="" @error="markFailed(asset.id)" />
-              <span v-if="failedImages.has(asset.id) || !safeMedia(asset)">URL</span>
+              <span v-if="failedImages.has(asset.id) || !safeMedia(asset)">{{ asset.mediaStatus ?? 'URL' }}</span>
             </div>
+            <small class="asset-muted">{{ asset.mediaStatus ?? 'unknown' }}</small>
           </td>
           <td>
             <div class="chip-stack">
@@ -87,8 +129,14 @@
               <CategoryChip v-for="category in asset.violationCategories" :key="category" :value="category" />
             </div>
           </td>
+          <td>
+            <div class="chip-stack">
+              <StatusChip v-for="category in asset.sampleCategories" :key="category" :value="category" />
+            </div>
+          </td>
           <td>{{ asset.highestConfidence === undefined ? '-' : `${(asset.highestConfidence * 100).toFixed(2)}%` }}</td>
           <td><StatusChip :value="asset.qcStatus" /></td>
+          <td><StatusChip :value="asset.labelEditStatus ?? 'none'" /></td>
           <td>{{ formatTime(asset.updatedAt) }}</td>
         </tr>
       </tbody>
@@ -116,10 +164,13 @@ const emit = defineEmits<{
 
 const localFilters = reactive<AssetListFilters>({
   judgeDecision: 'all',
+  stage1Status: 'all',
   stage2State: 'all',
   qcStatus: 'all',
   violationCategory: 'all',
   sampleCategory: 'all',
+  mediaStatus: 'all',
+  labelEditStatus: 'all',
   search: '',
 });
 
@@ -129,10 +180,17 @@ const categories = computed(() =>
   [...new Set(props.assets.flatMap((asset) => asset.violationCategories))].sort((a, b) => a.localeCompare(b)),
 );
 
+const sampleCategories = computed(() =>
+  [...new Set(props.assets.flatMap((asset) => asset.sampleCategories))].sort((a, b) => a.localeCompare(b)),
+);
+
 const filteredAssets = computed(() =>
   props.assets.filter((asset) => {
     const query = localFilters.search?.trim().toLowerCase();
     return (
+      (!localFilters.stage1Status ||
+        localFilters.stage1Status === 'all' ||
+        asset.stage1Status === localFilters.stage1Status) &&
       (!localFilters.judgeDecision ||
         localFilters.judgeDecision === 'all' ||
         asset.judgeDecision === localFilters.judgeDecision) &&
@@ -143,6 +201,18 @@ const filteredAssets = computed(() =>
       (!localFilters.violationCategory ||
         localFilters.violationCategory === 'all' ||
         asset.violationCategories.includes(localFilters.violationCategory)) &&
+      (!localFilters.sampleCategory ||
+        localFilters.sampleCategory === 'all' ||
+        asset.sampleCategories.includes(localFilters.sampleCategory)) &&
+      (localFilters.confidenceMin === undefined ||
+        localFilters.confidenceMin === null ||
+        (asset.highestConfidence !== undefined && asset.highestConfidence >= localFilters.confidenceMin)) &&
+      (!localFilters.mediaStatus ||
+        localFilters.mediaStatus === 'all' ||
+        asset.mediaStatus === localFilters.mediaStatus) &&
+      (!localFilters.labelEditStatus ||
+        localFilters.labelEditStatus === 'all' ||
+        asset.labelEditStatus === localFilters.labelEditStatus) &&
       (!query || asset.sampleId.toLowerCase().includes(query))
     );
   }),
@@ -152,10 +222,15 @@ watch(localFilters, () => emit('filtersChanged', { ...localFilters }), { deep: t
 
 const resetFilters = () => {
   localFilters.judgeDecision = 'all';
+  localFilters.stage1Status = 'all';
   localFilters.stage2State = 'all';
   localFilters.qcStatus = 'all';
   localFilters.violationCategory = 'all';
   localFilters.sampleCategory = 'all';
+  localFilters.confidenceMin = undefined;
+  localFilters.confidenceMax = undefined;
+  localFilters.mediaStatus = 'all';
+  localFilters.labelEditStatus = 'all';
   localFilters.search = '';
 };
 
@@ -188,7 +263,7 @@ const formatTime = (value: string) => new Intl.DateTimeFormat('zh-CN', { dateSty
 
 .filters {
   display: grid;
-  grid-template-columns: repeat(4, minmax(150px, 1fr)) minmax(180px, 1.2fr);
+  grid-template-columns: repeat(4, minmax(140px, 1fr));
   gap: 12px;
 }
 
@@ -258,6 +333,13 @@ th {
 
 .thumb span {
   position: absolute;
+}
+
+.asset-muted {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .chip-stack {

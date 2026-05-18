@@ -13,6 +13,7 @@ from urban_violation_backend.app import create_app
 
 
 DATASET_ID = "urban_violation"
+BATCH_DATASET_ID = "urban_violation__0508_fixture"
 SUCCESS_SAMPLE_ID = "000142_0_1762483003246"
 FAILURE_SAMPLE_ID = "001710_0_1763108687181"
 IMPORT_JOB_ID = "fixture-import-urban-violation"
@@ -104,11 +105,17 @@ def test_health_and_dataset_summary(client: TestClient) -> None:
     assert datasets.status_code == 200
     items = datasets.json()
     assert len(items) == 1
-    assert items[0]["dataset_id"] == DATASET_ID
+    assert items[0]["dataset_id"] == BATCH_DATASET_ID
+    assert items[0]["dataset_type"] == DATASET_ID
+    assert items[0]["batch_key"] == "0508_fixture"
+    assert items[0]["legacy_dataset_id"] == DATASET_ID
 
     summary = client.get(f"/api/datasets/{DATASET_ID}/summary")
     assert summary.status_code == 200
     payload = summary.json()
+    assert payload["dataset_id"] == BATCH_DATASET_ID
+    assert payload["dataset_type"] == DATASET_ID
+    assert payload["active_import_job_id"] == IMPORT_JOB_ID
     assert payload["total_assets"] == 797
     assert payload["stage1_count"] == 797
     assert payload["stage2_success_count"] == 780
@@ -230,6 +237,8 @@ def test_assets_list_filters(client: TestClient) -> None:
     all_assets = client.get(f"/api/datasets/{DATASET_ID}/assets")
     assert all_assets.status_code == 200
     all_payload = all_assets.json()
+    assert all_payload["dataset_id"] == BATCH_DATASET_ID
+    assert all_payload["dataset_type"] == DATASET_ID
     assert all_payload["total"] == 797
 
     success_filtered = client.get(
@@ -247,6 +256,8 @@ def test_review_detail_for_success_sample(client: TestClient) -> None:
     assert response.status_code == 200
 
     payload = response.json()
+    assert payload["dataset_id"] == BATCH_DATASET_ID
+    assert payload["dataset_type"] == DATASET_ID
     assert payload["sample_id"] == SUCCESS_SAMPLE_ID
     assert payload["stage2"] is not None
     assert payload["stage2_failure"] is None
@@ -259,6 +270,7 @@ def test_failure_detail_for_stage2_failure_sample(client: TestClient) -> None:
     assert response.status_code == 200
 
     payload = response.json()
+    assert payload["dataset_id"] == BATCH_DATASET_ID
     assert payload["sample_id"] == FAILURE_SAMPLE_ID
     assert payload["stage2"] is None
     assert payload["stage2_failure"] is not None
@@ -470,12 +482,62 @@ def test_media_url_path_safety(client: TestClient) -> None:
 
 
 def test_import_job_qc_search_and_export_endpoints(client: TestClient) -> None:
+    jobs = client.get(f"/api/datasets/{DATASET_ID}/import-jobs")
+    assert jobs.status_code == 200
+    assert len(jobs.json()) >= 1
+
     import_job = client.get(f"/api/datasets/{DATASET_ID}/import-jobs/{IMPORT_JOB_ID}")
     assert import_job.status_code == 200
+    import_payload = import_job.json()
+    assert import_payload["dataset_id"] == BATCH_DATASET_ID
+    assert import_payload["dataset_type"] == DATASET_ID
+    assert import_payload["batch_key"] == "0508_fixture"
+
+    create_job = client.post(
+        f"/api/datasets/{DATASET_ID}/import-jobs",
+        json={"requested_sample_ids": [SUCCESS_SAMPLE_ID, FAILURE_SAMPLE_ID]},
+    )
+    assert create_job.status_code == 201
+    job_payload = create_job.json()
+    created_job_id = job_payload["job_id"]
+    assert job_payload["state"] == "Draft"
+
+    scan_job = client.post(f"/api/datasets/{DATASET_ID}/import-jobs/{created_job_id}/scan")
+    assert scan_job.status_code == 200
+    assert scan_job.json()["state"] == "Scanning"
+
+    validate_job = client.post(f"/api/datasets/{DATASET_ID}/import-jobs/{created_job_id}/validate")
+    assert validate_job.status_code == 200
+    validate_payload = validate_job.json()
+    assert validate_payload["state"] == "ValidationPassed"
+    assert validate_payload["failure_count"] == 19
+    assert validate_payload["warning_count"] >= 1
+    assert validate_payload["validation_errors"] == []
+
+    confirm_job = client.post(f"/api/datasets/{DATASET_ID}/import-jobs/{created_job_id}/confirm")
+    assert confirm_job.status_code == 200
+    confirm_payload = confirm_job.json()
+    assert confirm_payload["state"] == "Imported"
+    assert confirm_payload["failure_count"] == 19
+    assert confirm_payload["lifecycle_status"] in {
+        "label_config_required",
+        "qc_ready",
+        "qc_in_progress",
+        "qc_completed",
+    }
+
+    retry_job = client.post(f"/api/datasets/{DATASET_ID}/import-jobs/{created_job_id}/retry")
+    assert retry_job.status_code == 200
+    assert retry_job.json()["state"] == "Draft"
 
     qc = client.get(f"/api/datasets/{DATASET_ID}/qc")
     assert qc.status_code == 200
-    assert qc.json()["total"] == 797
+    qc_payload = qc.json()
+    assert qc_payload["dataset_id"] == BATCH_DATASET_ID
+    assert qc_payload["dataset_type"] == DATASET_ID
+    assert qc_payload["total"] == 797
+    assert qc_payload["items"][0]["dataset_id"] == BATCH_DATASET_ID
+    assert qc_payload["items"][0]["qc_queue_id"].startswith("qcq_urban_violation_")
 
     search = client.get(
         f"/api/datasets/{DATASET_ID}/search",
@@ -492,3 +554,50 @@ def test_import_job_qc_search_and_export_endpoints(client: TestClient) -> None:
     export_payload = export.json()
     assert export_payload["sample_count"] == 1
     assert export_payload["sample_ids"] == [SUCCESS_SAMPLE_ID]
+
+
+def test_asset_summary_and_extended_filters(client: TestClient) -> None:
+    summary = client.get(f"/api/datasets/{DATASET_ID}/assets/summary")
+    assert summary.status_code == 200
+    payload = summary.json()
+    assert payload["dataset_id"] == BATCH_DATASET_ID
+    assert payload["dataset_type"] == DATASET_ID
+    assert payload["metrics"]["total_assets"] == 797
+    assert payload["metrics"]["stage2_failure_total"] == 17
+
+    failed = client.get(
+        f"/api/datasets/{DATASET_ID}/assets",
+        params={"step2_status": "failure", "media_status": "valid"},
+    )
+    assert failed.status_code == 200
+    failed_payload = failed.json()
+    assert failed_payload["total"] == 17
+    assert any(item["sample_id"] == FAILURE_SAMPLE_ID for item in failed_payload["items"])
+
+    high_conf = client.get(
+        f"/api/datasets/{DATASET_ID}/assets",
+        params={"confidence_min": 0.9, "step2_status": "success"},
+    )
+    assert high_conf.status_code == 200
+    assert high_conf.json()["total"] >= 1
+
+
+def test_label_config_type_scope_with_batch_path(client: TestClient) -> None:
+    saved = client.post(
+        f"/api/datasets/{DATASET_ID}/label-configs",
+        json={
+            "file_name": LABEL_CONFIG_PATH.name,
+            "config": _load_label_config_payload(),
+            "activate": True,
+        },
+    )
+    assert saved.status_code == 200
+    saved_payload = saved.json()
+    assert saved_payload["dataset_id"] == DATASET_ID
+
+    # Batch path should resolve to same type-scoped active label config.
+    active = client.get(f"/api/datasets/{BATCH_DATASET_ID}/label-config/active")
+    assert active.status_code == 200
+    active_payload = active.json()
+    assert active_payload["dataset_id"] == BATCH_DATASET_ID
+    assert active_payload["config_id"] == saved_payload["config_id"]
