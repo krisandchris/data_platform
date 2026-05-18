@@ -615,7 +615,7 @@ describe('import and review routes', () => {
     expect(wrapper.text()).not.toContain('人工精标');
   });
 
-  it('marks unreferenced relation boxes black instead of selected red', async () => {
+  it('marks unreferenced relation boxes purple and turns them red when selected', async () => {
     const orphanDetail: ReviewSampleDetail = {
       ...reviewDetail,
       stage1: {
@@ -667,9 +667,18 @@ describe('import and review routes', () => {
     await wrapper.findAll('.relation-index-track .index-button').find((button) => button.text().includes('R2'))?.trigger('click');
     await flushPromises();
 
-    const unreferencedBoxes = wrapper.findAll('.bbox-shell__box--black');
+    const unreferencedBoxes = wrapper.findAll('.bbox-shell__box--purple');
     expect(unreferencedBoxes.length).toBeGreaterThan(0);
-    expect(unreferencedBoxes.some((box) => box.classes().includes('bbox-shell__box--selected'))).toBe(false);
+    expect(unreferencedBoxes.some((box) => box.classes().includes('bbox-shell__box--selected'))).toBe(true);
+    expect(wrapper.findAll('.bbox-shell__box--black')).toHaveLength(0);
+
+    const defaultToneClasses = wrapper
+      .findAll('.bbox-shell__box')
+      .filter((box) => /^(S2 )?R1$/.test(box.attributes('aria-label') ?? ''))
+      .flatMap((box) => box.classes().filter((className) => className.startsWith('bbox-shell__box--')));
+    expect(defaultToneClasses).not.toContain('bbox-shell__box--purple');
+    expect(defaultToneClasses).not.toContain('bbox-shell__box--red');
+    expect(defaultToneClasses).not.toContain('bbox-shell__box--black');
   });
 
   it('allows empty segmentation targets and sends a delete operation for removed candidates', async () => {

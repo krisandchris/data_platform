@@ -281,9 +281,17 @@
   - Verified with `BACKEND_PORT=8021 FRONTEND_PORT=5181 scripts/dev-stack.sh start`, backend `/health`, proxied review detail JSON, proxied `200 image/jpeg` media response, and `scripts/dev-stack.sh stop`.
 - Completed review workbench zoom and Candidate deletion tweaks:
   - Added mouse-wheel zoom to `BBoxOverlay.vue`; bbox overlays scale with the image stage while stored coordinates remain 0-1000.
-  - Black is now reserved for unreferenced Relation boxes; regular bbox tones avoid red/black, and red remains a selected-state marker only for referenced boxes.
+  - Initial unreferenced Relation color rule was superseded by the next correction pass.
   - Added a Candidate delete button in the right-side Candidate detail header.
   - Added frontend `delete_candidate` patch emission and kept empty `segmentation_targets` valid.
   - Added backend validation support and tests for empty segmentation targets and Candidate deletion operations.
   - Verification passed: `uv run pytest` 28 passed; `cd frontend && npm run test` 28 passed; `cd frontend && npm run build` passed.
-  - Live smoke on `8022/5182` confirmed active config UI, black unreferenced bbox classes, Candidate delete button DOM, media loading, and label-edit validation for empty targets plus delete operation.
+  - Live smoke on `8022/5182` confirmed active config UI, Candidate delete button DOM, media loading, and label-edit validation for empty targets plus delete operation.
+- Corrected review workbench bbox color semantics:
+  - Unreferenced Relation boxes now use purple as the default tone and turn red through the selected state when active.
+  - Ordinary referenced Relation boxes use a stable Relation-id-based pseudo-random color from blue, green, orange, cyan, yellow, and teal.
+  - Ordinary default tones explicitly exclude purple, red, and black.
+  - Removed black tone support from `BBoxOverlay.vue`.
+  - Verification passed: `cd frontend && npm run test -- bboxOverlay routesAndPages` 17 passed; `cd frontend && npm run test` 28 passed; `cd frontend && npm run build` passed.
+  - Live smoke on `8023/5183` confirmed purple unreferenced boxes, selected purple boxes carrying selected state, no black bbox classes, ordinary palette boxes, and Candidate delete button DOM; screenshot saved at `/tmp/uvp_qc_color_review.png`.
+  - The first DOM smoke helper failed with bare `python` not found; re-ran with `uv run python` successfully.

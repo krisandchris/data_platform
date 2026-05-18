@@ -644,6 +644,7 @@ const actionMessage = ref('');
 const validationPending = ref(false);
 const savePending = ref(false);
 const submitPending = ref(false);
+const DEFAULT_RELATION_TONES: NonNullable<OverlayBox['tone']>[] = ['blue', 'green', 'orange', 'cyan', 'yellow', 'teal'];
 
 if (reviewDraft.value.candidateDrafts.length) {
   activeCandidateId.value = reviewDraft.value.candidateDrafts[0].id;
@@ -778,9 +779,9 @@ const overlayBoxes = computed<OverlayBox[]>(() => {
         id: `stage1-${item.badge}`,
         label: item.badge,
         bbox: item.draft.bbox,
-        tone: item.orphan ? 'black' : 'blue',
+        tone: item.orphan ? 'purple' : relationTone(item.badge),
         relationIndex: item.badge,
-        selected: selected && !item.orphan,
+        selected,
         editable: canEditLabels.value,
       });
     });
@@ -794,9 +795,9 @@ const overlayBoxes = computed<OverlayBox[]>(() => {
         id: `stage2-${badge}`,
         label: `S2 ${badge}`,
         bbox: relationView?.draft.bbox ?? verification.bbox,
-        tone: relationView?.orphan ? 'black' : verification.verificationResult === 'supported' ? 'green' : 'orange',
+        tone: relationView?.orphan ? 'purple' : relationTone(badge),
         relationIndex: badge,
-        selected: selected && !relationView?.orphan,
+        selected,
       });
     });
   }
@@ -902,6 +903,11 @@ function relationBadge(value: string | number) {
 
 function relationIdsMatch(a: string | number, b: string | number) {
   return relationBadge(a) === relationBadge(b);
+}
+
+function relationTone(relationId: string): NonNullable<OverlayBox['tone']> {
+  const seed = Array.from(relationId).reduce((total, char) => total + char.charCodeAt(0), 0);
+  return DEFAULT_RELATION_TONES[seed % DEFAULT_RELATION_TONES.length];
 }
 
 function cloneBbox(value: readonly number[]): BBox {

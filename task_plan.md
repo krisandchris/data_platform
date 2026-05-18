@@ -45,6 +45,7 @@ Analyze `urban_violation_platform_markdown/` and the dataset layout under `DATAS
 - Phase 32: Frontend/backend implementation delegation - complete
 - Phase 33: Local frontend/backend one-command dev stack - complete
 - Phase 34: Review workbench zoom and Candidate deletion tweaks - complete
+- Phase 35: Review bbox color semantics correction - complete
 
 ## Phase 1 - Documentation Inventory
 
@@ -943,8 +944,7 @@ Goal:
 Implementation:
 - Added mouse-wheel zoom to the image evidence stage in `BBoxOverlay.vue`.
 - Kept bbox coordinates in 0-1000 quantized space; zoom is a stage transform, so the image and all boxes scale together without rewriting the selected region.
-- Reserved red only for selected referenced boxes and black for unreferenced Relation boxes.
-- Removed red/black from ordinary default bbox tone choices; ordinary boxes continue to use blue, green, orange, or purple.
+- Added an initial bbox color rule that was superseded by Phase 35.
 - Changed unreferenced Relation detection so a Relation with no Candidate evidence reference is marked unreferenced even when the active Candidate list is empty.
 - Added a right-top Candidate delete button in the Candidate detail editor.
 - Added frontend patch generation for `delete_candidate` operations while keeping newly added then deleted Candidates out of the patch.
@@ -954,7 +954,7 @@ Implementation:
 Acceptance:
 - Mouse wheel over the image evidence area zooms the rendered image and bbox overlays together.
 - Zoom does not mutate bbox coordinates and bbox drag/resize still emits 0-1000 coordinates.
-- Unreferenced Relation boxes render black and do not become red merely because the Relation is active.
+- Superseded by Phase 35: unreferenced Relation boxes now render purple and turn red when selected.
 - Candidate detail has a delete action at the right side of the detail header.
 - Removing all segmentation targets is valid.
 - Deleting an existing Candidate creates a `candidate:C* / field=candidate / op=delete_candidate` patch operation.
@@ -965,12 +965,42 @@ Verification:
 - `cd frontend && npm run build`: passed.
 - Live stack smoke on `127.0.0.1:8022` and `127.0.0.1:5182`:
   - uploaded and activated `DATASET/urban_violation/label_config.json`;
-  - review page DOM included `candidate-delete-button`, `active config ready`, and black unreferenced bbox classes;
+  - review page DOM included `candidate-delete-button`, `active config ready`, and the previous unreferenced bbox color classes;
   - review media returned `200 image/jpeg`;
   - label-edit validate accepted both empty `segmentation_targets` and `delete_candidate`.
 - Headless Chrome screenshots:
   - `/tmp/uvp_qc_tweak_review.png`
   - `/tmp/uvp_qc_tweak_review_active.png`
+
+## Phase 35 - Review Bbox Color Semantics Correction
+
+Goal:
+- Correct the bbox color rules after clarifying that unreferenced Relation boxes should be purple by default and red when selected.
+
+Implementation:
+- Changed unreferenced Relation boxes from black to purple.
+- Restored selected state for unreferenced Relation boxes so selection turns the 2px purple outline into the existing thick red selected outline.
+- Added a stable pseudo-random default color assignment by Relation id for ordinary Relation boxes.
+- The ordinary default bbox color card excludes purple, red, and black.
+- Added ordinary color card classes: blue, green, orange, cyan, yellow, and teal.
+- Removed black tone support from `BBoxOverlay.vue`.
+
+Acceptance:
+- A Relation with no Candidate evidence reference renders purple when not selected.
+- Selecting that unreferenced Relation turns the box red through the normal selected state.
+- Ordinary referenced Relation boxes use stable color-card tones and never default to purple, red, or black.
+- Color assignment remains deterministic across renders for the same Relation id.
+
+Verification:
+- `cd frontend && npm run test -- bboxOverlay routesAndPages`: 17 passed.
+- `cd frontend && npm run test`: 28 passed.
+- `cd frontend && npm run build`: passed.
+- Live stack smoke on `127.0.0.1:8023` and `127.0.0.1:5183`:
+  - activated `DATASET/urban_violation/label_config.json`;
+  - dumped review page DOM with headless Chrome;
+  - confirmed `purple_boxes=True`, `selected_purple_boxes=True`, `black_boxes=False`, `ordinary_palette_boxes=True`, and `candidate_delete=True`;
+  - captured `/tmp/uvp_qc_color_review.png`;
+  - stopped the dev stack.
 
 ## Phase 4 - Acceptance Criteria
 
@@ -996,3 +1026,4 @@ Acceptance:
 | `uv run pytest` failed with `Readme file does not exist: AGENT_TASK.md` after integrating backend files into main. | Main branch initially pulled backend code paths without the backend agent task file referenced by `pyproject.toml`. | Changed `pyproject.toml` readme to `urban_violation_platform_markdown/README.md` and reran `uv run pytest` successfully. |
 | Live browser smoke initially showed `Media preview pending from backend URL`. | Vite proxy mode proxied `/api` but not root `/media`, so image requests fell through to the frontend HTML route. | Added `/media` proxy in `frontend/vite.config.ts`; image request returned `200 image/jpeg` and screenshot rendered the actual image. |
 | Chrome DevTools MCP could not connect for integrated click verification: `Could not find DevToolsActivePort`. | Tried to use DevTools MCP after screenshot smoke. | Kept headless Chrome screenshot/DOM dump and direct API smoke as the browser verification path. |
+| `/bin/bash: 行 1: python: 未找到命令` during color DOM smoke. | Used bare `python` in a shell one-liner. | Re-ran with repo convention `uv run python` and completed the DOM checks. |

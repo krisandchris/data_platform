@@ -58,7 +58,7 @@ export interface OverlayBox {
   id: string;
   label: string;
   bbox: BBox;
-  tone?: 'blue' | 'green' | 'orange' | 'purple' | 'black';
+  tone?: 'blue' | 'green' | 'orange' | 'cyan' | 'yellow' | 'teal' | 'purple';
   relationIndex?: string;
   selected?: boolean;
   editable?: boolean;
@@ -426,16 +426,15 @@ function roundZoom(value: number) {
   color: #c084fc;
 }
 
-.bbox-shell__box--black {
-  color: #020617;
+.bbox-shell__box--cyan {
+  color: #22d3ee;
 }
 
-.bbox-shell__box--black.bbox-shell__box--selected {
-  border-color: #020617;
+.bbox-shell__box--yellow {
+  color: #facc15;
 }
 
-.bbox-shell__box--black .bbox-shell__resize,
-.bbox-shell__box--black.bbox-shell__box--selected .bbox-shell__resize {
-  background: #020617;
+.bbox-shell__box--teal {
+  color: #2dd4bf;
 }
 </style>
