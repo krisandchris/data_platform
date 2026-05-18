@@ -235,7 +235,11 @@
   - Verified with `google-chrome --headless=new --screenshot=/tmp/qc_step_review_field_layout_relation_fix.png`.
 - Reframed the bottom bar for annotator label-edit mode:
   - Added `docs/qc_label_edit_bottom_bar_design.md`.
-  - Replaced `vote note` semantics with `修改说明` / `change_note`.
+  - Removed the explanation field from the label-edit bottom bar.
   - Removed pass/reject/manual-refinement verdict buttons from the preview bottom bar.
   - Added `跳过样本`, `校验修改`, `保存草稿`, and `提交修改`.
-  - Verified with `google-chrome --headless=new --screenshot=/tmp/qc_label_edit_bottom_bar_preview.png`.
+  - Verified with `google-chrome --headless=new --screenshot=/tmp/qc_label_edit_bottom_bar_no_note.png`.
+- Updated the label-edit bottom bar after clarification:
+  - Confirmed no explanation text is required.
+  - Bottom bar now contains only status chips plus `跳过样本`, `校验修改`, `保存草稿`, and `提交修改`.
+  - Removed `change_note` from the recommended payload.

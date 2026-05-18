@@ -481,8 +481,7 @@
 
     .field input,
     .field select,
-    .field textarea,
-    .vote-note textarea {
+    .field textarea {
       width: 100%;
       min-width: 0;
       min-height: 36px;
@@ -494,8 +493,7 @@
       outline: none;
     }
 
-    .field textarea,
-    .vote-note textarea {
+    .field textarea {
       display: block;
       min-height: 72px;
       resize: none;
@@ -510,8 +508,7 @@
 
     .field input:focus,
     .field select:focus,
-    .field textarea:focus,
-    .vote-note textarea:focus {
+    .field textarea:focus {
       border-color: var(--blue);
     }
 
@@ -605,24 +602,22 @@
 
     .review-action-bar {
       display: grid;
-      grid-template-columns: minmax(250px, 1fr) auto;
+      grid-template-columns: minmax(360px, 1fr) auto;
       gap: 10px;
-      align-items: end;
+      align-items: center;
       border: 1px solid var(--line);
       border-bottom: 0;
       border-radius: var(--radius) var(--radius) 0 0;
       background: var(--surface);
-      padding: 10px 10px 0;
+      padding: 10px;
     }
 
-    .vote-note {
-      display: grid;
-      gap: 5px;
+    .bottom-status {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
       min-width: 0;
-    }
-
-    .vote-note textarea {
-      min-height: 54px;
     }
 
     .decision-actions {
@@ -958,13 +953,13 @@
     </div>
 
     <section class="review-action-bar" aria-label="标注修改底栏">
-      <label class="vote-note">
-        <span class="mini-label">修改说明</span>
-        <textarea>修正 R1 bbox；R2 保留为辅助证据；R3 目标过小，不作为候选证据。</textarea>
-      </label>
-      <div class="decision-actions">
+      <div class="bottom-status" aria-label="修改状态">
         <span class="pill blue">已修改 5 项</span>
         <span class="pill green">校验通过</span>
+        <span class="pill amber">草稿已保存 21:38</span>
+        <span class="pill blue">config v1</span>
+      </div>
+      <div class="decision-actions">
         <button class="decision-button skip" type="button">跳过样本</button>
         <button class="decision-button validate selected" type="button">校验修改</button>
         <button class="save-button" type="button">保存草稿</button>

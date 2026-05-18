@@ -767,7 +767,7 @@ Implementation:
 - Added `docs/qc_label_edit_bottom_bar_design.md`.
 - Updated `docs/qc_step_review_field_layout_design.md`.
 - Updated `docs/qc_step_review_field_layout_preview.html`.
-- Reframed `vote note` as `修改说明` / `change_note`.
+- Removed the explanation input from the label-edit bottom bar.
 - Removed final verdict actions from the preview bottom bar:
   - `通过`
   - `需修改`
@@ -782,9 +782,9 @@ Implementation:
 
 Acceptance:
 - Bottom bar no longer implies final QC pass/fail authority.
-- `修改说明` is tied to patch/audit records, not vote decisions.
-- High-risk label edits can require `修改说明` before submit.
-- Headless Chrome screenshot succeeds at `/tmp/qc_label_edit_bottom_bar_preview.png`.
+- Bottom bar does not show or require explanation text.
+- Patch/audit records rely on structured diffs instead of `change_note`.
+- Headless Chrome screenshot succeeds at `/tmp/qc_label_edit_bottom_bar_no_note.png`.
 
 ## Phase 4 - Acceptance Criteria
 
