@@ -41,6 +41,7 @@ Analyze `urban_violation_platform_markdown/` and the dataset layout under `DATAS
 - Phase 28: Label edit bottom bar semantics - complete
 - Phase 29: Relation index-only left rail - complete
 - Phase 30: Relation reference fields and Candidate index rail - complete
+- Phase 31: Field-only validate action semantics - complete
 
 ## Phase 1 - Documentation Inventory
 
@@ -822,6 +823,24 @@ Acceptance:
 - Subject visibility fields are visually separated from editable verification fields.
 - Candidate panel aligns with Relation panel: compact index rail on the left, editable detail area on the right.
 - Left Candidate rail does not carry category, confidence, or reasoning text.
+
+## Phase 31 - Field-Only Validate Action Semantics
+
+Goal:
+- Narrow the `校验修改` button semantics to field legality validation only.
+
+Implementation:
+- Updated `docs/qc_label_edit_bottom_bar_design.md`.
+- Updated `docs/qc_step_review_field_layout_design.md`.
+- Updated `docs/qc_step_review_field_layout_preview.html`.
+- Changed the status chip wording from `校验通过` to `字段合法`.
+- Defined `校验修改` as checking field type, requiredness, enum membership, open-tag format, confidence range, bbox coordinate legality, and text constraints.
+- Explicitly excluded Relation truth judgment, Candidate evidence sufficiency, cross-field business consistency, sample-level QC verdict, saving, patch submission, and queue-state changes.
+
+Acceptance:
+- `校验修改` does not imply quality judgment or business validation.
+- The preview bottom status reflects field legality rather than QC pass/fail.
+- `提交修改` still requires field legality validation before saving/submitting the patch.
 
 ## Phase 4 - Acceptance Criteria
 

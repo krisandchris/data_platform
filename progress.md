@@ -253,3 +253,8 @@
   - Changed those fields from editable controls to model visibility reference display.
   - Reworked Candidate layout to align with Relation layout: left `C1/+` index rail and right Candidate editor.
   - Verified with `google-chrome --headless=new --screenshot=/tmp/qc_relation_candidate_aligned_layout.png`.
+- Narrowed the `校验修改` bottom action to field legality validation only:
+  - Updated the bottom bar design document and STEP1/STEP2 layout design.
+  - Changed the preview status chip from `校验通过` to `字段合法`.
+  - Excluded Relation truth judgment, Candidate evidence sufficiency, cross-field business consistency, QC verdict, saving, patch submission, and queue-state changes from this button.
+  - Verified with `google-chrome --headless=new --screenshot=/tmp/qc_field_legality_validate_action.png`.

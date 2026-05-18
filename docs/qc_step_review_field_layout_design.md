@@ -189,6 +189,7 @@ Candidate 编辑内容：
 - 如果该界面是标注修改模式，底栏应改为状态摘要、`跳过样本`、`校验修改`、`保存草稿`、`提交修改`。
 - 标注修改模式下不显示 `通过`、`驳回`、`人工精标`，避免让标注人员承担最终质检裁决。
 - 标注修改模式下不需要填写说明，patch/audit 通过结构化 diff 记录修改内容。
+- `校验修改` 只做字段合法性校验，不做 Relation 成立判断、Candidate 证据充分性判断或样本级质检裁决。
 - 详细底栏逻辑见 `docs/qc_label_edit_bottom_bar_design.md`。
 
 ### 7.2 交互规则
@@ -199,7 +200,7 @@ Candidate 编辑内容：
 - 修改 `violation_category`、`sample_category` 时必须命中 active label config。
 - `segmentation_targets` 允许自定义，不因未命中字典而保存失败。
 - `confidence` 修改后显示模型值与人工值差异。
-- `提交修改` 前必须满足：无阻断校验错误、patch 已保存或可随提交保存、active label config 存在。
+- `提交修改` 前必须满足：字段合法性校验通过、patch 已保存或可随提交保存、active label config 存在。
 
 ## 8. Patch 数据粒度
 
@@ -279,4 +280,5 @@ Candidate 编辑内容：
 - 修改 Candidate 证据后，orphan/失效引用能产生阻断或明确警告。
 - `confidence`、`verification_confidence` 可人工修改，并能区分模型值与人工值。
 - 标注修改模式下，状态摘要、`跳过样本`、`校验修改`、`保存草稿`、`提交修改` 在底部修改提交区统一处理。
+- `校验修改` 的验收范围只包括字段合法性，不包括业务裁决、证据充分性或 Relation 成立判断。
 - 所有修改只生成 patch，不覆盖 `baseSample`。

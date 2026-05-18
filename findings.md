@@ -96,6 +96,7 @@ This file records research findings from `urban_violation_platform_markdown/` an
 - The left side of `Relation 复核区` should be an index-only selector that displays only `R1/R2/R3`; status, triple text, verification result, bbox state, and relation explanations belong in the right-side Relation detail/editor or Candidate evidence area.
 - `subject_visible`, `subject_match`, and `key_attributes_visible` should not be annotator-editable fields in this workbench. They should be shown as read-only model visibility reference below `bbox_observation / global_context_observation`.
 - `Candidate 与质检裁决` should mirror the Relation panel structure: a left candidate index rail showing only `C1/C2/+`, and a right-side editor containing category, confidence, segmentation targets, reasoning, evidence relations, and hint fields.
+- Bottom action `校验修改` is field-legality validation only: type, requiredness, enum membership, open-tag format, numeric range, bbox coordinate legality, and text constraints. It must not judge Relation truth, Candidate evidence sufficiency, cross-field business consistency, QC verdict, saving, submission, or queue state.
 
 ## Open Questions
 
