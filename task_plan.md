@@ -43,6 +43,7 @@ Analyze `urban_violation_platform_markdown/` and the dataset layout under `DATAS
 - Phase 30: Relation reference fields and Candidate index rail - complete
 - Phase 31: Field-only validate action semantics - complete
 - Phase 32: Frontend/backend implementation delegation - complete
+- Phase 33: Local frontend/backend one-command dev stack - complete
 
 ## Phase 1 - Documentation Inventory
 
@@ -901,6 +902,37 @@ Verification:
   - invalid `confidence=1.5` returned `422` with field-level validation detail.
 - Browser smoke through Vite proxy on `http://127.0.0.1:5178` rendered the review page with image, bbox overlays, Relation/Candidate index rails, and label-edit bottom bar.
 - Integrated screenshot: `/tmp/uvp_main_integrated_review.png`.
+
+## Phase 33 - Local Frontend/Backend One-Command Dev Stack
+
+Goal:
+- Provide a single local script to start, stop, restart, inspect, and tail logs for the backend and frontend development services.
+
+Implementation:
+- Added `scripts/dev-stack.sh`.
+- Added `.runtime/` to `.gitignore` for local pid files, log files, and saved stack metadata.
+- Backend start command:
+  - `uv run uvicorn urban_violation_backend.app:app --host "$BACKEND_HOST" --port "$BACKEND_PORT"`
+- Frontend start command:
+  - `VITE_API_BASE_URL=/api VITE_API_PROXY_TARGET="$BACKEND_URL" npm run dev -- --host "$FRONTEND_HOST" --port "$FRONTEND_PORT" --strictPort`
+- The script manages only its own pid files and stops frontend before backend.
+- The script fails fast if configured ports are occupied by unrelated processes.
+- Defaults are backend `127.0.0.1:8000` and frontend `0.0.0.0:5173`, displayed as `127.0.0.1:5173`.
+- Ports and hosts can be overridden through environment variables.
+
+Acceptance:
+- `scripts/dev-stack.sh start` launches backend and frontend, waits for `/health` and the Vite root page, and prints usable URLs.
+- `scripts/dev-stack.sh stop` stops only processes recorded in `.runtime/*.pid`.
+- `scripts/dev-stack.sh restart`, `status`, `logs`, and `urls` work from the repo root.
+- Frontend runs in proxy mode so both `/api` and `/media` resolve through the backend during review-workbench checks.
+
+Verification:
+- `bash -n scripts/dev-stack.sh`: passed.
+- `BACKEND_PORT=8021 FRONTEND_PORT=5181 scripts/dev-stack.sh start`: backend and frontend started.
+- `curl --noproxy '*' http://127.0.0.1:8021/health`: returned `{"status":"ok","dataset_id":"urban_violation"}`.
+- `curl --noproxy '*' http://127.0.0.1:5181/api/datasets/urban_violation/samples/000142_0_1762483003246/review`: returned review detail JSON through Vite proxy.
+- `curl --noproxy '*' http://127.0.0.1:5181/media/images/000142_0_1762483003246.jpg`: returned `200 image/jpeg`.
+- `scripts/dev-stack.sh stop`: stopped frontend and backend pids.
 
 ## Phase 4 - Acceptance Criteria
 

@@ -271,3 +271,11 @@
   - Verification passed: `uv run pytest` 26 passed; `cd frontend && npm run test` 25 passed; `cd frontend && npm run build` passed.
   - Live backend smoke on `127.0.0.1:8011` passed for health, review detail, active label config, validate, save draft, submit changes, and invalid confidence 422.
   - Live frontend smoke on `127.0.0.1:5178` rendered the review page, image, bbox overlays, Relation/Candidate index rails, and label-edit bottom bar; screenshot at `/tmp/uvp_main_integrated_review.png`.
+- Added one-command local frontend/backend dev-stack control:
+  - Created `scripts/dev-stack.sh` with `start`, `stop`, `restart`, `status`, `logs`, and `urls` subcommands.
+  - The backend launches through `uv run uvicorn urban_violation_backend.app:app`.
+  - The frontend launches through Vite with `VITE_API_BASE_URL=/api` and `VITE_API_PROXY_TARGET` pointing at the backend, preserving both `/api` and `/media` proxy behavior.
+  - Runtime pid/log metadata is written under ignored `.runtime/`.
+  - The script manages only its own pid files and reports occupied ports instead of killing unrelated processes.
+  - Fixed daemon startup to use `setsid`/`nohup` so services survive after the startup shell exits; stop now terminates the recorded process group.
+  - Verified with `BACKEND_PORT=8021 FRONTEND_PORT=5181 scripts/dev-stack.sh start`, backend `/health`, proxied review detail JSON, proxied `200 image/jpeg` media response, and `scripts/dev-stack.sh stop`.

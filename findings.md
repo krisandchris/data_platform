@@ -100,6 +100,7 @@ This file records research findings from `urban_violation_platform_markdown/` an
 - Implementation contract for this round: backend owns `POST /api/datasets/{dataset_id}/samples/{sample_id}/label-edits/validate` and `POST /api/datasets/{dataset_id}/samples/{sample_id}/label-edits`; frontend consumes those endpoints for `校验修改`, `保存草稿`, and `提交修改`.
 - Main integration confirmed the backend/frontend label-edit contract live: `validate` does not persist, `save_draft` hydrates `label_edit_state`, `submit_changes` persists `annotation_submitted`, and invalid confidence returns 422 with field-level validation details.
 - When running frontend in Vite proxy mode with `VITE_API_BASE_URL=/api`, `/media` must also be proxied to the backend or review images fall through to the frontend HTML route.
+- Local dev startup should keep frontend in Vite proxy mode by default: `VITE_API_BASE_URL=/api` and `VITE_API_PROXY_TARGET=$BACKEND_URL`. This avoids browser CORS issues and keeps review images loading through the same `/media` proxy path.
 
 ## Open Questions
 
