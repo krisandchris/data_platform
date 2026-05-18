@@ -664,12 +664,14 @@ describe('import and review routes', () => {
     });
     await flushPromises();
 
+    expect(wrapper.findAll('.bbox-shell__box--selected')).toHaveLength(0);
+
     await wrapper.findAll('.relation-index-track .index-button').find((button) => button.text().includes('R2'))?.trigger('click');
     await flushPromises();
 
     const unreferencedBoxes = wrapper.findAll('.bbox-shell__box--purple');
     expect(unreferencedBoxes.length).toBeGreaterThan(0);
-    expect(unreferencedBoxes.some((box) => box.classes().includes('bbox-shell__box--selected'))).toBe(true);
+    expect(unreferencedBoxes.some((box) => box.classes().includes('bbox-shell__box--selected'))).toBe(false);
     expect(wrapper.findAll('.bbox-shell__box--black')).toHaveLength(0);
 
     const defaultToneClasses = wrapper
@@ -679,6 +681,14 @@ describe('import and review routes', () => {
     expect(defaultToneClasses).not.toContain('bbox-shell__box--purple');
     expect(defaultToneClasses).not.toContain('bbox-shell__box--red');
     expect(defaultToneClasses).not.toContain('bbox-shell__box--black');
+
+    await unreferencedBoxes[0].trigger('click');
+    await flushPromises();
+
+    const selectedPurpleBoxes = wrapper
+      .findAll('.bbox-shell__box--purple')
+      .filter((box) => box.classes().includes('bbox-shell__box--selected'));
+    expect(selectedPurpleBoxes.length).toBeGreaterThan(0);
   });
 
   it('allows empty segmentation targets and sends a delete operation for removed candidates', async () => {

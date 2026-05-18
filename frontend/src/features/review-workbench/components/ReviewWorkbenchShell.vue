@@ -633,6 +633,7 @@ const showStage1 = ref(true);
 const showStage2 = ref(true);
 const showCandidates = ref(true);
 const activeRelationKey = ref(relationBadge(props.detail.stage1.keyRelations[0]?.relationIndex ?? 'R1'));
+const activeImageRelationKey = ref('');
 const activeCandidateId = ref('');
 const reviewDraft = ref<ReviewDraft>(createReviewDraft(props.detail));
 const candidateTagInput = ref('');
@@ -655,6 +656,7 @@ watch(
   () => {
     reviewDraft.value = createReviewDraft(props.detail);
     activeRelationKey.value = relationBadge(props.detail.stage1.keyRelations[0]?.relationIndex ?? 'R1');
+    activeImageRelationKey.value = '';
     activeCandidateId.value = reviewDraft.value.candidateDrafts[0]?.id ?? '';
     candidateTagInput.value = '';
     remoteSuggestions.value = {};
@@ -774,14 +776,13 @@ const overlayBoxes = computed<OverlayBox[]>(() => {
   const boxes: OverlayBox[] = [];
   if (showStage1.value) {
     relationViews.value.forEach((item) => {
-      const selected = item.badge === activeRelationKey.value || activeCandidateRelationKeys.value.has(item.badge);
       boxes.push({
         id: `stage1-${item.badge}`,
         label: item.badge,
         bbox: item.draft.bbox,
         tone: item.orphan ? 'purple' : relationTone(item.badge),
         relationIndex: item.badge,
-        selected,
+        selected: imageRelationSelected(item.badge),
         editable: canEditLabels.value,
       });
     });
@@ -790,14 +791,13 @@ const overlayBoxes = computed<OverlayBox[]>(() => {
     baseSample.value.stage2.factVerifications.forEach((verification) => {
       const badge = relationBadge(verification.relationIndex);
       const relationView = relationViews.value.find((item) => item.badge === badge);
-      const selected = badge === activeRelationKey.value || activeCandidateRelationKeys.value.has(badge);
       boxes.push({
         id: `stage2-${badge}`,
         label: `S2 ${badge}`,
         bbox: relationView?.draft.bbox ?? verification.bbox,
         tone: relationView?.orphan ? 'purple' : relationTone(badge),
         relationIndex: badge,
-        selected,
+        selected: imageRelationSelected(badge),
       });
     });
   }
@@ -811,7 +811,7 @@ const overlayBoxes = computed<OverlayBox[]>(() => {
           bbox: relation.draft.bbox,
           tone: 'purple',
           relationIndex: relationId,
-          selected: true,
+          selected: imageRelationSelected(relationId),
         });
       }
     });
@@ -903,6 +903,10 @@ function relationBadge(value: string | number) {
 
 function relationIdsMatch(a: string | number, b: string | number) {
   return relationBadge(a) === relationBadge(b);
+}
+
+function imageRelationSelected(relationId: string | number) {
+  return activeImageRelationKey.value === relationBadge(relationId);
 }
 
 function relationTone(relationId: string): NonNullable<OverlayBox['tone']> {
@@ -1018,7 +1022,9 @@ function setActiveCandidate(candidateId: string) {
 
 function selectOverlayBox(box: OverlayBox) {
   if (box.relationIndex) {
-    setActiveRelation(box.relationIndex);
+    const relationId = relationBadge(box.relationIndex);
+    activeImageRelationKey.value = relationId;
+    setActiveRelation(relationId);
   }
 }
 
@@ -1026,6 +1032,7 @@ function updateOverlayBox(box: OverlayBox, bbox: BBox) {
   if (!box.relationIndex || !canEditLabels.value) {
     return;
   }
+  activeImageRelationKey.value = relationBadge(box.relationIndex);
   setActiveRelation(box.relationIndex);
   setRelationField('bbox', bbox);
 }

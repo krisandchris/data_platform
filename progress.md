@@ -295,3 +295,9 @@
   - Verification passed: `cd frontend && npm run test -- bboxOverlay routesAndPages` 17 passed; `cd frontend && npm run test` 28 passed; `cd frontend && npm run build` passed.
   - Live smoke on `8023/5183` confirmed purple unreferenced boxes, selected purple boxes carrying selected state, no black bbox classes, ordinary palette boxes, and Candidate delete button DOM; screenshot saved at `/tmp/uvp_qc_color_review.png`.
   - The first DOM smoke helper failed with bare `python` not found; re-ran with `uv run python` successfully.
+- Corrected bbox selected-state source:
+  - Added `activeImageRelationKey` so red selected-state is driven only by image-area bbox selection/editing.
+  - Right-side `activeRelationKey` still opens the Relation editor but no longer marks image boxes selected on page entry.
+  - Candidate active evidence relations no longer make boxes red by default.
+  - Verification passed: `cd frontend && npm run test -- bboxOverlay routesAndPages` 17 passed; `cd frontend && npm run test` 28 passed; `cd frontend && npm run build` passed.
+  - Live smoke on `8024/5184` confirmed initial review page bbox elements had `selected_element_count=0`, while purple/default palette classes remained present and black bbox classes remained absent; screenshot saved at `/tmp/uvp_qc_selected_entry.png`.

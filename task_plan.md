@@ -46,6 +46,7 @@ Analyze `urban_violation_platform_markdown/` and the dataset layout under `DATAS
 - Phase 33: Local frontend/backend one-command dev stack - complete
 - Phase 34: Review workbench zoom and Candidate deletion tweaks - complete
 - Phase 35: Review bbox color semantics correction - complete
+- Phase 36: Review bbox selected-state source correction - complete
 
 ## Phase 1 - Documentation Inventory
 
@@ -1000,6 +1001,37 @@ Verification:
   - dumped review page DOM with headless Chrome;
   - confirmed `purple_boxes=True`, `selected_purple_boxes=True`, `black_boxes=False`, `ordinary_palette_boxes=True`, and `candidate_delete=True`;
   - captured `/tmp/uvp_qc_color_review.png`;
+  - stopped the dev stack.
+
+## Phase 36 - Review Bbox Selected-State Source Correction
+
+Goal:
+- Prevent review page entry, right-side active Relation state, and active Candidate evidence state from marking image boxes red before the user selects a box in the image evidence area.
+
+Implementation:
+- Added a separate `activeImageRelationKey` state in `ReviewWorkbenchShell.vue`.
+- Kept `activeRelationKey` as the right-side Relation editor state only.
+- Overlay `selected` now depends only on `activeImageRelationKey`.
+- `activeImageRelationKey` is set by image-area interactions:
+  - clicking a bbox overlay through `selectOverlayBox`
+  - dragging/resizing a bbox through `updateOverlayBox`
+- Route/sample refresh clears `activeImageRelationKey`.
+- Right-side Relation index clicks and Candidate index changes no longer mark image boxes red.
+
+Acceptance:
+- Entering the review page produces no red selected bbox.
+- Clicking a right-side Relation index opens the editor but does not red-highlight image boxes.
+- Clicking a bbox in the image evidence area still opens the corresponding Relation and applies the red selected-state outline.
+
+Verification:
+- `cd frontend && npm run test -- bboxOverlay routesAndPages`: 17 passed.
+- `cd frontend && npm run test`: 28 passed.
+- `cd frontend && npm run build`: passed.
+- Live stack smoke on `127.0.0.1:8024` and `127.0.0.1:5184`:
+  - activated `DATASET/urban_violation/label_config.json`;
+  - dumped review page DOM with headless Chrome;
+  - parsed bbox element classes and confirmed `bbox_element_count=8`, `selected_element_count=0`, `purple_element_count=4`, `black_element_count=0`, and `ordinary_palette_element_count=4`;
+  - captured `/tmp/uvp_qc_selected_entry.png`;
   - stopped the dev stack.
 
 ## Phase 4 - Acceptance Criteria
