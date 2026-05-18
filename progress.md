@@ -263,3 +263,11 @@
   - Frontend worktree target: `/mnt/lc/LC/ares_xtws/0_train_data/data_platform_frontend_agent`.
   - Shared source-of-truth docs are the current main-worktree bottom bar design, STEP1/STEP2 layout design, and HTML preview.
   - Fixed shared API contract for this implementation round: `POST /label-edits/validate` for field legality only, and `POST /label-edits` for `save_draft` / `submit_changes`.
+- Integrated frontend/backend implementation products into main:
+  - Backend agent commit `59167a5` added `label-edits/validate`, `label-edits`, label edit state, review detail hydration, and backend pytest coverage.
+  - Frontend agent commit `791192d` added backend-contract-aligned client calls, the label-edit review workbench, Relation/Candidate index rails, and bottom bar actions.
+  - Main branch uses `urban_violation_platform_markdown/README.md` as the Python package readme to avoid carrying the backend-agent task file as package metadata.
+  - Added Vite `/media` proxy support so real backend review images render when the frontend is run with `/api` proxy mode.
+  - Verification passed: `uv run pytest` 26 passed; `cd frontend && npm run test` 25 passed; `cd frontend && npm run build` passed.
+  - Live backend smoke on `127.0.0.1:8011` passed for health, review detail, active label config, validate, save draft, submit changes, and invalid confidence 422.
+  - Live frontend smoke on `127.0.0.1:5178` rendered the review page, image, bbox overlays, Relation/Candidate index rails, and label-edit bottom bar; screenshot at `/tmp/uvp_main_integrated_review.png`.

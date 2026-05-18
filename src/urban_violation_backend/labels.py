@@ -1,0 +1,405 @@
+"""Label config schemas, validation, and in-memory repository."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from datetime import datetime, timezone
+from typing import Any, Literal
+
+from pydantic import Field, ValidationError, field_validator, model_validator
+
+from urban_violation_backend.schemas import StrictModel
+
+
+REQUIRED_OPEN_TAG_FIELDS = frozenset({"scene_elements", "segmentation_targets"})
+REQUIRED_CLOSED_ENUM_FIELDS = frozenset(
+    {
+        "violation_category",
+        "sample_category",
+        "relation",
+        "verification_result",
+        "visibility_level",
+        "review_decision",
+    }
+)
+
+
+class LabelConfigError(ValueError):
+    """Raised when label config cannot be served."""
+
+
+class LabelFieldNotFoundError(ValueError):
+    """Raised when a label field is not present in the active config."""
+
+
+class LabelConfigVersionNotFoundError(ValueError):
+    """Raised when a specific config version is not found for a dataset."""
+
+
+class ActiveLabelConfigNotFoundError(ValueError):
+    """Raised when a dataset has no activated label config."""
+
+
+class LabelOption(StrictModel):
+    """One selectable dictionary value or one open-tag suggestion."""
+
+    code: str = Field(min_length=1)
+    label_zh: str = Field(min_length=1)
+    label_en: str | None = None
+    description: str = ""
+    status: Literal["active", "deprecated", "draft"] = "active"
+    sort_order: int = Field(default=0, ge=0)
+    aliases: list[str] = Field(default_factory=list)
+
+
+class LabelFieldConfig(StrictModel):
+    """Configuration for one editable label field."""
+
+    field: str = Field(min_length=1)
+    mode: Literal["closed_enum", "open_tags"]
+    label_zh: str = Field(min_length=1)
+    label_en: str | None = None
+    allow_custom: bool = False
+    max_items: int | None = Field(default=None, ge=1)
+    options: list[LabelOption] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_mode_contract(self) -> "LabelFieldConfig":
+        """Ensure field mode and custom-entry behavior cannot conflict."""
+        if self.mode == "closed_enum" and self.allow_custom:
+            raise ValueError(f"Closed enum field cannot allow custom values: {self.field}")
+        if self.mode == "closed_enum" and not self.options:
+            raise ValueError(f"Closed enum field must define options: {self.field}")
+        if self.mode == "open_tags" and not self.allow_custom:
+            raise ValueError(f"Open tag field must allow custom values: {self.field}")
+        return self
+
+    @field_validator("options")
+    @classmethod
+    def sort_options(cls, value: list[LabelOption]) -> list[LabelOption]:
+        """Return options in stable display order."""
+        return sorted(value, key=lambda item: (item.sort_order, item.code))
+
+
+class DatasetLabelConfig(StrictModel):
+    """Dataset-level label dictionary and open-tag suggestion config."""
+
+    schema_version: str = Field(min_length=1)
+    dataset_type: str = Field(min_length=1)
+    version: str = Field(min_length=1)
+    fields: list[LabelFieldConfig] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_field_rules(self) -> "DatasetLabelConfig":
+        """Validate duplicates and required field-mode constraints."""
+        field_names = [field.field for field in self.fields]
+        duplicate_fields = sorted({name for name in field_names if field_names.count(name) > 1})
+        if duplicate_fields:
+            raise ValueError(f"Duplicate label fields: {', '.join(duplicate_fields)}")
+
+        for field in self.fields:
+            codes = [option.code for option in field.options]
+            duplicate_codes = sorted({code for code in codes if codes.count(code) > 1})
+            if duplicate_codes:
+                raise ValueError(
+                    f"Duplicate option codes for {field.field}: {', '.join(duplicate_codes)}"
+                )
+
+        field_by_name = {field.field: field for field in self.fields}
+        for field_name in REQUIRED_OPEN_TAG_FIELDS:
+            field = field_by_name.get(field_name)
+            if field is None:
+                continue
+            if field.mode != "open_tags":
+                raise ValueError(f"Field must be open_tags: {field_name}")
+
+        for field_name in REQUIRED_CLOSED_ENUM_FIELDS:
+            field = field_by_name.get(field_name)
+            if field is None:
+                continue
+            if field.mode != "closed_enum":
+                raise ValueError(f"Field must be closed_enum: {field_name}")
+
+        return self
+
+    def get_field(self, field_name: str) -> LabelFieldConfig:
+        """Return one field config by name."""
+        for field in self.fields:
+            if field.field == field_name:
+                return field
+        raise LabelFieldNotFoundError(f"Label field not configured: {field_name}")
+
+
+class LabelValidationIssue(StrictModel):
+    """Validation error or warning item for one path/field."""
+
+    field: str
+    message: str
+
+
+class LabelConfigSummary(StrictModel):
+    """Aggregated config counters used by frontend preview."""
+
+    field_count: int = Field(ge=0)
+    closed_enum_count: int = Field(ge=0)
+    open_tags_count: int = Field(ge=0)
+    option_count: int = Field(ge=0)
+
+
+class LabelConfigValidationReport(StrictModel):
+    """Validation report returned by the validate endpoint."""
+
+    valid: bool
+    dataset_id: str
+    schema_version: str
+    version: str
+    content_hash: str
+    summary: LabelConfigSummary
+    errors: list[LabelValidationIssue] = Field(default_factory=list)
+    warnings: list[LabelValidationIssue] = Field(default_factory=list)
+    normalized_config: dict[str, Any] = Field(default_factory=dict)
+
+
+class StoredLabelConfig(StrictModel):
+    """Persisted config metadata and normalized config payload."""
+
+    config_id: str
+    dataset_id: str
+    schema_version: str
+    version: str
+    status: Literal["draft", "active", "archived"]
+    content_hash: str
+    created_at: datetime
+    activated_at: datetime | None = None
+    file_name: str
+    validation: LabelConfigValidationReport
+    config: DatasetLabelConfig
+
+
+class LabelSuggestionResponse(StrictModel):
+    """Filtered suggestion payload for one label field."""
+
+    dataset_id: str
+    schema_version: str
+    version: str
+    field: str
+    mode: Literal["closed_enum", "open_tags"]
+    allow_custom: bool
+    query: str
+    suggestions: list[LabelOption] = Field(default_factory=list)
+
+
+class InMemoryLabelConfigRepository:
+    """In-memory label config version store keyed by dataset id."""
+
+    def __init__(self) -> None:
+        self._counter = 0
+        self._configs_by_dataset: dict[str, dict[str, StoredLabelConfig]] = {}
+        self._active_config_id_by_dataset: dict[str, str] = {}
+
+    def save(
+        self,
+        dataset_id: str,
+        file_name: str,
+        report: LabelConfigValidationReport,
+        config: DatasetLabelConfig,
+        activate: bool,
+    ) -> StoredLabelConfig:
+        """Save one validated config and optionally activate it."""
+        self._counter += 1
+        config_id = f"label-config-{self._counter}"
+        created_at = datetime.now(timezone.utc)
+
+        stored = StoredLabelConfig(
+            config_id=config_id,
+            dataset_id=dataset_id,
+            schema_version=config.schema_version,
+            version=config.version,
+            status="draft",
+            content_hash=report.content_hash,
+            created_at=created_at,
+            file_name=file_name,
+            validation=report,
+            config=config,
+        )
+        dataset_store = self._configs_by_dataset.setdefault(dataset_id, {})
+        dataset_store[config_id] = stored
+
+        if activate:
+            return self.activate(dataset_id=dataset_id, config_id=config_id)
+        return stored
+
+    def activate(self, dataset_id: str, config_id: str) -> StoredLabelConfig:
+        """Activate an existing config version for a dataset."""
+        dataset_store = self._configs_by_dataset.get(dataset_id)
+        if dataset_store is None or config_id not in dataset_store:
+            raise LabelConfigVersionNotFoundError(
+                f"Label config version not found: dataset={dataset_id}, config_id={config_id}"
+            )
+
+        activated_at = datetime.now(timezone.utc)
+        for existing_config_id, current in list(dataset_store.items()):
+            if existing_config_id == config_id:
+                dataset_store[existing_config_id] = current.model_copy(
+                    update={"status": "active", "activated_at": activated_at}
+                )
+            elif current.status == "active":
+                dataset_store[existing_config_id] = current.model_copy(update={"status": "archived"})
+
+        self._active_config_id_by_dataset[dataset_id] = config_id
+        return dataset_store[config_id]
+
+    def get_active(self, dataset_id: str) -> StoredLabelConfig:
+        """Return the active config for a dataset or raise explicit error."""
+        active_config_id = self._active_config_id_by_dataset.get(dataset_id)
+        if active_config_id is None:
+            raise ActiveLabelConfigNotFoundError(
+                f"Active label config not found for dataset: {dataset_id}"
+            )
+
+        dataset_store = self._configs_by_dataset.get(dataset_id, {})
+        active = dataset_store.get(active_config_id)
+        if active is None:
+            raise ActiveLabelConfigNotFoundError(
+                f"Active label config not found for dataset: {dataset_id}"
+            )
+        return active
+
+
+def validate_label_config(
+    dataset_id: str,
+    payload: dict[str, Any],
+) -> tuple[LabelConfigValidationReport, DatasetLabelConfig | None]:
+    """Validate one label config payload and return report plus parsed config."""
+    content_hash = _build_content_hash(payload)
+    validation_errors: list[LabelValidationIssue] = []
+
+    try:
+        parsed = DatasetLabelConfig.model_validate(payload)
+    except ValidationError as exc:
+        parsed = None
+        validation_errors.extend(_normalize_validation_errors(exc))
+    else:
+        if parsed.dataset_type != dataset_id:
+            validation_errors.append(
+                LabelValidationIssue(
+                    field="dataset_type",
+                    message=(
+                        "dataset_type mismatch: "
+                        f"expected {dataset_id}, got {parsed.dataset_type}"
+                    ),
+                )
+            )
+
+    summary = _build_summary(parsed)
+    report = LabelConfigValidationReport(
+        valid=(len(validation_errors) == 0),
+        dataset_id=dataset_id,
+        schema_version=(parsed.schema_version if parsed else _extract_string(payload, "schema_version")),
+        version=(parsed.version if parsed else _extract_string(payload, "version")),
+        content_hash=content_hash,
+        summary=summary,
+        errors=validation_errors,
+        warnings=[],
+        normalized_config=(parsed.model_dump(mode="json") if parsed is not None else {}),
+    )
+    return report, (parsed if report.valid else None)
+
+
+def filter_label_suggestions(
+    config: DatasetLabelConfig,
+    dataset_id: str,
+    field_name: str,
+    query: str = "",
+) -> LabelSuggestionResponse:
+    """Return configured label options matching a user query."""
+    field = config.get_field(field_name)
+    normalized_query = query.strip().lower()
+
+    if not normalized_query:
+        suggestions = field.options
+    else:
+        suggestions = [
+            option
+            for option in field.options
+            if _option_matches_query(option=option, query=normalized_query)
+        ]
+
+    return LabelSuggestionResponse(
+        dataset_id=dataset_id,
+        schema_version=config.schema_version,
+        version=config.version,
+        field=field.field,
+        mode=field.mode,
+        allow_custom=field.allow_custom,
+        query=query,
+        suggestions=suggestions,
+    )
+
+
+def _build_summary(config: DatasetLabelConfig | None) -> LabelConfigSummary:
+    """Build preview counters from a parsed config."""
+    if config is None:
+        return LabelConfigSummary(
+            field_count=0,
+            closed_enum_count=0,
+            open_tags_count=0,
+            option_count=0,
+        )
+
+    closed_enum_count = 0
+    open_tags_count = 0
+    option_count = 0
+    for field in config.fields:
+        option_count += len(field.options)
+        if field.mode == "closed_enum":
+            closed_enum_count += 1
+        else:
+            open_tags_count += 1
+
+    return LabelConfigSummary(
+        field_count=len(config.fields),
+        closed_enum_count=closed_enum_count,
+        open_tags_count=open_tags_count,
+        option_count=option_count,
+    )
+
+
+def _build_content_hash(payload: dict[str, Any]) -> str:
+    """Return deterministic content hash for one input payload."""
+    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return f"sha256:{digest}"
+
+
+def _extract_string(payload: dict[str, Any], key: str) -> str:
+    """Extract best-effort string for error-report envelope fields."""
+    value = payload.get(key)
+    return value if isinstance(value, str) else ""
+
+
+def _normalize_validation_errors(exc: ValidationError) -> list[LabelValidationIssue]:
+    """Convert Pydantic errors to stable API-facing issue items."""
+    issues: list[LabelValidationIssue] = []
+    for error in exc.errors(include_url=False):
+        location = ".".join(str(part) for part in error.get("loc", ()))
+        issues.append(
+            LabelValidationIssue(
+                field=location,
+                message=error.get("msg", "invalid value"),
+            )
+        )
+    return issues
+
+
+def _option_matches_query(option: LabelOption, query: str) -> bool:
+    """Return whether a dictionary option matches the normalized query."""
+    searchable_values = [
+        option.code,
+        option.label_zh,
+        option.label_en or "",
+        option.description,
+        *option.aliases,
+    ]
+    return any(query in value.lower() for value in searchable_values)

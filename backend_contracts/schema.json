@@ -1,0 +1,3076 @@
+{
+  "components": {
+    "schemas": {
+      "AssetDetailResponse": {
+        "additionalProperties": false,
+        "description": "Detailed review payload for one sample.",
+        "properties": {
+          "asset": {
+            "$ref": "#/components/schemas/AssetListItem"
+          },
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "label_edit_history": {
+            "items": {
+              "$ref": "#/components/schemas/LabelEditState"
+            },
+            "title": "Label Edit History",
+            "type": "array"
+          },
+          "label_edit_state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LabelEditState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "latest_review": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HumanReview"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "review_history": {
+            "items": {
+              "$ref": "#/components/schemas/HumanReview"
+            },
+            "title": "Review History",
+            "type": "array"
+          },
+          "sample_id": {
+            "title": "Sample Id",
+            "type": "string"
+          },
+          "stage1": {
+            "$ref": "#/components/schemas/Stage1Preannotation"
+          },
+          "stage2": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Stage2Preannotation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stage2_failure": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Stage2PreannotationFailure"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "dataset_id",
+          "sample_id",
+          "asset",
+          "stage1"
+        ],
+        "title": "AssetDetailResponse",
+        "type": "object"
+      },
+      "AssetListItem": {
+        "additionalProperties": false,
+        "description": "List-row projection for dataset assets.",
+        "properties": {
+          "asset_id": {
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "candidate_count": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Candidate Count",
+            "type": "integer"
+          },
+          "height": {
+            "exclusiveMinimum": 0.0,
+            "title": "Height",
+            "type": "integer"
+          },
+          "highest_confidence": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Highest Confidence"
+          },
+          "image_url": {
+            "title": "Image Url",
+            "type": "string"
+          },
+          "judge_decision": {
+            "enum": [
+              "pass",
+              "soft_fail",
+              "unknown"
+            ],
+            "title": "Judge Decision",
+            "type": "string"
+          },
+          "qc_status": {
+            "enum": [
+              "pending",
+              "reviewed"
+            ],
+            "title": "Qc Status",
+            "type": "string"
+          },
+          "sample_categories": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sample Categories",
+            "type": "array"
+          },
+          "sample_id": {
+            "title": "Sample Id",
+            "type": "string"
+          },
+          "stage2_status": {
+            "enum": [
+              "success",
+              "failure"
+            ],
+            "title": "Stage2 Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "violation_categories": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Violation Categories",
+            "type": "array"
+          },
+          "width": {
+            "exclusiveMinimum": 0.0,
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "asset_id",
+          "sample_id",
+          "image_url",
+          "width",
+          "height",
+          "judge_decision",
+          "stage2_status",
+          "qc_status"
+        ],
+        "title": "AssetListItem",
+        "type": "object"
+      },
+      "AssetListResponse": {
+        "additionalProperties": false,
+        "description": "Pageless asset list response for fixture data.",
+        "properties": {
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AssetListItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "dataset_id",
+          "total"
+        ],
+        "title": "AssetListResponse",
+        "type": "object"
+      },
+      "CountDistributionItem": {
+        "additionalProperties": false,
+        "description": "Simple key/count distribution item for dashboards.",
+        "properties": {
+          "count": {
+            "minimum": 0.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "ratio": {
+            "minimum": 0.0,
+            "title": "Ratio",
+            "type": "number"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "count",
+          "ratio"
+        ],
+        "title": "CountDistributionItem",
+        "type": "object"
+      },
+      "DatasetLabelConfig": {
+        "additionalProperties": false,
+        "description": "Dataset-level label dictionary and open-tag suggestion config.",
+        "properties": {
+          "dataset_type": {
+            "minLength": 1,
+            "title": "Dataset Type",
+            "type": "string"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/LabelFieldConfig"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "schema_version": {
+            "minLength": 1,
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "version": {
+            "minLength": 1,
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "dataset_type",
+          "version"
+        ],
+        "title": "DatasetLabelConfig",
+        "type": "object"
+      },
+      "DatasetSummaryResponse": {
+        "additionalProperties": false,
+        "description": "High-level counters for one dataset.",
+        "properties": {
+          "candidate_count": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Candidate Count",
+            "type": "integer"
+          },
+          "category_distribution": {
+            "items": {
+              "$ref": "#/components/schemas/CountDistributionItem"
+            },
+            "title": "Category Distribution",
+            "type": "array"
+          },
+          "confidence_distribution": {
+            "items": {
+              "$ref": "#/components/schemas/CountDistributionItem"
+            },
+            "title": "Confidence Distribution",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "fact_verification_count": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Fact Verification Count",
+            "type": "integer"
+          },
+          "judge_decision_distribution": {
+            "items": {
+              "$ref": "#/components/schemas/CountDistributionItem"
+            },
+            "title": "Judge Decision Distribution",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "reviewed_count": {
+            "minimum": 0.0,
+            "title": "Reviewed Count",
+            "type": "integer"
+          },
+          "sample_category_distribution": {
+            "items": {
+              "$ref": "#/components/schemas/CountDistributionItem"
+            },
+            "title": "Sample Category Distribution",
+            "type": "array"
+          },
+          "stage1_count": {
+            "minimum": 0.0,
+            "title": "Stage1 Count",
+            "type": "integer"
+          },
+          "stage2_failure_count": {
+            "minimum": 0.0,
+            "title": "Stage2 Failure Count",
+            "type": "integer"
+          },
+          "stage2_success_count": {
+            "minimum": 0.0,
+            "title": "Stage2 Success Count",
+            "type": "integer"
+          },
+          "total_assets": {
+            "minimum": 0.0,
+            "title": "Total Assets",
+            "type": "integer"
+          },
+          "verification_distribution": {
+            "items": {
+              "$ref": "#/components/schemas/CountDistributionItem"
+            },
+            "title": "Verification Distribution",
+            "type": "array"
+          },
+          "visibility_distribution": {
+            "items": {
+              "$ref": "#/components/schemas/CountDistributionItem"
+            },
+            "title": "Visibility Distribution",
+            "type": "array"
+          }
+        },
+        "required": [
+          "dataset_id",
+          "name",
+          "total_assets",
+          "stage1_count",
+          "stage2_success_count",
+          "stage2_failure_count",
+          "reviewed_count",
+          "created_at"
+        ],
+        "title": "DatasetSummaryResponse",
+        "type": "object"
+      },
+      "ExportRequest": {
+        "additionalProperties": false,
+        "description": "Request body for fixture export operation.",
+        "properties": {
+          "sample_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sample Ids",
+            "type": "array"
+          }
+        },
+        "title": "ExportRequest",
+        "type": "object"
+      },
+      "ExportResponse": {
+        "additionalProperties": false,
+        "description": "Export creation response.",
+        "properties": {
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "export_job_id": {
+            "title": "Export Job Id",
+            "type": "string"
+          },
+          "sample_count": {
+            "minimum": 0.0,
+            "title": "Sample Count",
+            "type": "integer"
+          },
+          "sample_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sample Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "dataset_id",
+          "export_job_id",
+          "sample_count"
+        ],
+        "title": "ExportResponse",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "additionalProperties": false,
+        "description": "Health endpoint payload.",
+        "properties": {
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "ok",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "dataset_id"
+        ],
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "HumanReview": {
+        "additionalProperties": false,
+        "description": "Human-in-the-loop QC decision and optional corrections.",
+        "properties": {
+          "corrected_bboxes": {
+            "items": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "title": "Corrected Bboxes",
+            "type": "array"
+          },
+          "corrected_categories": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Corrected Categories",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decision": {
+            "enum": [
+              "approved",
+              "needs_changes",
+              "rejected"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "notes": {
+            "default": "",
+            "title": "Notes",
+            "type": "string"
+          },
+          "review_id": {
+            "title": "Review Id",
+            "type": "string"
+          },
+          "reviewer": {
+            "title": "Reviewer",
+            "type": "string"
+          },
+          "sample_id": {
+            "title": "Sample Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "review_id",
+          "sample_id",
+          "reviewer",
+          "decision",
+          "created_at"
+        ],
+        "title": "HumanReview",
+        "type": "object"
+      },
+      "ImportJobStatusResponse": {
+        "additionalProperties": false,
+        "description": "Import job status projection.",
+        "properties": {
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "expected_assets": {
+            "minimum": 0.0,
+            "title": "Expected Assets",
+            "type": "integer"
+          },
+          "failure_count": {
+            "minimum": 0.0,
+            "title": "Failure Count",
+            "type": "integer"
+          },
+          "imported_assets": {
+            "minimum": 0.0,
+            "title": "Imported Assets",
+            "type": "integer"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "mapping_steps": {
+            "items": {
+              "$ref": "#/components/schemas/ImportMappingStep"
+            },
+            "title": "Mapping Steps",
+            "type": "array"
+          },
+          "requested_sample_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Requested Sample Ids",
+            "type": "array"
+          },
+          "stage2_success_count": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Stage2 Success Count",
+            "type": "integer"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "validation_errors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Validation Errors",
+            "type": "array"
+          },
+          "validation_rows": {
+            "items": {
+              "$ref": "#/components/schemas/ImportValidationRow"
+            },
+            "title": "Validation Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "job_id",
+          "dataset_id",
+          "state",
+          "expected_assets",
+          "imported_assets",
+          "failure_count"
+        ],
+        "title": "ImportJobStatusResponse",
+        "type": "object"
+      },
+      "ImportMappingStep": {
+        "additionalProperties": false,
+        "description": "Entity/file count displayed by the import workflow.",
+        "properties": {
+          "count": {
+            "minimum": 0.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "entity": {
+            "enum": [
+              "RawAsset",
+              "PreAnnotationStep1",
+              "PreAnnotationStep2",
+              "PreAnnotationFailure",
+              "AuditArtifact"
+            ],
+            "title": "Entity",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "count",
+          "entity"
+        ],
+        "title": "ImportMappingStep",
+        "type": "object"
+      },
+      "ImportValidationRow": {
+        "additionalProperties": false,
+        "description": "Manifest pairing row for import validation UI.",
+        "properties": {
+          "failure_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Path"
+          },
+          "image_path": {
+            "title": "Image Path",
+            "type": "string"
+          },
+          "sample_id": {
+            "title": "Sample Id",
+            "type": "string"
+          },
+          "stage1_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage1 Path"
+          },
+          "stage2_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage2 Path"
+          },
+          "status": {
+            "enum": [
+              "ready",
+              "stage2_failed",
+              "stage2_missing",
+              "orphan_annotation"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sample_id",
+          "image_path",
+          "status"
+        ],
+        "title": "ImportValidationRow",
+        "type": "object"
+      },
+      "LabelConfigSaveRequest": {
+        "additionalProperties": false,
+        "description": "JSON request body for saving one uploaded label config version.",
+        "properties": {
+          "activate": {
+            "default": false,
+            "title": "Activate",
+            "type": "boolean"
+          },
+          "config": {
+            "additionalProperties": true,
+            "title": "Config",
+            "type": "object"
+          },
+          "file_name": {
+            "minLength": 1,
+            "title": "File Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_name"
+        ],
+        "title": "LabelConfigSaveRequest",
+        "type": "object"
+      },
+      "LabelConfigSummary": {
+        "additionalProperties": false,
+        "description": "Aggregated config counters used by frontend preview.",
+        "properties": {
+          "closed_enum_count": {
+            "minimum": 0.0,
+            "title": "Closed Enum Count",
+            "type": "integer"
+          },
+          "field_count": {
+            "minimum": 0.0,
+            "title": "Field Count",
+            "type": "integer"
+          },
+          "open_tags_count": {
+            "minimum": 0.0,
+            "title": "Open Tags Count",
+            "type": "integer"
+          },
+          "option_count": {
+            "minimum": 0.0,
+            "title": "Option Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "field_count",
+          "closed_enum_count",
+          "open_tags_count",
+          "option_count"
+        ],
+        "title": "LabelConfigSummary",
+        "type": "object"
+      },
+      "LabelConfigValidateRequest": {
+        "additionalProperties": false,
+        "description": "JSON request body for validating one uploaded label config.",
+        "properties": {
+          "config": {
+            "additionalProperties": true,
+            "title": "Config",
+            "type": "object"
+          },
+          "file_name": {
+            "minLength": 1,
+            "title": "File Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_name"
+        ],
+        "title": "LabelConfigValidateRequest",
+        "type": "object"
+      },
+      "LabelConfigValidationReport": {
+        "additionalProperties": false,
+        "description": "Validation report returned by the validate endpoint.",
+        "properties": {
+          "content_hash": {
+            "title": "Content Hash",
+            "type": "string"
+          },
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/LabelValidationIssue"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "normalized_config": {
+            "additionalProperties": true,
+            "title": "Normalized Config",
+            "type": "object"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/LabelConfigSummary"
+          },
+          "valid": {
+            "title": "Valid",
+            "type": "boolean"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/LabelValidationIssue"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "valid",
+          "dataset_id",
+          "schema_version",
+          "version",
+          "content_hash",
+          "summary"
+        ],
+        "title": "LabelConfigValidationReport",
+        "type": "object"
+      },
+      "LabelEditOperation": {
+        "additionalProperties": true,
+        "description": "One patch operation from frontend reviewDraft payload.",
+        "properties": {
+          "after": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After"
+          },
+          "before": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before"
+          },
+          "field": {
+            "minLength": 1,
+            "title": "Field",
+            "type": "string"
+          },
+          "op": {
+            "minLength": 1,
+            "title": "Op",
+            "type": "string"
+          },
+          "scope": {
+            "minLength": 1,
+            "title": "Scope",
+            "type": "string"
+          },
+          "tag_payload": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag Payload"
+          }
+        },
+        "required": [
+          "scope",
+          "field",
+          "op"
+        ],
+        "title": "LabelEditOperation",
+        "type": "object"
+      },
+      "LabelEditState": {
+        "additionalProperties": false,
+        "description": "Stored reviewDraft patch state for one sample.",
+        "properties": {
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "edit_id": {
+            "title": "Edit Id",
+            "type": "string"
+          },
+          "label_config_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label Config Id"
+          },
+          "label_config_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label Config Version"
+          },
+          "operations": {
+            "items": {
+              "$ref": "#/components/schemas/LabelEditOperation"
+            },
+            "title": "Operations",
+            "type": "array"
+          },
+          "sample_id": {
+            "title": "Sample Id",
+            "type": "string"
+          },
+          "submit_action": {
+            "enum": [
+              "save_draft",
+              "submit_changes"
+            ],
+            "title": "Submit Action",
+            "type": "string"
+          },
+          "task_mode": {
+            "const": "label_edit",
+            "title": "Task Mode",
+            "type": "string"
+          },
+          "task_status": {
+            "enum": [
+              "annotation_draft",
+              "annotation_submitted"
+            ],
+            "title": "Task Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "edit_id",
+          "dataset_id",
+          "sample_id",
+          "task_mode",
+          "submit_action",
+          "task_status",
+          "updated_at"
+        ],
+        "title": "LabelEditState",
+        "type": "object"
+      },
+      "LabelEditSubmitRequest": {
+        "additionalProperties": false,
+        "description": "Request body for saving or submitting label-edit patch operations.",
+        "properties": {
+          "label_config_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label Config Id"
+          },
+          "label_config_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label Config Version"
+          },
+          "operations": {
+            "items": {
+              "$ref": "#/components/schemas/LabelEditOperation"
+            },
+            "title": "Operations",
+            "type": "array"
+          },
+          "submit_action": {
+            "enum": [
+              "save_draft",
+              "submit_changes"
+            ],
+            "title": "Submit Action",
+            "type": "string"
+          },
+          "task_mode": {
+            "const": "label_edit",
+            "default": "label_edit",
+            "title": "Task Mode",
+            "type": "string"
+          },
+          "task_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "annotation_draft",
+                  "annotation_submitted"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Status"
+          }
+        },
+        "required": [
+          "submit_action"
+        ],
+        "title": "LabelEditSubmitRequest",
+        "type": "object"
+      },
+      "LabelEditSubmitResponse": {
+        "additionalProperties": false,
+        "description": "Persist result for label-edit draft save or submit.",
+        "properties": {
+          "saved": {
+            "title": "Saved",
+            "type": "boolean"
+          },
+          "state": {
+            "$ref": "#/components/schemas/LabelEditState"
+          },
+          "validation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LabelEditValidationResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "saved",
+          "state"
+        ],
+        "title": "LabelEditSubmitResponse",
+        "type": "object"
+      },
+      "LabelEditValidateRequest": {
+        "additionalProperties": false,
+        "description": "Request body for field-level label edit validation.",
+        "properties": {
+          "label_config_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label Config Id"
+          },
+          "label_config_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label Config Version"
+          },
+          "operations": {
+            "items": {
+              "$ref": "#/components/schemas/LabelEditOperation"
+            },
+            "title": "Operations",
+            "type": "array"
+          },
+          "task_mode": {
+            "const": "label_edit",
+            "default": "label_edit",
+            "title": "Task Mode",
+            "type": "string"
+          }
+        },
+        "title": "LabelEditValidateRequest",
+        "type": "object"
+      },
+      "LabelEditValidationIssue": {
+        "additionalProperties": false,
+        "description": "One field-level validation issue for a patch operation.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "operation_index": {
+            "minimum": 0.0,
+            "title": "Operation Index",
+            "type": "integer"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_index",
+          "scope",
+          "field",
+          "code",
+          "message"
+        ],
+        "title": "LabelEditValidationIssue",
+        "type": "object"
+      },
+      "LabelEditValidationResponse": {
+        "additionalProperties": false,
+        "description": "Validation result for label-edit operations.",
+        "properties": {
+          "checked_operation_count": {
+            "minimum": 0.0,
+            "title": "Checked Operation Count",
+            "type": "integer"
+          },
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/LabelEditValidationIssue"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "sample_id": {
+            "title": "Sample Id",
+            "type": "string"
+          },
+          "valid": {
+            "title": "Valid",
+            "type": "boolean"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/LabelEditValidationIssue"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "valid",
+          "dataset_id",
+          "sample_id",
+          "checked_operation_count"
+        ],
+        "title": "LabelEditValidationResponse",
+        "type": "object"
+      },
+      "LabelFieldConfig": {
+        "additionalProperties": false,
+        "description": "Configuration for one editable label field.",
+        "properties": {
+          "allow_custom": {
+            "default": false,
+            "title": "Allow Custom",
+            "type": "boolean"
+          },
+          "field": {
+            "minLength": 1,
+            "title": "Field",
+            "type": "string"
+          },
+          "label_en": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label En"
+          },
+          "label_zh": {
+            "minLength": 1,
+            "title": "Label Zh",
+            "type": "string"
+          },
+          "max_items": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Items"
+          },
+          "mode": {
+            "enum": [
+              "closed_enum",
+              "open_tags"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/LabelOption"
+            },
+            "title": "Options",
+            "type": "array"
+          }
+        },
+        "required": [
+          "field",
+          "mode",
+          "label_zh"
+        ],
+        "title": "LabelFieldConfig",
+        "type": "object"
+      },
+      "LabelOption": {
+        "additionalProperties": false,
+        "description": "One selectable dictionary value or one open-tag suggestion.",
+        "properties": {
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Aliases",
+            "type": "array"
+          },
+          "code": {
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "label_en": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label En"
+          },
+          "label_zh": {
+            "minLength": 1,
+            "title": "Label Zh",
+            "type": "string"
+          },
+          "sort_order": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Sort Order",
+            "type": "integer"
+          },
+          "status": {
+            "default": "active",
+            "enum": [
+              "active",
+              "deprecated",
+              "draft"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "label_zh"
+        ],
+        "title": "LabelOption",
+        "type": "object"
+      },
+      "LabelSuggestionResponse": {
+        "additionalProperties": false,
+        "description": "Filtered suggestion payload for one label field.",
+        "properties": {
+          "allow_custom": {
+            "title": "Allow Custom",
+            "type": "boolean"
+          },
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "closed_enum",
+              "open_tags"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "suggestions": {
+            "items": {
+              "$ref": "#/components/schemas/LabelOption"
+            },
+            "title": "Suggestions",
+            "type": "array"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dataset_id",
+          "schema_version",
+          "version",
+          "field",
+          "mode",
+          "allow_custom",
+          "query"
+        ],
+        "title": "LabelSuggestionResponse",
+        "type": "object"
+      },
+      "LabelValidationIssue": {
+        "additionalProperties": false,
+        "description": "Validation error or warning item for one path/field.",
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "message"
+        ],
+        "title": "LabelValidationIssue",
+        "type": "object"
+      },
+      "QCQueueItem": {
+        "additionalProperties": false,
+        "description": "Queue row used by the QC endpoint.",
+        "properties": {
+          "asset_id": {
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "highest_confidence": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Highest Confidence"
+          },
+          "judge_decision": {
+            "enum": [
+              "pass",
+              "soft_fail",
+              "unknown"
+            ],
+            "title": "Judge Decision",
+            "type": "string"
+          },
+          "primary_category": {
+            "default": "",
+            "title": "Primary Category",
+            "type": "string"
+          },
+          "qc_status": {
+            "enum": [
+              "pending",
+              "reviewed"
+            ],
+            "title": "Qc Status",
+            "type": "string"
+          },
+          "sample_id": {
+            "title": "Sample Id",
+            "type": "string"
+          },
+          "stage2_failure": {
+            "default": false,
+            "title": "Stage2 Failure",
+            "type": "boolean"
+          },
+          "stage2_status": {
+            "enum": [
+              "success",
+              "failure"
+            ],
+            "title": "Stage2 Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "sample_id",
+          "asset_id",
+          "judge_decision",
+          "stage2_status",
+          "qc_status"
+        ],
+        "title": "QCQueueItem",
+        "type": "object"
+      },
+      "QCQueueResponse": {
+        "additionalProperties": false,
+        "description": "Response model for QC queue listing.",
+        "properties": {
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/QCQueueItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "dataset_id",
+          "total"
+        ],
+        "title": "QCQueueResponse",
+        "type": "object"
+      },
+      "ReviewSubmitRequest": {
+        "additionalProperties": false,
+        "description": "Request body for saving a human review decision.",
+        "properties": {
+          "corrected_bboxes": {
+            "items": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "title": "Corrected Bboxes",
+            "type": "array"
+          },
+          "corrected_categories": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Corrected Categories",
+            "type": "array"
+          },
+          "decision": {
+            "enum": [
+              "approved",
+              "needs_changes",
+              "rejected"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "notes": {
+            "default": "",
+            "title": "Notes",
+            "type": "string"
+          },
+          "reviewer": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Reviewer",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reviewer",
+          "decision"
+        ],
+        "title": "ReviewSubmitRequest",
+        "type": "object"
+      },
+      "SearchResponse": {
+        "additionalProperties": false,
+        "description": "Search endpoint response.",
+        "properties": {
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SearchResultItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          },
+          "total": {
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "dataset_id",
+          "query",
+          "total"
+        ],
+        "title": "SearchResponse",
+        "type": "object"
+      },
+      "SearchResultItem": {
+        "additionalProperties": false,
+        "description": "Search hit projection with minimal sample context.",
+        "properties": {
+          "image_url": {
+            "title": "Image Url",
+            "type": "string"
+          },
+          "judge_decision": {
+            "enum": [
+              "pass",
+              "soft_fail",
+              "unknown"
+            ],
+            "title": "Judge Decision",
+            "type": "string"
+          },
+          "matched_in": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Matched In",
+            "type": "array"
+          },
+          "sample_id": {
+            "title": "Sample Id",
+            "type": "string"
+          },
+          "stage2_status": {
+            "enum": [
+              "success",
+              "failure"
+            ],
+            "title": "Stage2 Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sample_id",
+          "image_url",
+          "judge_decision",
+          "stage2_status"
+        ],
+        "title": "SearchResultItem",
+        "type": "object"
+      },
+      "Stage1Preannotation": {
+        "additionalProperties": false,
+        "description": "Normalized stage1 preannotation payload.",
+        "properties": {
+          "environment_analysis": {
+            "title": "Environment Analysis",
+            "type": "string"
+          },
+          "judge_decision": {
+            "default": "unknown",
+            "enum": [
+              "pass",
+              "soft_fail",
+              "unknown"
+            ],
+            "title": "Judge Decision",
+            "type": "string"
+          },
+          "key_anchors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Key Anchors",
+            "type": "array"
+          },
+          "key_relations": {
+            "items": {
+              "$ref": "#/components/schemas/Stage1Relation"
+            },
+            "title": "Key Relations",
+            "type": "array"
+          },
+          "sample_id": {
+            "title": "Sample Id",
+            "type": "string"
+          },
+          "scene_elements": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Scene Elements",
+            "type": "array"
+          }
+        },
+        "required": [
+          "sample_id",
+          "environment_analysis"
+        ],
+        "title": "Stage1Preannotation",
+        "type": "object"
+      },
+      "Stage1Relation": {
+        "additionalProperties": false,
+        "description": "Single stage1 key relation with localized evidence.",
+        "properties": {
+          "bbox": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 4,
+            "minItems": 4,
+            "title": "Bbox",
+            "type": "array"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "object": {
+            "title": "Object",
+            "type": "string"
+          },
+          "relation": {
+            "title": "Relation",
+            "type": "string"
+          },
+          "subject": {
+            "title": "Subject",
+            "type": "string"
+          }
+        },
+        "required": [
+          "bbox",
+          "subject",
+          "relation",
+          "object",
+          "description"
+        ],
+        "title": "Stage1Relation",
+        "type": "object"
+      },
+      "Stage2Candidate": {
+        "additionalProperties": false,
+        "description": "Violation candidate derived from verified relations.",
+        "properties": {
+          "confidence": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "evidence_reasoning": {
+            "title": "Evidence Reasoning",
+            "type": "string"
+          },
+          "evidence_relation_indices": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Evidence Relation Indices",
+            "type": "array"
+          },
+          "relation_hint": {
+            "title": "Relation Hint",
+            "type": "string"
+          },
+          "sample_category": {
+            "enum": [
+              "positive samples",
+              "negative samples",
+              "hard boundary samples"
+            ],
+            "title": "Sample Category",
+            "type": "string"
+          },
+          "segmentation_targets": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Segmentation Targets",
+            "type": "array"
+          },
+          "violation_category": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Violation Category",
+            "type": "array"
+          }
+        },
+        "required": [
+          "evidence_reasoning",
+          "relation_hint",
+          "confidence",
+          "sample_category"
+        ],
+        "title": "Stage2Candidate",
+        "type": "object"
+      },
+      "Stage2FactVerification": {
+        "additionalProperties": false,
+        "description": "Fact verification details from stage2 review.",
+        "properties": {
+          "bbox": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 4,
+            "minItems": 4,
+            "title": "Bbox",
+            "type": "array"
+          },
+          "bbox_observation": {
+            "title": "Bbox Observation",
+            "type": "string"
+          },
+          "global_context_observation": {
+            "title": "Global Context Observation",
+            "type": "string"
+          },
+          "information_loss_type": {
+            "enum": [
+              "none",
+              "occlusion",
+              "boundary_truncation"
+            ],
+            "title": "Information Loss Type",
+            "type": "string"
+          },
+          "key_attributes_visible": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Key Attributes Visible",
+            "type": "array"
+          },
+          "object": {
+            "title": "Object",
+            "type": "string"
+          },
+          "relation": {
+            "title": "Relation",
+            "type": "string"
+          },
+          "relation_index": {
+            "minimum": 0.0,
+            "title": "Relation Index",
+            "type": "integer"
+          },
+          "subject": {
+            "title": "Subject",
+            "type": "string"
+          },
+          "subject_match": {
+            "title": "Subject Match",
+            "type": "boolean"
+          },
+          "subject_visible": {
+            "title": "Subject Visible",
+            "type": "boolean"
+          },
+          "verification_confidence": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Verification Confidence",
+            "type": "number"
+          },
+          "verification_result": {
+            "enum": [
+              "supported",
+              "weakly_supported",
+              "unsupported",
+              "unclear"
+            ],
+            "title": "Verification Result",
+            "type": "string"
+          },
+          "visibility_level": {
+            "enum": [
+              "clear",
+              "partial",
+              "tiny",
+              "blurry",
+              "occluded"
+            ],
+            "title": "Visibility Level",
+            "type": "string"
+          }
+        },
+        "required": [
+          "bbox",
+          "relation_index",
+          "subject",
+          "relation",
+          "object",
+          "visibility_level",
+          "information_loss_type",
+          "subject_visible",
+          "subject_match",
+          "bbox_observation",
+          "global_context_observation",
+          "verification_result",
+          "verification_confidence"
+        ],
+        "title": "Stage2FactVerification",
+        "type": "object"
+      },
+      "Stage2Preannotation": {
+        "additionalProperties": false,
+        "description": "Successful stage2 preannotation output.",
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/Stage2Candidate"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "fact_verifications": {
+            "items": {
+              "$ref": "#/components/schemas/Stage2FactVerification"
+            },
+            "title": "Fact Verifications",
+            "type": "array"
+          },
+          "sample_id": {
+            "title": "Sample Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sample_id"
+        ],
+        "title": "Stage2Preannotation",
+        "type": "object"
+      },
+      "Stage2PreannotationFailure": {
+        "additionalProperties": false,
+        "description": "Stage2 failure payload kept for diagnostics and remediation.",
+        "properties": {
+          "error_type": {
+            "title": "Error Type",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "sample_id": {
+            "title": "Sample Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sample_id",
+          "error_type",
+          "message"
+        ],
+        "title": "Stage2PreannotationFailure",
+        "type": "object"
+      },
+      "StoredLabelConfig": {
+        "additionalProperties": false,
+        "description": "Persisted config metadata and normalized config payload.",
+        "properties": {
+          "activated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activated At"
+          },
+          "config": {
+            "$ref": "#/components/schemas/DatasetLabelConfig"
+          },
+          "config_id": {
+            "title": "Config Id",
+            "type": "string"
+          },
+          "content_hash": {
+            "title": "Content Hash",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "file_name": {
+            "title": "File Name",
+            "type": "string"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "active",
+              "archived"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "validation": {
+            "$ref": "#/components/schemas/LabelConfigValidationReport"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "config_id",
+          "dataset_id",
+          "schema_version",
+          "version",
+          "status",
+          "content_hash",
+          "created_at",
+          "file_name",
+          "validation",
+          "config"
+        ],
+        "title": "StoredLabelConfig",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Fixture-backed runtime API for frontend and integration tests.",
+    "title": "Urban Violation Backend API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/datasets": {
+      "get": {
+        "operationId": "list_datasets_api_datasets_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DatasetSummaryResponse"
+                  },
+                  "title": "Response List Datasets Api Datasets Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Datasets"
+      }
+    },
+    "/api/datasets/{dataset_id}/assets": {
+      "get": {
+        "operationId": "list_assets_api_datasets__dataset_id__assets_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          },
+          {
+            "in": "query",
+            "name": "judge_decision",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Judge Decision"
+            }
+          },
+          {
+            "in": "query",
+            "name": "qc_status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Qc Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "failure_status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Failure Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sample_category",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sample Category"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Assets"
+      }
+    },
+    "/api/datasets/{dataset_id}/assets/{sample_id}": {
+      "get": {
+        "operationId": "asset_detail_api_datasets__dataset_id__assets__sample_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sample_id",
+            "required": true,
+            "schema": {
+              "title": "Sample Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Asset Detail"
+      }
+    },
+    "/api/datasets/{dataset_id}/exports": {
+      "post": {
+        "operationId": "create_export_api_datasets__dataset_id__exports_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Export"
+      }
+    },
+    "/api/datasets/{dataset_id}/import-jobs/{job_id}": {
+      "get": {
+        "operationId": "import_job_status_api_datasets__dataset_id__import_jobs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportJobStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import Job Status"
+      }
+    },
+    "/api/datasets/{dataset_id}/label-config/active": {
+      "get": {
+        "operationId": "get_active_label_config_api_datasets__dataset_id__label_config_active_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoredLabelConfig"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Active Label Config"
+      }
+    },
+    "/api/datasets/{dataset_id}/label-configs": {
+      "post": {
+        "operationId": "save_label_config_api_datasets__dataset_id__label_configs_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LabelConfigSaveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoredLabelConfig"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save Label Config"
+      }
+    },
+    "/api/datasets/{dataset_id}/label-configs/validate": {
+      "post": {
+        "operationId": "validate_label_config_api_datasets__dataset_id__label_configs_validate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LabelConfigValidateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabelConfigValidationReport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Validate Label Config"
+      }
+    },
+    "/api/datasets/{dataset_id}/label-configs/{config_id}/activate": {
+      "post": {
+        "operationId": "activate_label_config_api_datasets__dataset_id__label_configs__config_id__activate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "config_id",
+            "required": true,
+            "schema": {
+              "title": "Config Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoredLabelConfig"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Activate Label Config"
+      }
+    },
+    "/api/datasets/{dataset_id}/label-suggestions": {
+      "get": {
+        "operationId": "label_suggestions_api_datasets__dataset_id__label_suggestions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "field",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "title": "Field",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Q",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabelSuggestionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Label Suggestions"
+      }
+    },
+    "/api/datasets/{dataset_id}/qc": {
+      "get": {
+        "operationId": "qc_queue_api_datasets__dataset_id__qc_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QCQueueResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Qc Queue"
+      }
+    },
+    "/api/datasets/{dataset_id}/samples/{sample_id}/label-edits": {
+      "post": {
+        "operationId": "submit_label_edits_api_datasets__dataset_id__samples__sample_id__label_edits_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sample_id",
+            "required": true,
+            "schema": {
+              "title": "Sample Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LabelEditSubmitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabelEditSubmitResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Submit Label Edits"
+      }
+    },
+    "/api/datasets/{dataset_id}/samples/{sample_id}/label-edits/validate": {
+      "post": {
+        "operationId": "validate_label_edits_api_datasets__dataset_id__samples__sample_id__label_edits_validate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sample_id",
+            "required": true,
+            "schema": {
+              "title": "Sample Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LabelEditValidateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabelEditValidationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Validate Label Edits"
+      }
+    },
+    "/api/datasets/{dataset_id}/samples/{sample_id}/review": {
+      "get": {
+        "operationId": "review_detail_api_datasets__dataset_id__samples__sample_id__review_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sample_id",
+            "required": true,
+            "schema": {
+              "title": "Sample Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Review Detail"
+      },
+      "post": {
+        "operationId": "submit_review_api_datasets__dataset_id__samples__sample_id__review_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sample_id",
+            "required": true,
+            "schema": {
+              "title": "Sample Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewSubmitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HumanReview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Submit Review"
+      }
+    },
+    "/api/datasets/{dataset_id}/search": {
+      "get": {
+        "operationId": "search_api_datasets__dataset_id__search_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Q",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search"
+      }
+    },
+    "/api/datasets/{dataset_id}/summary": {
+      "get": {
+        "operationId": "dataset_summary_api_datasets__dataset_id__summary_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetSummaryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Dataset Summary"
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/media/images/{file_name}": {
+      "get": {
+        "operationId": "media_image_media_images__file_name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_name",
+            "required": true,
+            "schema": {
+              "title": "File Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Media Image"
+      }
+    },
+    "/media/visualizations/{file_name}": {
+      "get": {
+        "operationId": "media_visualization_media_visualizations__file_name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_name",
+            "required": true,
+            "schema": {
+              "title": "File Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Media Visualization"
+      }
+    }
+  }
+}

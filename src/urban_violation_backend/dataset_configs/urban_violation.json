@@ -1,0 +1,184 @@
+{
+  "schema_version": "label_config_v1",
+  "dataset_type": "urban_violation",
+  "version": "urban_violation_labels_v1",
+  "fields": [
+    {
+      "field": "violation_category",
+      "mode": "closed_enum",
+      "label_zh": "违法类别",
+      "label_en": "Violation category",
+      "allow_custom": false,
+      "options": [
+        {
+          "code": "no violation",
+          "label_zh": "无违法",
+          "label_en": "No violation",
+          "description": "未发现城市管理违法行为",
+          "sort_order": 10,
+          "aliases": ["no_violation", "negative", "无违法"]
+        },
+        {
+          "code": "nonmotor_vehicle_illegal_parking",
+          "label_zh": "非机动车违停",
+          "label_en": "Non-motor vehicle illegal parking",
+          "description": "电动车、自行车、共享单车等非机动车违规停放",
+          "sort_order": 20,
+          "aliases": ["非机动车违法停放", "电动车违停", "共享单车违停"]
+        },
+        {
+          "code": "goods_blocking_road",
+          "label_zh": "物品占道",
+          "label_en": "Goods blocking road",
+          "description": "纸箱、杂物、经营物品等占用道路或人行空间",
+          "sort_order": 30,
+          "aliases": ["物品占路", "杂物占道", "货物占道"]
+        },
+        {
+          "code": "road_occupying_vendor",
+          "label_zh": "流动摊贩占道",
+          "label_en": "Road occupying vendor",
+          "description": "摊位、桌椅、经营设施等占用公共通行区域",
+          "sort_order": 40,
+          "aliases": ["占道经营", "摊贩占道", "临时摊位"]
+        },
+        {
+          "code": "motor_vehicle_illegal_parking",
+          "label_zh": "机动车违停",
+          "label_en": "Motor vehicle illegal parking",
+          "description": "机动车停放在不应占用的人行或道路空间",
+          "sort_order": 50,
+          "aliases": ["机动车违法停放", "汽车违停"]
+        }
+      ]
+    },
+    {
+      "field": "sample_category",
+      "mode": "closed_enum",
+      "label_zh": "样本类别",
+      "label_en": "Sample category",
+      "allow_custom": false,
+      "options": [
+        {
+          "code": "positive samples",
+          "label_zh": "正样本",
+          "label_en": "Positive samples",
+          "sort_order": 10,
+          "aliases": ["positive", "正样本"]
+        },
+        {
+          "code": "negative samples",
+          "label_zh": "负样本",
+          "label_en": "Negative samples",
+          "sort_order": 20,
+          "aliases": ["negative", "负样本"]
+        },
+        {
+          "code": "hard boundary samples",
+          "label_zh": "困难边界样本",
+          "label_en": "Hard boundary samples",
+          "sort_order": 30,
+          "aliases": ["hard_boundary", "边界样本", "困难样本"]
+        }
+      ]
+    },
+    {
+      "field": "relation",
+      "mode": "closed_enum",
+      "label_zh": "事实关系",
+      "label_en": "Fact relation",
+      "allow_custom": false,
+      "options": [
+        {"code": "占据", "label_zh": "占据", "label_en": "occupies", "sort_order": 10},
+        {"code": "靠近", "label_zh": "靠近", "label_en": "near", "sort_order": 20},
+        {"code": "沿边缘排列", "label_zh": "沿边缘排列", "label_en": "aligned along edge", "sort_order": 30},
+        {"code": "位于店铺边界外", "label_zh": "位于店铺边界外", "label_en": "outside storefront boundary", "sort_order": 40},
+        {"code": "未阻挡中央通道", "label_zh": "未阻挡中央通道", "label_en": "not blocking central passage", "sort_order": 50},
+        {"code": "阻挡人行通道", "label_zh": "阻挡人行通道", "label_en": "blocking pedestrian passage", "sort_order": 60},
+        {"code": "接触", "label_zh": "接触", "label_en": "touching", "sort_order": 70},
+        {"code": "跨越边界", "label_zh": "跨越边界", "label_en": "crossing boundary", "sort_order": 80},
+        {"code": "位于经营区域内", "label_zh": "位于经营区域内", "label_en": "inside business area", "sort_order": 90},
+        {"code": "不清晰可见", "label_zh": "不清晰可见", "label_en": "not clearly visible", "sort_order": 100}
+      ]
+    },
+    {
+      "field": "verification_result",
+      "mode": "closed_enum",
+      "label_zh": "事实核验结果",
+      "label_en": "Verification result",
+      "allow_custom": false,
+      "options": [
+        {"code": "supported", "label_zh": "支持", "label_en": "Supported", "sort_order": 10},
+        {"code": "weakly_supported", "label_zh": "弱支持", "label_en": "Weakly supported", "sort_order": 20},
+        {"code": "unsupported", "label_zh": "不支持", "label_en": "Unsupported", "sort_order": 30},
+        {"code": "unclear", "label_zh": "不清楚", "label_en": "Unclear", "sort_order": 40}
+      ]
+    },
+    {
+      "field": "visibility_level",
+      "mode": "closed_enum",
+      "label_zh": "可见性等级",
+      "label_en": "Visibility level",
+      "allow_custom": false,
+      "options": [
+        {"code": "clear", "label_zh": "清晰", "label_en": "Clear", "sort_order": 10},
+        {"code": "partial", "label_zh": "部分可见", "label_en": "Partial", "sort_order": 20},
+        {"code": "tiny", "label_zh": "目标很小", "label_en": "Tiny", "sort_order": 30},
+        {"code": "blurry", "label_zh": "模糊", "label_en": "Blurry", "sort_order": 40},
+        {"code": "occluded", "label_zh": "遮挡", "label_en": "Occluded", "sort_order": 50}
+      ]
+    },
+    {
+      "field": "review_decision",
+      "mode": "closed_enum",
+      "label_zh": "质检裁决",
+      "label_en": "Review decision",
+      "allow_custom": false,
+      "options": [
+        {"code": "approved", "label_zh": "通过", "label_en": "Approved", "sort_order": 10},
+        {"code": "needs_changes", "label_zh": "需修改", "label_en": "Needs changes", "sort_order": 20},
+        {"code": "rejected", "label_zh": "驳回", "label_en": "Rejected", "sort_order": 30}
+      ]
+    },
+    {
+      "field": "scene_elements",
+      "mode": "open_tags",
+      "label_zh": "场景元素",
+      "label_en": "Scene elements",
+      "allow_custom": true,
+      "max_items": 30,
+      "options": [
+        {"code": "sidewalk", "label_zh": "人行道", "label_en": "sidewalk", "sort_order": 10, "aliases": ["步道"]},
+        {"code": "tactile_paving", "label_zh": "盲道", "label_en": "tactile paving", "sort_order": 20, "aliases": ["导盲砖"]},
+        {"code": "electric_vehicle", "label_zh": "电动车", "label_en": "electric vehicle", "sort_order": 30, "aliases": ["电动自行车", "电动两轮车"]},
+        {"code": "pedestrian", "label_zh": "行人", "label_en": "pedestrian", "sort_order": 40, "aliases": ["人", "人员"]},
+        {"code": "curb", "label_zh": "路缘石", "label_en": "curb", "sort_order": 50, "aliases": ["路缘"]},
+        {"code": "shared_bicycle", "label_zh": "共享单车", "label_en": "shared bicycle", "sort_order": 60, "aliases": ["共享自行车"]},
+        {"code": "storefront", "label_zh": "店铺", "label_en": "storefront", "sort_order": 70, "aliases": ["商铺", "门店"]},
+        {"code": "carton", "label_zh": "纸箱", "label_en": "carton", "sort_order": 80, "aliases": ["箱子", "箱状物体"]},
+        {"code": "temporary_vendor_stall", "label_zh": "临时摊位", "label_en": "temporary vendor stall", "sort_order": 90, "aliases": ["摊位", "摊贩"]},
+        {"code": "outdoor_table_chair", "label_zh": "户外桌椅", "label_en": "outdoor table and chair", "sort_order": 100, "aliases": ["桌椅", "椅子", "table", "chair"]}
+      ]
+    },
+    {
+      "field": "segmentation_targets",
+      "mode": "open_tags",
+      "label_zh": "分割目标",
+      "label_en": "Segmentation targets",
+      "allow_custom": true,
+      "max_items": 30,
+      "options": [
+        {"code": "electric_vehicle", "label_zh": "电动车", "label_en": "electric vehicle", "sort_order": 10, "aliases": ["electric_scooter", "电动自行车", "电动两轮车"]},
+        {"code": "nonmotor_vehicle", "label_zh": "非机动车", "label_en": "non-motor vehicle", "sort_order": 20, "aliases": ["nonmotor_vehicle"]},
+        {"code": "shared_bicycle", "label_zh": "共享单车", "label_en": "shared bicycle", "sort_order": 30, "aliases": ["shared_bicycle", "共享自行车"]},
+        {"code": "bicycle", "label_zh": "自行车", "label_en": "bicycle", "sort_order": 40, "aliases": ["bike"]},
+        {"code": "goods", "label_zh": "货物", "label_en": "goods", "sort_order": 50, "aliases": ["杂物", "goods"]},
+        {"code": "carton", "label_zh": "纸箱", "label_en": "carton", "sort_order": 60, "aliases": ["箱子", "box", "箱状物体"]},
+        {"code": "person", "label_zh": "人", "label_en": "person", "sort_order": 70, "aliases": ["行人", "人员"]},
+        {"code": "vendor_stall", "label_zh": "摊位", "label_en": "vendor stall", "sort_order": 80, "aliases": ["临时摊位", "摊贩"]},
+        {"code": "table_chair", "label_zh": "桌椅", "label_en": "table and chair", "sort_order": 90, "aliases": ["table", "chair", "椅子"]},
+        {"code": "umbrella", "label_zh": "遮阳伞", "label_en": "umbrella", "sort_order": 100, "aliases": ["umbrella"]}
+      ]
+    }
+  ]
+}

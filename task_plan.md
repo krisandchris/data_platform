@@ -42,7 +42,7 @@ Analyze `urban_violation_platform_markdown/` and the dataset layout under `DATAS
 - Phase 29: Relation index-only left rail - complete
 - Phase 30: Relation reference fields and Candidate index rail - complete
 - Phase 31: Field-only validate action semantics - complete
-- Phase 32: Frontend/backend implementation delegation - in progress
+- Phase 32: Frontend/backend implementation delegation - complete
 
 ## Phase 1 - Documentation Inventory
 
@@ -880,6 +880,28 @@ Acceptance:
 - Frontend agent returns commits and passing `npm run test` plus `npm run build`.
 - Main thread then integrates both branches and runs a frontend/backend smoke check.
 
+Implementation result:
+- Backend agent completed `59167a5` with `label-edits/validate` and `label-edits` APIs, in-memory label edit state, review detail hydration, contract export, and pytest coverage.
+- Frontend agent completed `791192d` with backend-contract-aligned client methods, review workbench label-edit layout, bottom bar actions, and Vitest coverage.
+- Main branch integrated backend source, backend tests, exported contract, frontend source, frontend tests, and frontend build files from the agent branches.
+- Main branch adjusted `pyproject.toml` to use the existing platform README instead of the backend agent task file as package readme.
+- Main branch added Vite `/media` proxy support so review images load when the frontend uses `/api` proxy mode against the backend.
+
+Verification:
+- `uv run pytest`: 26 passed.
+- `cd frontend && npm run test`: 25 passed.
+- `cd frontend && npm run build`: passed.
+- Backend live smoke on `http://127.0.0.1:8011`:
+  - `/health` returned ok.
+  - review detail returned `label_edit_state` and `label_edit_history`.
+  - active label config was saved from `DATASET/urban_violation/label_config.json`.
+  - `label-edits/validate` returned `valid=true` without persistence.
+  - `label-edits` `save_draft` persisted `annotation_draft`.
+  - `label-edits` `submit_changes` persisted `annotation_submitted`.
+  - invalid `confidence=1.5` returned `422` with field-level validation detail.
+- Browser smoke through Vite proxy on `http://127.0.0.1:5178` rendered the review page with image, bbox overlays, Relation/Candidate index rails, and label-edit bottom bar.
+- Integrated screenshot: `/tmp/uvp_main_integrated_review.png`.
+
 ## Phase 4 - Acceptance Criteria
 
 Tasks:
@@ -901,3 +923,6 @@ Acceptance:
 | Frontend label config `校验配置` showed `Not Found`. | Reproduced direct request to `http://127.0.0.1:8000/api/datasets/urban_violation/label-configs/validate`. | Found stale backend process on port 8000 with no label-config routes; restarted 8000 from current backend commit and reran API smoke successfully. |
 | `jq '.field_definitions | ...' DATASET/urban_violation/label_config.json` failed with `Cannot iterate over null`. | Checked uploaded label config shape. | Re-ran against the actual `.fields[]` structure and confirmed 8 configured fields. |
 | Chrome DevTools MCP could not connect: `Could not find DevToolsActivePort`. | Tried to open the static preview through MCP. | Used `google-chrome --headless=new --user-data-dir=/tmp/uvp-preview-chrome --screenshot=... file://...` as the browser verification path. |
+| `uv run pytest` failed with `Readme file does not exist: AGENT_TASK.md` after integrating backend files into main. | Main branch initially pulled backend code paths without the backend agent task file referenced by `pyproject.toml`. | Changed `pyproject.toml` readme to `urban_violation_platform_markdown/README.md` and reran `uv run pytest` successfully. |
+| Live browser smoke initially showed `Media preview pending from backend URL`. | Vite proxy mode proxied `/api` but not root `/media`, so image requests fell through to the frontend HTML route. | Added `/media` proxy in `frontend/vite.config.ts`; image request returned `200 image/jpeg` and screenshot rendered the actual image. |
+| Chrome DevTools MCP could not connect for integrated click verification: `Could not find DevToolsActivePort`. | Tried to use DevTools MCP after screenshot smoke. | Kept headless Chrome screenshot/DOM dump and direct API smoke as the browser verification path. |

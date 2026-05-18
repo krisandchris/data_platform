@@ -98,6 +98,8 @@ This file records research findings from `urban_violation_platform_markdown/` an
 - `Candidate 与质检裁决` should mirror the Relation panel structure: a left candidate index rail showing only `C1/C2/+`, and a right-side editor containing category, confidence, segmentation targets, reasoning, evidence relations, and hint fields.
 - Bottom action `校验修改` is field-legality validation only: type, requiredness, enum membership, open-tag format, numeric range, bbox coordinate legality, and text constraints. It must not judge Relation truth, Candidate evidence sufficiency, cross-field business consistency, QC verdict, saving, submission, or queue state.
 - Implementation contract for this round: backend owns `POST /api/datasets/{dataset_id}/samples/{sample_id}/label-edits/validate` and `POST /api/datasets/{dataset_id}/samples/{sample_id}/label-edits`; frontend consumes those endpoints for `校验修改`, `保存草稿`, and `提交修改`.
+- Main integration confirmed the backend/frontend label-edit contract live: `validate` does not persist, `save_draft` hydrates `label_edit_state`, `submit_changes` persists `annotation_submitted`, and invalid confidence returns 422 with field-level validation details.
+- When running frontend in Vite proxy mode with `VITE_API_BASE_URL=/api`, `/media` must also be proxied to the backend or review images fall through to the frontend HTML route.
 
 ## Open Questions
 
