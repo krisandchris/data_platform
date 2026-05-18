@@ -101,6 +101,9 @@ This file records research findings from `urban_violation_platform_markdown/` an
 - Main integration confirmed the backend/frontend label-edit contract live: `validate` does not persist, `save_draft` hydrates `label_edit_state`, `submit_changes` persists `annotation_submitted`, and invalid confidence returns 422 with field-level validation details.
 - When running frontend in Vite proxy mode with `VITE_API_BASE_URL=/api`, `/media` must also be proxied to the backend or review images fall through to the frontend HTML route.
 - Local dev startup should keep frontend in Vite proxy mode by default: `VITE_API_BASE_URL=/api` and `VITE_API_PROXY_TARGET=$BACKEND_URL`. This avoids browser CORS issues and keeps review images loading through the same `/media` proxy path.
+- Image evidence zoom should be implemented as a visual transform on the rendered image stage, not as bbox coordinate mutation. This keeps 0-1000 quantized bbox data stable while the image and overlay boxes scale together.
+- Bbox color semantics after the latest review tweak: ordinary boxes avoid red and black; red is reserved for selected referenced boxes; black is reserved for Relation boxes that are not referenced by any Candidate evidence relation.
+- Candidate editing semantics after the latest review tweak: `segmentation_targets` may be an empty array, and deleting an existing Candidate should be represented as a structured `delete_candidate` label-edit operation.
 
 ## Open Questions
 

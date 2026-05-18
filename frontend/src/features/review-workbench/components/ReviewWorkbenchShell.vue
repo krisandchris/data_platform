@@ -339,13 +339,24 @@
 
             <div v-if="activeCandidateDraft" class="candidate-editor">
               <div class="candidate-editor-header">
-                <span class="pill pill--blue">
-                  {{ activeCandidateDraft.id }} · {{ activeCandidateDraft.violationCategory || '未选择类别' }}
-                </span>
-                <span class="pill" :class="canEditLabels ? 'pill--green' : 'pill--amber'">
-                  {{ canEditLabels ? 'active config ready' : 'read only' }}
-                </span>
-                <span class="pill pill--amber">{{ activeCandidateDraft.evidenceRelationIds.length }} evidence relations</span>
+                <div class="candidate-header-meta">
+                  <span class="pill pill--blue">
+                    {{ activeCandidateDraft.id }} · {{ activeCandidateDraft.violationCategory || '未选择类别' }}
+                  </span>
+                  <span class="pill" :class="canEditLabels ? 'pill--green' : 'pill--amber'">
+                    {{ canEditLabels ? 'active config ready' : 'read only' }}
+                  </span>
+                  <span class="pill pill--amber">{{ activeCandidateDraft.evidenceRelationIds.length }} evidence relations</span>
+                </div>
+                <button
+                  class="candidate-delete-button"
+                  type="button"
+                  :disabled="!canEditLabels"
+                  @click="deleteCandidate(activeCandidateDraft.id)"
+                >
+                  <Trash2 :size="15" />
+                  删除
+                </button>
               </div>
 
               <div class="candidate-form">
@@ -540,6 +551,7 @@ import {
   Send,
   ShieldCheck,
   SkipForward,
+  Trash2,
   TriangleAlert,
 } from 'lucide-vue-next';
 import BBoxOverlay, { type OverlayBox } from '../../../shared/components/BBoxOverlay.vue';
@@ -600,6 +612,7 @@ interface CandidateDraft {
 interface ReviewDraft {
   relationDrafts: Record<string, RelationDraft>;
   candidateDrafts: CandidateDraft[];
+  deletedCandidateDrafts: CandidateDraft[];
 }
 
 interface RelationView {
@@ -697,7 +710,7 @@ const relationViews = computed<RelationView[]>(() => {
       verification,
       badge,
       draft,
-      orphan: reviewDraft.value.candidateDrafts.length > 0 && !evidenceKeys.has(badge),
+      orphan: !evidenceKeys.has(badge),
       dirty: relationDirty(relation, verification, draft),
     };
   });
@@ -765,9 +778,9 @@ const overlayBoxes = computed<OverlayBox[]>(() => {
         id: `stage1-${item.badge}`,
         label: item.badge,
         bbox: item.draft.bbox,
-        tone: item.orphan ? 'orange' : 'blue',
+        tone: item.orphan ? 'black' : 'blue',
         relationIndex: item.badge,
-        selected,
+        selected: selected && !item.orphan,
         editable: canEditLabels.value,
       });
     });
@@ -775,13 +788,15 @@ const overlayBoxes = computed<OverlayBox[]>(() => {
   if (showStage2.value && baseSample.value.stage2) {
     baseSample.value.stage2.factVerifications.forEach((verification) => {
       const badge = relationBadge(verification.relationIndex);
+      const relationView = relationViews.value.find((item) => item.badge === badge);
+      const selected = badge === activeRelationKey.value || activeCandidateRelationKeys.value.has(badge);
       boxes.push({
         id: `stage2-${badge}`,
         label: `S2 ${badge}`,
-        bbox: relationViews.value.find((item) => item.badge === badge)?.draft.bbox ?? verification.bbox,
-        tone: verification.verificationResult === 'supported' ? 'green' : 'orange',
+        bbox: relationView?.draft.bbox ?? verification.bbox,
+        tone: relationView?.orphan ? 'black' : verification.verificationResult === 'supported' ? 'green' : 'orange',
         relationIndex: badge,
-        selected: badge === activeRelationKey.value || activeCandidateRelationKeys.value.has(badge),
+        selected: selected && !relationView?.orphan,
       });
     });
   }
@@ -815,7 +830,7 @@ function createReviewDraft(detail: ReviewSampleDetail): ReviewDraft {
   const candidateDrafts = (detail.stage2?.candidates ?? []).map((candidate, index) =>
     createCandidateDraft(candidate, index),
   );
-  return { relationDrafts, candidateDrafts };
+  return { relationDrafts, candidateDrafts, deletedCandidateDrafts: [] };
 }
 
 function createRelationDraft(relation: StageRelation, verification?: FactVerification): RelationDraft {
@@ -849,7 +864,7 @@ function createCandidateDraft(candidate: Stage2Candidate, index: number): Candid
 }
 
 function createEmptyCandidate(): CandidateDraft {
-  const nextId = `C${reviewDraft.value.candidateDrafts.length + 1}`;
+  const nextId = nextCandidateId();
   return {
     id: nextId,
     violationCategory: selectOptions('violation_category', '')[0] ?? '',
@@ -860,6 +875,17 @@ function createEmptyCandidate(): CandidateDraft {
     evidenceRelationIds: activeRelationKey.value ? [activeRelationKey.value] : [],
     relationHint: '',
   };
+}
+
+function nextCandidateId() {
+  const usedIds = new Set(
+    [...reviewDraft.value.candidateDrafts, ...reviewDraft.value.deletedCandidateDrafts].map((candidate) => candidate.id),
+  );
+  let index = 1;
+  while (usedIds.has(`C${index}`)) {
+    index += 1;
+  }
+  return `C${index}`;
 }
 
 function reviewHref(sampleId: string) {
@@ -1009,6 +1035,34 @@ function addCandidate() {
     candidateDrafts: [...reviewDraft.value.candidateDrafts, candidate],
   };
   activeCandidateId.value = candidate.id;
+  markEdited();
+}
+
+function deleteCandidate(candidateId: string) {
+  if (!canEditLabels.value) {
+    actionMessage.value = props.labelConfigGateMessage || '请先上传并激活标签配置';
+    return;
+  }
+
+  const candidateIndex = reviewDraft.value.candidateDrafts.findIndex((candidate) => candidate.id === candidateId);
+  if (candidateIndex < 0) {
+    return;
+  }
+
+  const candidate = reviewDraft.value.candidateDrafts[candidateIndex];
+  const nextCandidates = reviewDraft.value.candidateDrafts.filter((item) => item.id !== candidateId);
+  const nextDeletedCandidates =
+    candidate.sourceIndex === undefined
+      ? reviewDraft.value.deletedCandidateDrafts
+      : [...reviewDraft.value.deletedCandidateDrafts.filter((item) => item.id !== candidate.id), candidate];
+
+  reviewDraft.value = {
+    ...reviewDraft.value,
+    candidateDrafts: nextCandidates,
+    deletedCandidateDrafts: nextDeletedCandidates,
+  };
+  activeCandidateId.value = nextCandidates[Math.min(candidateIndex, nextCandidates.length - 1)]?.id ?? '';
+  candidateTagInput.value = '';
   markEdited();
 }
 
@@ -1252,6 +1306,17 @@ function buildOperations(): LabelEditOperation[] {
     );
   });
 
+  reviewDraft.value.deletedCandidateDrafts.forEach((candidate) => {
+    const base = baseSample.value.stage2?.candidates[candidate.sourceIndex ?? -1];
+    nextOperations.push({
+      scope: `candidate:${candidate.id}`,
+      field: 'candidate',
+      op: 'delete_candidate',
+      before: base ? candidateSnapshotFromBase(base, candidate.id) : candidateSnapshot(candidate),
+      after: null,
+    });
+  });
+
   reviewDraft.value.candidateDrafts.forEach((candidate) => {
     const base = baseSample.value.stage2?.candidates[candidate.sourceIndex ?? -1];
     const scope = `candidate:${candidate.id}`;
@@ -1270,6 +1335,32 @@ function buildOperations(): LabelEditOperation[] {
     addReplaceOperation(nextOperations, scope, 'relation_hint', base?.relationHint ?? '', candidate.relationHint);
   });
   return nextOperations;
+}
+
+function candidateSnapshot(candidate: CandidateDraft) {
+  return {
+    id: candidate.id,
+    violation_category: candidate.violationCategory,
+    sample_category: candidate.sampleCategory,
+    confidence: candidate.confidence,
+    segmentation_targets: candidate.segmentationTargets,
+    evidence_relations: candidate.evidenceRelationIds,
+    evidence_reasoning: candidate.evidenceReasoning,
+    relation_hint: candidate.relationHint,
+  };
+}
+
+function candidateSnapshotFromBase(candidate: Stage2Candidate, id: string) {
+  return {
+    id,
+    violation_category: candidate.violationCategory,
+    sample_category: candidate.sampleCategory,
+    confidence: candidate.confidence,
+    segmentation_targets: candidate.segmentationTargets,
+    evidence_relations: candidate.evidenceRelationIndices.map((item) => relationBadge(item)),
+    evidence_reasoning: candidate.evidenceReasoning,
+    relation_hint: candidate.relationHint ?? '',
+  };
 }
 </script>
 
@@ -1311,7 +1402,8 @@ function buildOperations(): LabelEditOperation[] {
 .bottom-status,
 .label-edit-actions,
 .status-row,
-.candidate-editor-header {
+.candidate-editor-header,
+.candidate-header-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 7px;
@@ -1725,6 +1817,27 @@ function buildOperations(): LabelEditOperation[] {
 
 .candidate-editor-header {
   grid-column: 1 / -1;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.candidate-header-meta {
+  flex: 1 1 auto;
+}
+
+.candidate-delete-button {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid rgba(245, 101, 101, 0.48);
+  border-radius: 7px;
+  background: rgba(245, 101, 101, 0.1);
+  color: #fecaca;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 900;
 }
 
 .field {

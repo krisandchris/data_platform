@@ -354,7 +354,7 @@ export type LabelEditTaskStatus = 'annotation_draft' | 'annotation_submitted';
 export interface LabelEditOperation {
   scope: string;
   field: string;
-  op: 'replace' | 'add_tag' | 'remove_tag' | 'soft_delete_relation' | 'add_relation';
+  op: 'replace' | 'add_tag' | 'remove_tag' | 'soft_delete_relation' | 'add_relation' | 'delete_candidate';
   before?: unknown;
   after?: unknown;
   tagPayload?: {

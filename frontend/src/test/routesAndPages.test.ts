@@ -615,6 +615,126 @@ describe('import and review routes', () => {
     expect(wrapper.text()).not.toContain('人工精标');
   });
 
+  it('marks unreferenced relation boxes black instead of selected red', async () => {
+    const orphanDetail: ReviewSampleDetail = {
+      ...reviewDetail,
+      stage1: {
+        ...reviewDetail.stage1,
+        keyRelations: [
+          ...reviewDetail.stage1.keyRelations,
+          {
+            relationIndex: 'R2',
+            subject: 'sign',
+            relation: 'near',
+            object: 'sidewalk',
+            bbox: [100, 100, 220, 220],
+          },
+        ],
+      },
+      stage2: reviewDetail.stage2
+        ? {
+            ...reviewDetail.stage2,
+            factVerifications: [
+              ...reviewDetail.stage2.factVerifications,
+              {
+                ...reviewDetail.stage2.factVerifications[0],
+                relationIndex: 'R2',
+                subject: 'sign',
+                relation: 'near',
+                object: 'sidewalk',
+                bbox: [100, 100, 220, 220],
+              },
+            ],
+          }
+        : undefined,
+    };
+    mockApiClient.getReviewSample.mockResolvedValue(orphanDetail);
+    mockApiClient.listQcQueue.mockResolvedValue(qcQueue);
+
+    const wrapper = mount(ReviewWorkbenchPage, {
+      props: {
+        id: 'ds-live',
+        sampleId: 'sample-1',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    await wrapper.findAll('.relation-index-track .index-button').find((button) => button.text().includes('R2'))?.trigger('click');
+    await flushPromises();
+
+    const unreferencedBoxes = wrapper.findAll('.bbox-shell__box--black');
+    expect(unreferencedBoxes.length).toBeGreaterThan(0);
+    expect(unreferencedBoxes.some((box) => box.classes().includes('bbox-shell__box--selected'))).toBe(false);
+  });
+
+  it('allows empty segmentation targets and sends a delete operation for removed candidates', async () => {
+    mockApiClient.getReviewSample.mockResolvedValue(reviewDetail);
+    mockApiClient.listQcQueue.mockResolvedValue(qcQueue);
+
+    const wrapper = mount(ReviewWorkbenchPage, {
+      props: {
+        id: 'ds-live',
+        sampleId: 'sample-1',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    await wrapper.find('.tag button').trigger('click');
+
+    const validateButton = wrapper.findAll('button').find((button) => button.text().includes('校验修改'));
+    await validateButton?.trigger('click');
+    await flushPromises();
+
+    expect(mockApiClient.validateLabelEdit).toHaveBeenCalledWith(
+      'ds-live',
+      'sample-1',
+      expect.objectContaining({
+        operations: expect.arrayContaining([
+          expect.objectContaining({
+            scope: 'candidate:C1',
+            field: 'segmentation_targets',
+            op: 'replace',
+            after: [],
+          }),
+        ]),
+      }),
+    );
+
+    await wrapper.find('.candidate-delete-button').trigger('click');
+    await flushPromises();
+
+    expect(wrapper.find('.candidate-index-track').text().replace(/\s+/g, '')).toBe('+');
+    expect(wrapper.find('[aria-label="标注修改底栏"]').text()).toContain('已修改 1 项');
+
+    await validateButton?.trigger('click');
+    await flushPromises();
+
+    expect(mockApiClient.validateLabelEdit).toHaveBeenLastCalledWith(
+      'ds-live',
+      'sample-1',
+      expect.objectContaining({
+        operations: expect.arrayContaining([
+          expect.objectContaining({
+            scope: 'candidate:C1',
+            field: 'candidate',
+            op: 'delete_candidate',
+            after: null,
+          }),
+        ]),
+      }),
+    );
+  });
+
   it('keeps the current review visible while switching samples', async () => {
     const nextDetail = makeReviewDetail('sample-2');
     const nextDetailRequest = deferred<ReviewSampleDetail>();

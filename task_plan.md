@@ -44,6 +44,7 @@ Analyze `urban_violation_platform_markdown/` and the dataset layout under `DATAS
 - Phase 31: Field-only validate action semantics - complete
 - Phase 32: Frontend/backend implementation delegation - complete
 - Phase 33: Local frontend/backend one-command dev stack - complete
+- Phase 34: Review workbench zoom and Candidate deletion tweaks - complete
 
 ## Phase 1 - Documentation Inventory
 
@@ -933,6 +934,43 @@ Verification:
 - `curl --noproxy '*' http://127.0.0.1:5181/api/datasets/urban_violation/samples/000142_0_1762483003246/review`: returned review detail JSON through Vite proxy.
 - `curl --noproxy '*' http://127.0.0.1:5181/media/images/000142_0_1762483003246.jpg`: returned `200 image/jpeg`.
 - `scripts/dev-stack.sh stop`: stopped frontend and backend pids.
+
+## Phase 34 - Review Workbench Zoom and Candidate Deletion Tweaks
+
+Goal:
+- Refine the review workbench image evidence and Candidate editing behavior after UI acceptance feedback.
+
+Implementation:
+- Added mouse-wheel zoom to the image evidence stage in `BBoxOverlay.vue`.
+- Kept bbox coordinates in 0-1000 quantized space; zoom is a stage transform, so the image and all boxes scale together without rewriting the selected region.
+- Reserved red only for selected referenced boxes and black for unreferenced Relation boxes.
+- Removed red/black from ordinary default bbox tone choices; ordinary boxes continue to use blue, green, orange, or purple.
+- Changed unreferenced Relation detection so a Relation with no Candidate evidence reference is marked unreferenced even when the active Candidate list is empty.
+- Added a right-top Candidate delete button in the Candidate detail editor.
+- Added frontend patch generation for `delete_candidate` operations while keeping newly added then deleted Candidates out of the patch.
+- Preserved empty `segmentation_targets` as a legal Candidate state.
+- Added backend validation support for `delete_candidate` and explicit tests that empty `segmentation_targets` remains valid.
+
+Acceptance:
+- Mouse wheel over the image evidence area zooms the rendered image and bbox overlays together.
+- Zoom does not mutate bbox coordinates and bbox drag/resize still emits 0-1000 coordinates.
+- Unreferenced Relation boxes render black and do not become red merely because the Relation is active.
+- Candidate detail has a delete action at the right side of the detail header.
+- Removing all segmentation targets is valid.
+- Deleting an existing Candidate creates a `candidate:C* / field=candidate / op=delete_candidate` patch operation.
+
+Verification:
+- `uv run pytest`: 28 passed.
+- `cd frontend && npm run test`: 28 passed.
+- `cd frontend && npm run build`: passed.
+- Live stack smoke on `127.0.0.1:8022` and `127.0.0.1:5182`:
+  - uploaded and activated `DATASET/urban_violation/label_config.json`;
+  - review page DOM included `candidate-delete-button`, `active config ready`, and black unreferenced bbox classes;
+  - review media returned `200 image/jpeg`;
+  - label-edit validate accepted both empty `segmentation_targets` and `delete_candidate`.
+- Headless Chrome screenshots:
+  - `/tmp/uvp_qc_tweak_review.png`
+  - `/tmp/uvp_qc_tweak_review_active.png`
 
 ## Phase 4 - Acceptance Criteria
 

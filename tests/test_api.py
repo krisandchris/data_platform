@@ -337,6 +337,52 @@ def test_label_edit_validate_rejects_invalid_bbox(client: TestClient) -> None:
     assert any(issue["field"] == "bbox" for issue in body["errors"])
 
 
+def test_label_edit_validate_allows_empty_segmentation_targets(client: TestClient) -> None:
+    _activate_label_config(client)
+    payload = _build_valid_label_edit_payload()
+    payload["operations"] = [
+        {
+            "scope": "candidate:C1",
+            "field": "segmentation_targets",
+            "op": "replace",
+            "before": ["行人"],
+            "after": [],
+        }
+    ]
+
+    response = client.post(
+        f"/api/datasets/{DATASET_ID}/samples/{SUCCESS_SAMPLE_ID}/label-edits/validate",
+        json=payload,
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["valid"] is True
+    assert body["errors"] == []
+
+
+def test_label_edit_validate_accepts_candidate_delete_operation(client: TestClient) -> None:
+    _activate_label_config(client)
+    payload = _build_valid_label_edit_payload()
+    payload["operations"] = [
+        {
+            "scope": "candidate:C1",
+            "field": "candidate",
+            "op": "delete_candidate",
+            "before": {"id": "C1", "violation_category": "no violation"},
+            "after": None,
+        }
+    ]
+
+    response = client.post(
+        f"/api/datasets/{DATASET_ID}/samples/{SUCCESS_SAMPLE_ID}/label-edits/validate",
+        json=payload,
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["valid"] is True
+    assert body["checked_operation_count"] == 1
+
+
 def test_label_edit_save_draft_persists_and_returns_in_review_detail(client: TestClient) -> None:
     _activate_label_config(client)
     payload = _build_valid_label_edit_payload()

@@ -121,6 +121,7 @@ VERIFICATION_FIELDS = {
     "verification_confidence",
 }
 CANDIDATE_FIELDS = {
+    "candidate",
     "violation_category",
     "evidence_relations",
     "evidence_relation_indices",
@@ -129,6 +130,14 @@ CANDIDATE_FIELDS = {
     "segmentation_targets",
     "confidence",
     "sample_category",
+}
+SUPPORTED_LABEL_EDIT_OPS = {
+    "replace",
+    "add_tag",
+    "remove_tag",
+    "soft_delete_relation",
+    "add_relation",
+    "delete_candidate",
 }
 
 
@@ -505,6 +514,19 @@ class FixtureRuntimeService:
         for index, operation in enumerate(request.operations):
             scope = operation.scope
             field = operation.field
+            op = operation.op
+
+            if op not in SUPPORTED_LABEL_EDIT_OPS:
+                errors.append(
+                    LabelEditValidationIssue(
+                        operation_index=index,
+                        scope=scope,
+                        field=field,
+                        code="invalid_operation",
+                        message=f"Unsupported label edit operation: {op}",
+                    )
+                )
+                continue
 
             scope_error = self._validate_scope_field_pair(scope, field)
             if scope_error:
@@ -517,6 +539,31 @@ class FixtureRuntimeService:
                         message=scope_error,
                     )
                 )
+                continue
+
+            if field == "candidate" and op != "delete_candidate":
+                errors.append(
+                    LabelEditValidationIssue(
+                        operation_index=index,
+                        scope=scope,
+                        field=field,
+                        code="invalid_operation",
+                        message="candidate field only supports delete_candidate",
+                    )
+                )
+                continue
+
+            if op == "delete_candidate":
+                if not scope.startswith("candidate:") or field != "candidate":
+                    errors.append(
+                        LabelEditValidationIssue(
+                            operation_index=index,
+                            scope=scope,
+                            field=field,
+                            code="invalid_scope_or_field",
+                            message="delete_candidate must use scope candidate:C* and field candidate",
+                        )
+                    )
                 continue
 
             tag_payload_error = self._validate_tag_payload(field, operation.tag_payload)

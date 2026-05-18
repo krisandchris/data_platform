@@ -604,6 +604,7 @@ const labelEditOps = new Set<LabelEditOperation['op']>([
   'remove_tag',
   'soft_delete_relation',
   'add_relation',
+  'delete_candidate',
 ]);
 
 const normalizeLabelEditOperation = (value: unknown): LabelEditOperation | undefined => {

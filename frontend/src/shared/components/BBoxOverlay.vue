@@ -3,6 +3,7 @@
     ref="shellRef"
     class="bbox-shell"
     :style="{ '--bbox-aspect': `${imageWidth} / ${imageHeight}` }"
+    @wheel.prevent="handleWheelZoom"
   >
     <div ref="stageRef" class="bbox-shell__stage" :style="stageStyle">
       <img
@@ -57,7 +58,7 @@ export interface OverlayBox {
   id: string;
   label: string;
   bbox: BBox;
-  tone?: 'blue' | 'green' | 'orange' | 'red' | 'purple';
+  tone?: 'blue' | 'green' | 'orange' | 'purple' | 'black';
   relationIndex?: string;
   selected?: boolean;
   editable?: boolean;
@@ -87,8 +88,13 @@ const imageFailed = ref(false);
 const shellRef = ref<HTMLElement>();
 const stageRef = ref<HTMLElement>();
 const shellSize = ref({ width: 0, height: 0 });
+const zoom = ref(1);
+const zoomOrigin = ref({ x: 50, y: 50 });
 const safeImageUrl = computed(() => toBrowserMediaUrl(props.imageUrl));
 const BBOX_COORDINATE_MAX = 1000;
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 4;
+const ZOOM_FACTOR = 1.12;
 let resizeObserver: ResizeObserver | undefined;
 let dragState:
   | {
@@ -129,11 +135,14 @@ const stageStyle = computed(() => {
   return {
     width: `${width}px`,
     height: `${height}px`,
+    transform: `scale(${zoom.value})`,
+    transformOrigin: `${zoomOrigin.value.x}% ${zoomOrigin.value.y}%`,
   };
 });
 
 watch(safeImageUrl, () => {
   imageFailed.value = false;
+  resetZoom();
 });
 
 onMounted(() => {
@@ -178,6 +187,26 @@ function updateShellSize() {
     width: rect?.width || props.imageWidth,
     height: rect?.height || props.imageHeight,
   };
+}
+
+function handleWheelZoom(event: WheelEvent) {
+  const rect = stageRef.value?.getBoundingClientRect();
+  if (!rect || rect.width <= 0 || rect.height <= 0) {
+    return;
+  }
+
+  zoomOrigin.value = {
+    x: clamp(((event.clientX - rect.left) / rect.width) * 100, 0, 100),
+    y: clamp(((event.clientY - rect.top) / rect.height) * 100, 0, 100),
+  };
+
+  const factor = event.deltaY < 0 ? ZOOM_FACTOR : 1 / ZOOM_FACTOR;
+  zoom.value = roundZoom(clamp(zoom.value * factor, MIN_ZOOM, MAX_ZOOM));
+}
+
+function resetZoom() {
+  zoom.value = 1;
+  zoomOrigin.value = { x: 50, y: 50 };
 }
 
 function startBoxEdit(event: PointerEvent, box: OverlayBox, mode: 'move' | 'resize') {
@@ -274,6 +303,10 @@ function quantizedToPercent(value: number) {
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
+
+function roundZoom(value: number) {
+  return Math.round(value * 100) / 100;
+}
 </script>
 
 <style scoped>
@@ -299,6 +332,9 @@ function clamp(value: number, min: number, max: number) {
   max-height: 100%;
   overflow: hidden;
   background: #111827;
+  transform: scale(1);
+  transition: transform 0.12s ease;
+  will-change: transform;
 }
 
 .bbox-shell__image {
@@ -386,11 +422,20 @@ function clamp(value: number, min: number, max: number) {
   color: #f6ad55;
 }
 
-.bbox-shell__box--red {
-  color: #f87171;
-}
-
 .bbox-shell__box--purple {
   color: #c084fc;
+}
+
+.bbox-shell__box--black {
+  color: #020617;
+}
+
+.bbox-shell__box--black.bbox-shell__box--selected {
+  border-color: #020617;
+}
+
+.bbox-shell__box--black .bbox-shell__resize,
+.bbox-shell__box--black.bbox-shell__box--selected .bbox-shell__resize {
+  background: #020617;
 }
 </style>

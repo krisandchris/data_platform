@@ -1,4 +1,5 @@
 import { mount } from '@vue/test-utils';
+import { nextTick } from 'vue';
 import { describe, expect, it } from 'vitest';
 import BBoxOverlay from '../shared/components/BBoxOverlay.vue';
 
@@ -48,6 +49,56 @@ describe('BBoxOverlay', () => {
     const box = wrapper.find('.bbox-shell__box');
 
     expect(box.attributes('style')).toContain('left: 50%');
+    expect(box.attributes('style')).toContain('top: 25%');
+    expect(box.attributes('style')).toContain('width: 25%');
+    expect(box.attributes('style')).toContain('height: 25%');
+  });
+
+  it('zooms the image stage with the mouse wheel while keeping bbox coordinates stable', async () => {
+    const wrapper = mount(BBoxOverlay, {
+      props: {
+        imageUrl: '/api/media/sample',
+        imageWidth: 1280,
+        imageHeight: 720,
+        boxes: [
+          {
+            id: 'box-zoom',
+            label: 'R1',
+            bbox: [250, 250, 500, 500],
+          },
+        ],
+      },
+    });
+
+    const stage = wrapper.find('.bbox-shell__stage').element as HTMLElement;
+    stage.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        top: 0,
+        width: 100,
+        height: 100,
+        right: 100,
+        bottom: 100,
+        x: 0,
+        y: 0,
+        toJSON: () => undefined,
+      }) as DOMRect;
+
+    const wheelEvent = new WheelEvent('wheel', {
+      deltaY: -100,
+      clientX: 25,
+      clientY: 50,
+      bubbles: true,
+      cancelable: true,
+    });
+    wrapper.find('.bbox-shell').element.dispatchEvent(wheelEvent);
+    await nextTick();
+
+    expect(stage.getAttribute('style')).toContain('transform: scale(1.12)');
+    expect(stage.getAttribute('style')).toContain('transform-origin: 25% 50%');
+
+    const box = wrapper.find('.bbox-shell__box');
+    expect(box.attributes('style')).toContain('left: 25%');
     expect(box.attributes('style')).toContain('top: 25%');
     expect(box.attributes('style')).toContain('width: 25%');
     expect(box.attributes('style')).toContain('height: 25%');
