@@ -14,6 +14,8 @@ import type {
   QcModificationEventStats,
   QcQueueItem,
   ReviewSampleDetail,
+  SamplePoolItem,
+  SamplePoolStats,
 } from '../shared/types/contract';
 
 const mockApiClient = vi.hoisted(() => ({
@@ -45,6 +47,9 @@ const mockApiClient = vi.hoisted(() => ({
   getQcModificationEventStats: vi.fn(),
   listDatasetBatchQcModificationEvents: vi.fn(),
   listQcModificationEvents: vi.fn(),
+  listSamplePoolItems: vi.fn(),
+  getSamplePoolStats: vi.fn(),
+  getSamplePoolItem: vi.fn(),
   getQcWorkspace: vi.fn(),
   generateQcQueue: vi.fn(),
   getQcProgress: vi.fn(),
@@ -91,6 +96,7 @@ import DatasetOverviewPage from '../features/datasets/DatasetOverviewPage.vue';
 import PreannotationsPage from '../features/datasets/PreannotationsPage.vue';
 import ImportJobPage from '../features/import/ImportJobPage.vue';
 import QcPage from '../features/qc/QcPage.vue';
+import SamplePoolPage from '../features/sample-pool/SamplePoolPage.vue';
 import ReviewWorkbenchPage from '../features/review-workbench/ReviewWorkbenchPage.vue';
 import LabelConfigUploadPanel from '../features/datasets/components/LabelConfigUploadPanel.vue';
 import AppShell from '../app/layouts/AppShell.vue';
@@ -255,6 +261,48 @@ const makeQcModificationStats = (batchId: string, totalEvents = 3): QcModificati
       ]
     : [],
   generatedAt: '2026-05-19T10:00:00Z',
+});
+
+const makeSamplePoolStats = (totalItems = 2): SamplePoolStats => ({
+  totalItems,
+  activeItems: totalItems,
+  primaryAttribution: totalItems > 0
+    ? { code: 'model_bbox_offset', label: '模型框偏移', count: 2, weightSum: 1.2 }
+    : undefined,
+  involvedBatchCount: totalItems > 0 ? 1 : 0,
+  recentlyAddedAt: totalItems > 0 ? '2026-05-19T09:30:00Z' : undefined,
+  byAttribution: totalItems > 0
+    ? [
+        { code: 'model_bbox_offset', label: '模型框偏移', count: 2, weightSum: 1.2 },
+        { code: 'category_boundary', label: '类别边界判断', count: 1 },
+      ]
+    : [],
+  byStatus: totalItems > 0 ? [{ status: 'active', label: '活跃', count: totalItems }] : [],
+  generatedAt: '2026-05-19T10:00:00Z',
+});
+
+const makeSamplePoolItem = (overrides: Partial<SamplePoolItem> = {}): SamplePoolItem => ({
+  itemId: 'pool-sample-1',
+  datasetId: 'urban_violation__0508_fixture',
+  datasetType: 'urban_violation',
+  batchId: 'urban_violation__0508_fixture',
+  batchName: '0508 测试批次',
+  sampleId: 'sample-1',
+  category: 'goods_blocking_road',
+  attributionTags: [{ code: 'model_bbox_offset', label: '模型框偏移', count: 2, weightSum: 1.2 }],
+  eventTypes: ['relation_bbox_adjust'],
+  eventCount: 2,
+  changedFieldCount: 1,
+  reviewerId: 'annotator_a',
+  reviewerDisplayName: '标注员 A',
+  confirmedBy: 'qc_lead_a',
+  confirmedByDisplayName: '质检负责人 A',
+  confirmedAt: '2026-05-19T09:20:00Z',
+  addedAt: '2026-05-19T09:21:00Z',
+  status: 'active',
+  confirmedSnapshotId: 'snap-confirmed-1',
+  sourceEventIds: ['event-1'],
+  ...overrides,
 });
 
 const makeAssetSummary = (batchId: string, total: number): AssetSummary => ({
@@ -688,6 +736,14 @@ beforeEach(() => {
   mockApiClient.getQcModificationEventStats.mockResolvedValue(makeQcModificationStats('ds-live'));
   mockApiClient.listDatasetBatchQcModificationEvents.mockResolvedValue([]);
   mockApiClient.listQcModificationEvents.mockResolvedValue([]);
+  mockApiClient.getSamplePoolStats.mockResolvedValue(makeSamplePoolStats());
+  mockApiClient.listSamplePoolItems.mockResolvedValue([makeSamplePoolItem()]);
+  mockApiClient.getSamplePoolItem.mockResolvedValue({
+    ...makeSamplePoolItem(),
+    beforeSnapshotId: 'snap-baseline-1',
+    changedFields: ['bbox'],
+    events: [],
+  });
   mockApiClient.listDatasetBatchAssets.mockResolvedValue([makeAsset('ds-live', 'sample-1')]);
   mockApiClient.getDatasetBatchImportJob.mockResolvedValue(importJob);
   mockApiClient.getDatasetBatchPreannotationSummary.mockResolvedValue(makePreannotationSummary('ds-live', 2));
@@ -734,6 +790,7 @@ beforeEach(() => {
 describe('route rendering and live route states', () => {
   it('declares account routes and compatibility redirects', () => {
     const routes = appRouter.getRoutes();
+    expect(routes.some((route) => route.path === '/sample-pool' && route.name === 'sample-pool')).toBe(true);
     expect(routes.some((route) => route.path === '/account' && route.name === 'account')).toBe(true);
     expect(routes.some((route) => route.path === '/account/permissions' && route.name === 'account-permissions')).toBe(
       true,
@@ -916,6 +973,7 @@ describe('route rendering and live route states', () => {
       history: createMemoryHistory(),
       routes: [
         { path: '/datasets', name: 'datasets', component: { template: '<div />' } },
+        { path: '/sample-pool', name: 'sample-pool', component: { template: '<div />' } },
         { path: '/datasets/:id/overview', name: 'dataset-overview', component: { template: '<div />' } },
         { path: '/datasets/:id/assets', name: 'dataset-assets', component: { template: '<div />' } },
         { path: '/datasets/:id/preannotations', name: 'dataset-preannotations', component: { template: '<div />' } },
@@ -936,6 +994,7 @@ describe('route rendering and live route states', () => {
 
     expect(wrapper.text()).toContain('当前批次');
     expect(wrapper.text()).toContain('ds-live');
+    expect(wrapper.find('a[href="/sample-pool"]').text()).toContain('修正样本池');
     expect(wrapper.find('a[href="/datasets/ds-live/qc"]').exists()).toBe(true);
     expect(wrapper.find('a[href="/datasets/urban_violation/qc"]').exists()).toBe(false);
 
@@ -943,6 +1002,152 @@ describe('route rendering and live route states', () => {
 
     expect(wrapper.classes()).toContain('app-shell--sidebar-collapsed');
     expect(window.localStorage.getItem('uvp.sidebarCollapsed')).toBe('1');
+  });
+
+  it('renders the sample pool loading state before API responses settle', async () => {
+    const statsRequest = deferred<SamplePoolStats>();
+    const itemsRequest = deferred<SamplePoolItem[]>();
+    mockApiClient.getSamplePoolStats.mockReturnValueOnce(statsRequest.promise);
+    mockApiClient.listSamplePoolItems.mockReturnValueOnce(itemsRequest.promise);
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/sample-pool', component: SamplePoolPage },
+        { path: '/datasets/:id/samples/:sampleId/review', component: { template: '<div />' } },
+      ],
+    });
+    await router.push('/sample-pool');
+    await router.isReady();
+
+    const wrapper = mount(SamplePoolPage, {
+      global: {
+        plugins: [router],
+      },
+    });
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="sample-pool-loading"]').text()).toContain('正在加载修正样本池');
+
+    statsRequest.resolve(makeSamplePoolStats());
+    itemsRequest.resolve([makeSamplePoolItem()]);
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="sample-pool-table"]').exists()).toBe(true);
+  });
+
+  it('renders sample pool stats, data rows, and review links', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/sample-pool', component: SamplePoolPage },
+        { path: '/datasets/:id/samples/:sampleId/review', component: { template: '<div />' } },
+      ],
+    });
+    await router.push('/sample-pool');
+    await router.isReady();
+
+    const wrapper = mount(SamplePoolPage, {
+      global: {
+        plugins: [router],
+      },
+    });
+    await flushPromises();
+
+    expect(mockApiClient.getSamplePoolStats).toHaveBeenCalledTimes(1);
+    expect(mockApiClient.listSamplePoolItems).toHaveBeenCalledWith({});
+    expect(wrapper.text()).toContain('总入池样本');
+    expect(wrapper.text()).toContain('活跃样本');
+    expect(wrapper.text()).toContain('主要归因');
+    expect(wrapper.text()).toContain('sample-1');
+    expect(wrapper.text()).toContain('物品占道');
+    expect(wrapper.text()).toContain('模型框偏移');
+    expect(wrapper.find('a.sample-pool-review-link').attributes('href')).toBe(
+      '/datasets/urban_violation__0508_fixture/samples/sample-1/review',
+    );
+  });
+
+  it('renders the sample pool empty state when no items exist', async () => {
+    mockApiClient.getSamplePoolStats.mockResolvedValueOnce(makeSamplePoolStats(0));
+    mockApiClient.listSamplePoolItems.mockResolvedValueOnce([]);
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/sample-pool', component: SamplePoolPage }],
+    });
+    await router.push('/sample-pool');
+    await router.isReady();
+
+    const wrapper = mount(SamplePoolPage, {
+      global: {
+        plugins: [router],
+      },
+    });
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="sample-pool-empty"]').text()).toContain('暂无修正样本入池');
+  });
+
+  it('keeps the sample pool page local when item API fails', async () => {
+    mockApiClient.getSamplePoolStats.mockResolvedValueOnce(makeSamplePoolStats());
+    mockApiClient.listSamplePoolItems.mockRejectedValueOnce(new Error('接口未实现'));
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/sample-pool', component: SamplePoolPage }],
+    });
+    await router.push('/sample-pool');
+    await router.isReady();
+
+    const wrapper = mount(SamplePoolPage, {
+      global: {
+        plugins: [router],
+      },
+    });
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="sample-pool-error"]').text()).toContain('样本池暂不可用：接口未实现');
+    expect(wrapper.text()).toContain('总入池样本');
+  });
+
+  it('applies sample pool filters and renders filtered-empty state', async () => {
+    mockApiClient.listSamplePoolItems
+      .mockResolvedValueOnce([
+        makeSamplePoolItem(),
+        makeSamplePoolItem({
+          itemId: 'pool-sample-2',
+          sampleId: 'sample-2',
+          category: 'nonmotor_vehicle_illegal_parking',
+          attributionTags: [{ code: 'visibility_miss', label: '可见性漏判', count: 1 }],
+          eventTypes: ['relation_modify'],
+          reviewerId: 'annotator_b',
+          reviewerDisplayName: '标注员 B',
+        }),
+      ])
+      .mockResolvedValueOnce([]);
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/sample-pool', component: SamplePoolPage }],
+    });
+    await router.push('/sample-pool');
+    await router.isReady();
+
+    const wrapper = mount(SamplePoolPage, {
+      global: {
+        plugins: [router],
+      },
+    });
+    await flushPromises();
+
+    await wrapper.find('[data-testid="sample-pool-filter-category"]').setValue('goods_blocking_road');
+    await wrapper.find('[data-testid="sample-pool-filter-attribution"]').setValue('model_bbox_offset');
+    await wrapper.find('[data-testid="sample-pool-filter-status"]').setValue('active');
+    await wrapper.find('form.sample-pool-filter-grid').trigger('submit');
+    await flushPromises();
+
+    expect(mockApiClient.listSamplePoolItems).toHaveBeenLastCalledWith({
+      category: 'goods_blocking_road',
+      attribution: 'model_bbox_offset',
+      status: 'active',
+    });
+    expect(wrapper.find('[data-testid="sample-pool-filtered-empty"]').text()).toContain('当前筛选无匹配样本');
   });
 
   it('renders the datasets route from API data', async () => {

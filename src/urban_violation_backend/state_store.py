@@ -14,11 +14,13 @@ from urban_violation_backend.schemas import (
     AuditEvent,
     AuthSession,
     BatchQcAssignment,
+    CorrectionSamplePoolItem,
     LabelEditDraft,
     LabelEditSubmission,
     ModificationEvent,
     QcTask,
     RoleBinding,
+    SamplePoolItemStatus,
     SampleLease,
     UserAccount,
 )
@@ -80,6 +82,12 @@ class PlatformStateStore:
 
     def _modification_events_path(self, dataset_id: str) -> Path:
         return self._qc_dir(dataset_id) / "modification_events.jsonl"
+
+    def _sample_pool_dir(self) -> Path:
+        return self.root / "sample_pool"
+
+    def _sample_pool_items_path(self) -> Path:
+        return self._sample_pool_dir() / "items.json"
 
     def list_users(self) -> list[UserAccount]:
         payload = self._read_json(self.users_path, default=[])
@@ -216,6 +224,69 @@ class PlatformStateStore:
             existing_keys.add(event.event_key)
             inserted.append(event)
         return inserted
+
+    def list_sample_pool_items(self) -> list[CorrectionSamplePoolItem]:
+        payload = self._read_json(self._sample_pool_items_path(), default=[])
+        items = [CorrectionSamplePoolItem.model_validate(item) for item in payload]
+        items.sort(key=lambda item: (item.updated_at, item.created_at, item.item_id), reverse=True)
+        return items
+
+    def get_sample_pool_item(self, item_id: str) -> CorrectionSamplePoolItem | None:
+        for item in self.list_sample_pool_items():
+            if item.item_id == item_id:
+                return item
+        return None
+
+    def get_sample_pool_item_by_key(self, item_key: str) -> CorrectionSamplePoolItem | None:
+        for item in self.list_sample_pool_items():
+            if item.item_key == item_key:
+                return item
+        return None
+
+    def upsert_sample_pool_item(self, item: CorrectionSamplePoolItem) -> CorrectionSamplePoolItem:
+        items = self.list_sample_pool_items()
+        replaced = False
+        merged = item
+        updated_items: list[CorrectionSamplePoolItem] = []
+        for existing in items:
+            if existing.item_key == item.item_key:
+                merged = item.model_copy(update={"item_id": existing.item_id, "created_at": existing.created_at})
+                updated_items.append(merged)
+                replaced = True
+                continue
+            updated_items.append(existing)
+        if not replaced:
+            updated_items.append(item)
+        self._write_json(
+            self._sample_pool_items_path(),
+            [row.model_dump(mode="json") for row in updated_items],
+        )
+        return merged
+
+    def soft_remove_sample_pool_item(
+        self,
+        item_id: str,
+        *,
+        removed_at: datetime,
+    ) -> CorrectionSamplePoolItem | None:
+        items = self.list_sample_pool_items()
+        updated: list[CorrectionSamplePoolItem] = []
+        removed_item: CorrectionSamplePoolItem | None = None
+        for item in items:
+            if item.item_id != item_id:
+                updated.append(item)
+                continue
+            removed_item = item.model_copy(
+                update={"status": SamplePoolItemStatus.REMOVED, "updated_at": removed_at}
+            )
+            updated.append(removed_item)
+        if removed_item is None:
+            return None
+        self._write_json(
+            self._sample_pool_items_path(),
+            [row.model_dump(mode="json") for row in updated],
+        )
+        return removed_item
 
     def get_assignment(self, dataset_id: str) -> BatchQcAssignment | None:
         payload = self._read_json(self._assignment_path(dataset_id), default=None)

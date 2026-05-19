@@ -24,6 +24,10 @@
             <Layers :size="18" />
             <span class="nav-item__label">数据集中心</span>
           </RouterLink>
+          <RouterLink class="nav-item" to="/sample-pool" title="修正样本池">
+            <Archive :size="18" />
+            <span class="nav-item__label">修正样本池</span>
+          </RouterLink>
         </div>
 
         <div v-if="activeDatasetId" class="nav-section nav-section--context">
@@ -117,6 +121,7 @@ import { computed, ref } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
 import {
   Activity,
+  Archive,
   Box,
   ClipboardList,
   Database,
@@ -155,6 +160,12 @@ const topbarContext = computed(() => {
     return {
       eyebrow: '数据集中心',
       title: '选择数据集类型与批次',
+    };
+  }
+  if (name === 'sample-pool') {
+    return {
+      eyebrow: '修正样本池',
+      title: '确认修改样本沉淀',
     };
   }
   if (name === 'account') {

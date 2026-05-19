@@ -333,6 +333,75 @@ export interface QcModificationEvent {
   details?: Record<string, unknown>;
 }
 
+export type SamplePoolItemStatus = 'active' | 'removed' | 'archived' | 'pending' | string;
+
+export interface SamplePoolAttributionTag {
+  code: string;
+  label: string;
+  count?: number;
+  weightSum?: number;
+}
+
+export interface SamplePoolStatusCount {
+  status: SamplePoolItemStatus;
+  label: string;
+  count: number;
+}
+
+export interface SamplePoolListFilters {
+  datasetType?: string;
+  batchId?: DatasetBatchId;
+  category?: string;
+  attribution?: string;
+  eventType?: string;
+  reviewer?: string;
+  status?: SamplePoolItemStatus | 'all';
+  search?: string;
+}
+
+export interface SamplePoolStats {
+  totalItems: number;
+  activeItems: number;
+  primaryAttribution?: SamplePoolAttributionTag;
+  involvedBatchCount: number;
+  recentlyAddedAt?: string;
+  byAttribution: SamplePoolAttributionTag[];
+  byStatus: SamplePoolStatusCount[];
+  generatedAt?: string;
+}
+
+export interface SamplePoolItem {
+  itemId: string;
+  datasetId: DatasetId;
+  datasetType?: string;
+  batchId?: DatasetBatchId;
+  batchName?: string;
+  sampleId: SampleId;
+  category?: string;
+  attributionTags: SamplePoolAttributionTag[];
+  eventTypes: string[];
+  eventCount: number;
+  changedFieldCount: number;
+  reviewerId?: string;
+  reviewerDisplayName?: string;
+  confirmedBy?: string;
+  confirmedByDisplayName?: string;
+  confirmedAt?: string;
+  addedAt?: string;
+  status: SamplePoolItemStatus;
+  confirmedSnapshotId?: string;
+  sourceEventIds?: string[];
+}
+
+export interface SamplePoolItemDetail extends SamplePoolItem {
+  beforeSnapshotId?: string;
+  confirmedSnapshotPayload?: unknown;
+  baselineSnapshotPayload?: unknown;
+  changedFields: string[];
+  events: QcModificationEvent[];
+  notes?: string;
+}
+
 export interface Dataset {
   id: DatasetId;
   name: string;

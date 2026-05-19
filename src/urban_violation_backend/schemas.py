@@ -128,6 +128,13 @@ class ModificationEventType(str, Enum):
     CANDIDATE_EVIDENCE_EDIT = "candidate_evidence_edit"
 
 
+class SamplePoolItemStatus(str, Enum):
+    """Correction sample pool item state."""
+
+    ACTIVE = "active"
+    REMOVED = "removed"
+
+
 class StrictModel(BaseModel):
     """Base model that rejects unknown fields for safer contracts."""
 
@@ -458,6 +465,31 @@ class ModificationEvent(StrictModel):
     attribution_label: str
     attribution_weight: float
     created_at: datetime
+
+
+class CorrectionSamplePoolItem(StrictModel):
+    """One correction sample pool item derived from confirmed QC diffs."""
+
+    item_id: str
+    item_key: str
+    dataset_id: str
+    dataset_type: str
+    sample_id: str
+    confirmed_snapshot_id: str
+    source_submission_id: str | None = None
+    event_ids: list[str] = Field(default_factory=list)
+    event_count: int = Field(default=0, ge=0)
+    changed_field_count: int = Field(default=0, ge=0)
+    event_types: list[ModificationEventType] = Field(default_factory=list)
+    attribution_codes: list[str] = Field(default_factory=list)
+    category: str | None = None
+    primary_category: str | None = None
+    reviewer_id: str | None = None
+    confirmed_by: str | None = None
+    confirmed_at: datetime | None = None
+    status: SamplePoolItemStatus = SamplePoolItemStatus.ACTIVE
+    created_at: datetime
+    updated_at: datetime
 
 
 class AuditEvent(StrictModel):

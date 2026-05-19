@@ -15,6 +15,7 @@ from urban_violation_backend.schemas import (
     HumanReview,
     LeaseStatus,
     ModificationEventType,
+    SamplePoolItemStatus,
     QcTaskStatus,
     RoleBinding,
     RoleScopeType,
@@ -418,6 +419,97 @@ class ModificationEventStatsResponse(StrictModel):
     bbox_offset_bands: list[BboxOffsetBandCount] = Field(default_factory=list)
     changed_samples: list[ChangedSampleSummary] = Field(default_factory=list)
     generated_at: datetime
+
+
+class SamplePoolItemResponse(StrictModel):
+    """Correction sample pool item projection."""
+
+    item_id: str
+    dataset_id: str
+    dataset_type: str
+    sample_id: str
+    confirmed_snapshot_id: str
+    source_submission_id: str | None = None
+    event_ids: list[str] = Field(default_factory=list)
+    event_count: int = Field(default=0, ge=0)
+    changed_field_count: int = Field(default=0, ge=0)
+    event_types: list[ModificationEventType] = Field(default_factory=list)
+    attribution_codes: list[str] = Field(default_factory=list)
+    category: str | None = None
+    primary_category: str | None = None
+    reviewer_id: str | None = None
+    confirmed_by: str | None = None
+    confirmed_at: datetime | None = None
+    status: SamplePoolItemStatus
+    created_at: datetime
+    updated_at: datetime
+
+
+class SamplePoolFiltersResponse(StrictModel):
+    """Echo of applied sample pool list filters."""
+
+    dataset_id: str | None = None
+    dataset_type: str | None = None
+    sample_id: str | None = None
+    category: str | None = None
+    attribution_code: str | None = None
+    event_type: ModificationEventType | None = None
+    reviewer_id: str | None = None
+    status: SamplePoolItemStatus | None = None
+
+
+class SamplePoolListResponse(StrictModel):
+    """Sample pool list response."""
+
+    items: list[SamplePoolItemResponse] = Field(default_factory=list)
+    total: int = Field(default=0, ge=0)
+    filters: SamplePoolFiltersResponse = Field(default_factory=SamplePoolFiltersResponse)
+    generated_at: datetime
+
+
+class SamplePoolDatasetCount(StrictModel):
+    """Sample pool distribution by dataset."""
+
+    dataset_id: str
+    dataset_type: str
+    count: int = Field(default=0, ge=0)
+
+
+class SamplePoolKeyCount(StrictModel):
+    """Generic key/count row used in sample pool statistics."""
+
+    key: str
+    count: int = Field(default=0, ge=0)
+
+
+class SamplePoolStatsResponse(StrictModel):
+    """Sample pool aggregate statistics."""
+
+    total_items: int = Field(default=0, ge=0)
+    active_items: int = Field(default=0, ge=0)
+    by_dataset: list[SamplePoolDatasetCount] = Field(default_factory=list)
+    by_category: list[SamplePoolKeyCount] = Field(default_factory=list)
+    by_attribution: list[SamplePoolKeyCount] = Field(default_factory=list)
+    by_event_type: list[SamplePoolKeyCount] = Field(default_factory=list)
+    recent_items: list[SamplePoolItemResponse] = Field(default_factory=list)
+    generated_at: datetime
+
+
+class SamplePoolItemDetailResponse(StrictModel):
+    """Sample pool detail with linked events and snapshot metadata."""
+
+    item: SamplePoolItemResponse
+    events: list[ModificationEventResponse] = Field(default_factory=list)
+    snapshot: AnnotationSnapshotResponse | None = None
+
+
+class SamplePoolItemUpsertRequest(StrictModel):
+    """Manual create/reactivate request for correction sample pool."""
+
+    dataset_id: str = Field(min_length=1, max_length=160)
+    sample_id: str = Field(min_length=1, max_length=160)
+    source_submission_id: str | None = Field(default=None, min_length=1, max_length=160)
+    confirmed_snapshot_id: str | None = Field(default=None, min_length=1, max_length=160)
 
 
 class QcProgressByStatus(StrictModel):

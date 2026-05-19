@@ -1539,8 +1539,217 @@ def test_qc_closed_loop_phase1_snapshots_events_and_stats_are_idempotent(tmp_pat
         assert events_after.status_code == 200
         assert len(events_after.json()) == len(event_payload)
 
+        pool_list = client.get(
+            "/api/sample-pool",
+            params={"dataset_id": BATCH_DATASET_ID},
+            headers=_admin_headers(),
+        )
+        assert pool_list.status_code == 200
+        pool_payload = pool_list.json()
+        assert pool_payload["total"] == 1
+        assert pool_payload["filters"]["dataset_id"] == BATCH_DATASET_ID
+        pool_item = pool_payload["items"][0]
+        assert pool_item["dataset_id"] == BATCH_DATASET_ID
+        assert pool_item["dataset_type"] == DATASET_ID
+        assert pool_item["sample_id"] == MULTI_CANDIDATE_SAMPLE_ID
+        assert pool_item["source_submission_id"] == submission_id
+        assert pool_item["event_count"] == len(event_payload)
+        assert pool_item["changed_field_count"] > 0
+        assert pool_item["status"] == "active"
+        assert set(pool_item["event_types"]).issuperset(event_types)
+        assert set(pool_item["attribution_codes"])
+        assert pool_item["confirmed_snapshot_id"]
+
+        by_sample = client.get(
+            "/api/sample-pool",
+            params={"dataset_id": BATCH_DATASET_ID, "sample_id": MULTI_CANDIDATE_SAMPLE_ID},
+            headers=_admin_headers(),
+        )
+        assert by_sample.status_code == 200
+        assert by_sample.json()["total"] == 1
+
+        by_event_type = client.get(
+            "/api/sample-pool",
+            params={"dataset_id": BATCH_DATASET_ID, "event_type": "candidate_add"},
+            headers=_admin_headers(),
+        )
+        assert by_event_type.status_code == 200
+        assert by_event_type.json()["total"] == 1
+
+        by_reviewer = client.get(
+            "/api/sample-pool",
+            params={"dataset_id": BATCH_DATASET_ID, "reviewer_id": "annotator_a"},
+            headers=_admin_headers(),
+        )
+        assert by_reviewer.status_code == 200
+        assert by_reviewer.json()["total"] == 1
+
+        stats_pool = client.get("/api/sample-pool/stats", headers=_admin_headers())
+        assert stats_pool.status_code == 200
+        stats_pool_payload = stats_pool.json()
+        assert stats_pool_payload["total_items"] == 1
+        assert stats_pool_payload["active_items"] == 1
+        assert any(row["dataset_id"] == BATCH_DATASET_ID for row in stats_pool_payload["by_dataset"])
+        assert stats_pool_payload["recent_items"][0]["item_id"] == pool_item["item_id"]
+
+        detail_pool = client.get(
+            f"/api/sample-pool/items/{pool_item['item_id']}",
+            headers=_admin_headers(),
+        )
+        assert detail_pool.status_code == 200
+        detail_pool_payload = detail_pool.json()
+        assert detail_pool_payload["item"]["item_id"] == pool_item["item_id"]
+        assert detail_pool_payload["item"]["confirmed_snapshot_id"] == pool_item["confirmed_snapshot_id"]
+        assert detail_pool_payload["snapshot"] is not None
+        assert detail_pool_payload["snapshot"]["snapshot_id"] == pool_item["confirmed_snapshot_id"]
+        assert len(detail_pool_payload["events"]) == len(event_payload)
+
+        removed = client.delete(
+            f"/api/sample-pool/items/{pool_item['item_id']}",
+            headers=_admin_headers(),
+        )
+        assert removed.status_code == 200
+        removed_payload = removed.json()
+        assert removed_payload["status"] == "removed"
+
+        active_after_remove = client.get(
+            "/api/sample-pool",
+            params={"dataset_id": BATCH_DATASET_ID, "status": "active"},
+            headers=_admin_headers(),
+        )
+        assert active_after_remove.status_code == 200
+        assert active_after_remove.json()["total"] == 0
+
+        removed_list = client.get(
+            "/api/sample-pool",
+            params={"dataset_id": BATCH_DATASET_ID, "status": "removed"},
+            headers=_admin_headers(),
+        )
+        assert removed_list.status_code == 200
+        assert removed_list.json()["total"] == 1
+
+        reactivated = client.post(
+            "/api/sample-pool/items",
+            json={
+                "dataset_id": BATCH_DATASET_ID,
+                "sample_id": MULTI_CANDIDATE_SAMPLE_ID,
+                "source_submission_id": submission_id,
+                "confirmed_snapshot_id": pool_item["confirmed_snapshot_id"],
+            },
+            headers=_admin_headers(),
+        )
+        assert reactivated.status_code == 200
+        reactivated_payload = reactivated.json()
+        assert reactivated_payload["item_id"] == pool_item["item_id"]
+        assert reactivated_payload["status"] == "active"
+
+        reactivated_again = client.post(
+            "/api/sample-pool/items",
+            json={
+                "dataset_id": BATCH_DATASET_ID,
+                "sample_id": MULTI_CANDIDATE_SAMPLE_ID,
+                "source_submission_id": submission_id,
+                "confirmed_snapshot_id": pool_item["confirmed_snapshot_id"],
+            },
+            headers=_admin_headers(),
+        )
+        assert reactivated_again.status_code == 200
+        assert reactivated_again.json()["item_id"] == pool_item["item_id"]
+
+        final_pool_list = client.get(
+            "/api/sample-pool",
+            params={"dataset_id": BATCH_DATASET_ID},
+            headers=_admin_headers(),
+        )
+        assert final_pool_list.status_code == 200
+        assert final_pool_list.json()["total"] == 1
+
         batch_state_dir = state_root / "qc" / BATCH_DATASET_ID
         legacy_state_dir = state_root / "qc" / DATASET_ID
+        sample_pool_path = state_root / "sample_pool" / "items.json"
         assert (batch_state_dir / "modification_events.jsonl").is_file()
         assert (batch_state_dir / "annotation_snapshots.jsonl").is_file()
+        assert sample_pool_path.is_file()
         assert not (legacy_state_dir / "modification_events.jsonl").exists()
+
+
+def test_qc_confirmation_without_meaningful_events_does_not_enter_sample_pool(tmp_path: Path) -> None:
+    state_root = tmp_path / "PLATFORM_STATE"
+    with TestClient(
+        create_app(
+            label_config_store_root=tmp_path / "LABEL_CONFIG_STATE",
+            platform_state_root=state_root,
+        )
+    ) as client:
+        _activate_label_config(client)
+        _create_user(client, "annotator_a", role="annotator")
+        _create_user(client, "qc_lead_a", role="qc_lead")
+        _assign_batch(client, "annotator_a", dataset_id=BATCH_DATASET_ID)
+        lease_id = _acquire_lease(
+            client,
+            "annotator_a",
+            sample_id=SUCCESS_SAMPLE_ID,
+            dataset_id=BATCH_DATASET_ID,
+        )
+
+        detail_response = client.get(
+            f"/api/datasets/{BATCH_DATASET_ID}/samples/{SUCCESS_SAMPLE_ID}/review",
+            headers=_admin_headers(),
+        )
+        assert detail_response.status_code == 200
+        relation_before = detail_response.json()["stage1"]["key_relations"][0]
+
+        submit = client.post(
+            f"/api/datasets/{BATCH_DATASET_ID}/samples/{SUCCESS_SAMPLE_ID}/label-edits",
+            json={
+                "task_mode": "label_edit",
+                "submit_action": "submit_changes",
+                "task_status": "annotation_submitted",
+                "lease_id": lease_id,
+                "base_revision": 0,
+                "operations": [
+                    {
+                        "scope": "relation:R1",
+                        "field": "description",
+                        "op": "replace",
+                        "before": relation_before["description"],
+                        "after": relation_before["description"],
+                    }
+                ],
+            },
+            headers=_user_headers("annotator_a", "annotator"),
+        )
+        assert submit.status_code == 200
+
+        history = client.get(
+            f"/api/datasets/{BATCH_DATASET_ID}/samples/{SUCCESS_SAMPLE_ID}/label-edits/history",
+            headers=_user_headers("qc_lead_a", "qc_lead"),
+        )
+        assert history.status_code == 200
+        submission_id = history.json()[-1]["submission_id"]
+
+        confirmed = client.post(
+            f"/api/datasets/{BATCH_DATASET_ID}/samples/{SUCCESS_SAMPLE_ID}/label-edits/{submission_id}/confirm",
+            headers=_user_headers("qc_lead_a", "qc_lead"),
+        )
+        assert confirmed.status_code == 200
+
+        events = client.get(
+            f"/api/datasets/{BATCH_DATASET_ID}/qc/modification-events",
+            params={"sample_id": SUCCESS_SAMPLE_ID, "submission_id": submission_id},
+            headers=_admin_headers(),
+        )
+        assert events.status_code == 200
+        assert events.json() == []
+
+        pool = client.get(
+            "/api/sample-pool",
+            params={"dataset_id": BATCH_DATASET_ID, "sample_id": SUCCESS_SAMPLE_ID},
+            headers=_admin_headers(),
+        )
+        assert pool.status_code == 200
+        assert pool.json()["total"] == 0
+
+        stats = client.get("/api/sample-pool/stats", headers=_admin_headers())
+        assert stats.status_code == 200
+        assert stats.json()["total_items"] == 0

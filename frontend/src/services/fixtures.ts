@@ -34,6 +34,10 @@ import type {
   RoleBinding,
   RoleBindingCreatePayload,
   SampleLease,
+  SamplePoolItem,
+  SamplePoolItemDetail,
+  SamplePoolListFilters,
+  SamplePoolStats,
   UserAccount,
   UserCreatePayload,
   UserUpdatePayload,
@@ -149,6 +153,71 @@ const qcModificationEvents: QcModificationEvent[] = [
     createdAt: '2026-05-19T09:20:00+08:00',
   },
 ];
+
+const samplePoolItems: SamplePoolItem[] = [
+  {
+    itemId: 'pool-sample-0001',
+    datasetId: dataset.id,
+    datasetType: dataset.datasetType,
+    batchId: dataset.id,
+    batchName: dataset.batchName,
+    sampleId: 'sample-0001',
+    category: 'goods_blocking_road',
+    attributionTags: [
+      { code: 'model_bbox_offset', label: '模型框偏移', count: 2, weightSum: 1.4 },
+      { code: 'category_boundary', label: '类别边界判断', count: 1, weightSum: 0.8 },
+    ],
+    eventTypes: ['relation_bbox_adjust', 'candidate_category_change'],
+    eventCount: 3,
+    changedFieldCount: 2,
+    reviewerId: 'annotator_a',
+    reviewerDisplayName: '标注员 A',
+    confirmedBy: 'qc_lead_a',
+    confirmedByDisplayName: '质检负责人 A',
+    confirmedAt: '2026-05-19T09:20:00+08:00',
+    addedAt: '2026-05-19T09:21:00+08:00',
+    status: 'active',
+    confirmedSnapshotId: 'confirmed-snapshot-sample-0001',
+    sourceEventIds: ['mod-event-1', 'mod-event-2'],
+  },
+  {
+    itemId: 'pool-sample-0002',
+    datasetId: dataset.id,
+    datasetType: dataset.datasetType,
+    batchId: dataset.id,
+    batchName: dataset.batchName,
+    sampleId: 'sample-0002',
+    category: 'nonmotor_vehicle_illegal_parking',
+    attributionTags: [{ code: 'visibility_miss', label: '可见性漏判', count: 1, weightSum: 0.6 }],
+    eventTypes: ['relation_modify'],
+    eventCount: 1,
+    changedFieldCount: 1,
+    reviewerId: 'annotator_b',
+    reviewerDisplayName: '标注员 B',
+    confirmedBy: 'qc_lead_a',
+    confirmedByDisplayName: '质检负责人 A',
+    confirmedAt: '2026-05-19T09:26:00+08:00',
+    addedAt: '2026-05-19T09:27:00+08:00',
+    status: 'active',
+    confirmedSnapshotId: 'confirmed-snapshot-sample-0002',
+    sourceEventIds: ['mod-event-3'],
+  },
+];
+
+const samplePoolStats: SamplePoolStats = {
+  totalItems: samplePoolItems.length,
+  activeItems: samplePoolItems.filter((item) => item.status === 'active').length,
+  primaryAttribution: { code: 'model_bbox_offset', label: '模型框偏移', count: 2, weightSum: 1.4 },
+  involvedBatchCount: 1,
+  recentlyAddedAt: samplePoolItems[1]?.addedAt,
+  byAttribution: [
+    { code: 'model_bbox_offset', label: '模型框偏移', count: 2, weightSum: 1.4 },
+    { code: 'category_boundary', label: '类别边界判断', count: 1, weightSum: 0.8 },
+    { code: 'visibility_miss', label: '可见性漏判', count: 1, weightSum: 0.6 },
+  ],
+  byStatus: [{ status: 'active', label: '活跃', count: samplePoolItems.length }],
+  generatedAt: '2026-05-19T09:30:00+08:00',
+};
 
 const fixtureUsers: UserAccount[] = [
   {
@@ -1227,6 +1296,35 @@ const filterAssets = (filters: AssetListFilters = {}) =>
     );
   });
 
+const filterSamplePoolItems = (filters: SamplePoolListFilters = {}) =>
+  samplePoolItems.filter((item) => {
+    const matchesDatasetType = !filters.datasetType || item.datasetType === filters.datasetType;
+    const matchesBatch = !filters.batchId || item.batchId === filters.batchId || item.datasetId === filters.batchId;
+    const matchesCategory = !filters.category || item.category === filters.category;
+    const matchesAttribution =
+      !filters.attribution || item.attributionTags.some((tag) => tag.code === filters.attribution);
+    const matchesEventType = !filters.eventType || item.eventTypes.includes(filters.eventType);
+    const matchesReviewer =
+      !filters.reviewer ||
+      item.reviewerId === filters.reviewer ||
+      item.confirmedBy === filters.reviewer ||
+      item.reviewerDisplayName === filters.reviewer ||
+      item.confirmedByDisplayName === filters.reviewer;
+    const matchesStatus = !filters.status || filters.status === 'all' || item.status === filters.status;
+    const query = filters.search?.trim().toLowerCase();
+    const matchesSearch = !query || item.sampleId.toLowerCase().includes(query) || item.itemId.toLowerCase().includes(query);
+    return (
+      matchesDatasetType &&
+      matchesBatch &&
+      matchesCategory &&
+      matchesAttribution &&
+      matchesEventType &&
+      matchesReviewer &&
+      matchesStatus &&
+      matchesSearch
+    );
+  });
+
 const labelConfigValidation = (config: LabelConfig = fixtureLabelConfig): LabelConfigValidationResult => ({
   valid: true,
   datasetId: dataset.id,
@@ -1547,6 +1645,26 @@ export const fixtureApiClient: UrbanViolationApi = {
   },
   async listDatasetBatchQcModificationEvents(batchId) {
     return this.listQcModificationEvents(batchId);
+  },
+  async listSamplePoolItems(filters) {
+    await delay();
+    return clone(filterSamplePoolItems(filters));
+  },
+  async getSamplePoolStats() {
+    await delay();
+    return clone(samplePoolStats);
+  },
+  async getSamplePoolItem(itemId) {
+    await delay();
+    const item = samplePoolItems.find((entry) => entry.itemId === itemId) ?? samplePoolItems[0];
+    const detail: SamplePoolItemDetail = {
+      ...item,
+      beforeSnapshotId: `baseline-${item.sampleId}`,
+      changedFields: ['bbox', 'violation_category'].slice(0, item.changedFieldCount),
+      events: qcModificationEvents.filter((event) => item.sourceEventIds?.includes(event.eventId)),
+      notes: '确认后自动入池',
+    };
+    return clone(detail);
   },
   async getBatchAssignment() {
     await delay();

@@ -15,6 +15,52 @@ This file now records only current project progress and recent verification cont
 
 ## Latest Completed Work
 
+### QC Closed Loop Phase 1 Main Sync
+
+- Synchronized the verified frontend/backend Phase 1 outputs from agent worktrees into the main workspace.
+- Main workspace verification passed:
+  - `PLATFORM_STATE_ROOT=/tmp/uvp-qc-loop-main uv run pytest`: 44 passed.
+  - `cd frontend && npm run test`: 61 passed.
+  - `cd frontend && npm run build`: passed.
+- Confirmed protected review workbench files have no diff.
+- Stopped main and agent stacks; service status reports stopped and checked ports were released.
+- Committed the accepted code as `c4cae28 feat: add qc closed-loop phase1`.
+- Fast-forwarded frontend, backend, and integration agent worktrees to `c4cae28` after preserving their accepted Phase 1 dirty states in stashes.
+
+### QC Closed Loop Phase 2 Dispatch
+
+- Started Phase 2: correction sample pool.
+- Backend agent is assigned to implement pool models, persistence, idempotent auto-insertion after qc_lead confirmation, and pool list/detail/stats APIs.
+- Frontend agent is assigned to add the global `修正样本池` page, navigation entry, filters, stats, table, and review entry links.
+- Integration/test agent remains queued until both implementation agents complete.
+- Backend Phase 2 implementation completed in the backend agent worktree: added correction sample pool persistence, auto-insertion after qc_lead confirmation, list/detail/stats/manual upsert/soft-delete APIs, and backend tests; reported `45 passed`.
+- Frontend Phase 2 implementation completed in the frontend agent worktree: added `/sample-pool`, AppShell navigation, filters, stats, table, API client/types, and tests; reported `67 passed` and build passing.
+- Integration/test agent is now ready to validate the combined Phase 2 frontend/backend worktree products.
+- Integration/test agent completed Phase 2 validation successfully:
+  - Backend full test suite passed: 45 tests.
+  - Backend sample-pool focused tests were rerun 5 times without failures.
+  - Frontend test suite passed: 67 tests.
+  - Frontend build passed.
+  - Agent stack launched backend `18031` and frontend `15195`.
+  - `/api/sample-pool`, `/api/sample-pool/stats`, item detail, manual upsert, and soft delete were reachable.
+  - Online flow confirmed edit -> submit -> qc_lead confirm -> sample-pool insertion.
+  - Browser screenshot smoke confirmed `/sample-pool` loads.
+  - Protected review workbench files were not modified.
+  - Services were stopped and checked ports were released.
+- Non-blocking validation notes:
+  - A temporary integration script initially assumed `relation_id` exists in stage1 relation payloads; the stable review contract uses scopes like `relation:R1`.
+  - Reusing a populated `PLATFORM_STATE_ROOT` can cause expected assignment/lease 409s because each batch has one active assignee.
+
+### QC Closed Loop Phase 2 Main Sync
+
+- Synchronized the verified Phase 2 frontend/backend outputs from agent worktrees into the main workspace.
+- Main workspace verification passed:
+  - `PLATFORM_STATE_ROOT=/tmp/uvp-sample-pool-main uv run pytest`: 45 passed.
+  - `cd frontend && npm run test`: 67 passed.
+  - `cd frontend && npm run build`: passed.
+- Confirmed protected review workbench files have no diff.
+- Stopped main and agent stacks; service status reports stopped and checked ports were released.
+
 ### QC Closed Loop Plan Adaptation
 
 - Analyzed `质检闭环整改方案.pdf` against the current dataset/QC architecture.

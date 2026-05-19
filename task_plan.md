@@ -173,27 +173,40 @@ Acceptance:
 
 ### P1 - QC Closed Loop Phase 2: Correction Sample Pool
 
+Dispatch status:
+
+- Backend agent: completed correction sample pool backend implementation in `../data_platform_backend_agent`.
+- Frontend agent: completed correction sample pool frontend implementation in `../data_platform_frontend_agent`.
+- Integration/test agent: completed combined validation after both implementation agents completed.
+
 Backend agent tasks:
 
 - Add correction sample pool item models and persistence under `PLATFORM_STATE_ROOT`.
 - Auto-create or update a pool item when a confirmed sample contains meaningful diff events.
 - Provide pool list/detail/stats APIs with filters for dataset type, batch, category, attribution tag, reviewer, and time.
+- Reuse Phase 1 confirmed snapshot and modification event outputs as the source of truth.
+- Keep pool insertion idempotent for repeated stats reads or repeated workflow checks.
 
 Frontend agent tasks:
 
 - Add a global `修正样本池` navigation entry and page.
 - Show pool filters, changed-field summary, attribution tags, source batch, and before/after review entry.
+- Keep all visible copy in Chinese and use the current tech-minimal management page style.
+- Do not modify protected sample review workbench files.
 
 Integration agent tasks:
 
 - Confirm a changed sample and assert it appears in the sample pool without manual import.
 - Verify unchanged confirmed samples do not pollute the pool unless explicitly selected.
+- Verify sample pool page reads real backend data from the agent stack.
+- Start only after frontend/backend implementation agents finish.
 
 Acceptance:
 
 - Confirmed changed samples appear in the pool using concrete batch id and confirmed snapshot id.
 - Pool APIs do not read or mutate raw `DATASET/`.
 - UI remains Chinese and uses the current tech-minimal management style.
+- Integration validation passed on agent worktree outputs and accepted changes were synchronized into main.
 
 ### P2 - QC Closed Loop Phase 3: Training Export
 

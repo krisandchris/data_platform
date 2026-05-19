@@ -6,6 +6,7 @@ import DatasetAssetsPage from '../features/datasets/DatasetAssetsPage.vue';
 import PreannotationsPage from '../features/datasets/PreannotationsPage.vue';
 import ImportJobPage from '../features/import/ImportJobPage.vue';
 import QcPage from '../features/qc/QcPage.vue';
+import SamplePoolPage from '../features/sample-pool/SamplePoolPage.vue';
 import ReviewWorkbenchPage from '../features/review-workbench/ReviewWorkbenchPage.vue';
 import UsersPage from '../features/users/UsersPage.vue';
 import AuditPage from '../features/audit/AuditPage.vue';
@@ -26,6 +27,11 @@ export const router = createRouter({
       path: '/datasets',
       name: 'datasets',
       component: DatasetsPage,
+    },
+    {
+      path: '/sample-pool',
+      name: 'sample-pool',
+      component: SamplePoolPage,
     },
     {
       path: '/datasets/:id/overview',

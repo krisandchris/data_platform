@@ -989,4 +989,114 @@ describe('HTTP API adapter', () => {
       'http://backend.test/api/datasets/urban_violation__0518_imported/qc/modification-events',
     ]);
   });
+
+  it('maps sample pool stats, list filters, and detail endpoints', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          total_items: 3,
+          active_items: 2,
+          primary_attribution: { code: 'model_bbox_offset', label: '模型框偏移', count: 2, weight_sum: 1.2 },
+          involved_batches: ['urban_violation__0508_fixture', 'urban_violation__0518_imported'],
+          recently_added_at: '2026-05-19T09:30:00Z',
+          by_attribution: [{ code: 'model_bbox_offset', label: '模型框偏移', count: 2, weight_sum: 1.2 }],
+          by_status: [{ status: 'active', label: '活跃', count: 2 }],
+          generated_at: '2026-05-19T10:00:00Z',
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          items: [
+            {
+              item_id: 'pool-1',
+              dataset_id: 'urban_violation__0508_fixture',
+              dataset_type: 'urban_violation',
+              batch_id: 'urban_violation__0508_fixture',
+              sample_id: 'sample-1',
+              category: 'goods_blocking_road',
+              attribution_tags: [{ code: 'model_bbox_offset', label: '模型框偏移', count: 2 }],
+              event_types: ['relation_bbox_adjust'],
+              event_count: 2,
+              changed_field_count: 1,
+              reviewer_id: 'annotator_a',
+              reviewer_display_name: '标注员 A',
+              confirmed_by: 'qc_lead_a',
+              confirmed_by_display_name: '质检负责人 A',
+              confirmed_at: '2026-05-19T09:20:00Z',
+              added_at: '2026-05-19T09:21:00Z',
+              status: 'active',
+              confirmed_snapshot_id: 'snap-confirmed-1',
+              source_event_ids: ['event-1'],
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          item: {
+            item_id: 'pool-1',
+            dataset_id: 'urban_violation__0508_fixture',
+            sample_id: 'sample-1',
+            event_count: 2,
+            changed_field_count: 1,
+            status: 'active',
+          },
+          before_snapshot_id: 'snap-baseline-1',
+          changed_fields: ['bbox'],
+          events: [
+            {
+              event_id: 'event-1',
+              dataset_id: 'urban_violation__0508_fixture',
+              sample_id: 'sample-1',
+              event_type: 'relation_bbox_adjust',
+              label: '关系框调整',
+            },
+          ],
+        }),
+      );
+    const api = new HttpUrbanViolationApi(new HttpClient({ baseUrl: 'http://backend.test/api', fetcher }));
+
+    const stats = await api.getSamplePoolStats();
+    const items = await api.listSamplePoolItems({
+      datasetType: 'urban_violation',
+      batchId: 'urban_violation__0508_fixture',
+      category: 'goods_blocking_road',
+      attribution: 'model_bbox_offset',
+      eventType: 'relation_bbox_adjust',
+      reviewer: 'annotator_a',
+      status: 'active',
+      search: 'sample-1',
+    });
+    const detail = await api.getSamplePoolItem('pool-1');
+
+    expect(stats).toMatchObject({
+      totalItems: 3,
+      activeItems: 2,
+      involvedBatchCount: 2,
+      primaryAttribution: { code: 'model_bbox_offset', label: '模型框偏移', count: 2, weightSum: 1.2 },
+    });
+    expect(items[0]).toMatchObject({
+      itemId: 'pool-1',
+      datasetId: 'urban_violation__0508_fixture',
+      sampleId: 'sample-1',
+      category: 'goods_blocking_road',
+      eventTypes: ['relation_bbox_adjust'],
+      changedFieldCount: 1,
+      reviewerDisplayName: '标注员 A',
+      confirmedByDisplayName: '质检负责人 A',
+      confirmedSnapshotId: 'snap-confirmed-1',
+    });
+    expect(detail).toMatchObject({
+      itemId: 'pool-1',
+      beforeSnapshotId: 'snap-baseline-1',
+      changedFields: ['bbox'],
+      events: [expect.objectContaining({ eventId: 'event-1', eventType: 'relation_bbox_adjust' })],
+    });
+    expect(fetcher.mock.calls.map((call) => call[0])).toEqual([
+      'http://backend.test/api/sample-pool/stats',
+      'http://backend.test/api/sample-pool?dataset_type=urban_violation&batch_id=urban_violation__0508_fixture&category=goods_blocking_road&attribution=model_bbox_offset&event_type=relation_bbox_adjust&reviewer=annotator_a&status=active&search=sample-1',
+      'http://backend.test/api/sample-pool/items/pool-1',
+    ]);
+  });
 });

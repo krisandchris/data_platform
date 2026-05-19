@@ -58,6 +58,14 @@ from urban_violation_backend.api_schemas import (
     QcTaskResponse,
     ReviewSubmitRequest,
     SampleLeaseResponse,
+    SamplePoolDatasetCount,
+    SamplePoolFiltersResponse,
+    SamplePoolItemDetailResponse,
+    SamplePoolItemResponse,
+    SamplePoolItemUpsertRequest,
+    SamplePoolKeyCount,
+    SamplePoolListResponse,
+    SamplePoolStatsResponse,
     SearchResponse,
     SearchResultItem,
     UserAccountCreateRequest,
@@ -105,6 +113,7 @@ from urban_violation_backend.schemas import (
     AuditEvent,
     BatchAssignmentStatus,
     BatchQcAssignment,
+    CorrectionSamplePoolItem,
     DatasetLifecycleStatus,
     HumanReview,
     ImportJob,
@@ -120,6 +129,7 @@ from urban_violation_backend.schemas import (
     RoleBinding,
     RoleScopeType,
     SampleLease,
+    SamplePoolItemStatus,
     Stage1Preannotation,
     UserAccount,
     UserRole,
@@ -947,6 +957,22 @@ class FixtureRuntimeService:
                 dataset_id=dataset_id or "",
             )
 
+    def _has_permission(
+        self,
+        *,
+        context: AuthContext,
+        action: str,
+        dataset_id: str | None = None,
+    ) -> bool:
+        dataset_type, dataset_batch = self._resolve_dataset_scope(dataset_id)
+        decision = PermissionEvaluator.has_permission(
+            bindings=context.roles,
+            action=action,
+            dataset_type=dataset_type,
+            dataset_id=dataset_batch,
+        )
+        return decision.allowed
+
     def require_permission_for_action(
         self,
         *,
@@ -1073,6 +1099,48 @@ class FixtureRuntimeService:
             operations=operations,
             created_at=submission.created_at,
         )
+
+    @staticmethod
+    def _to_sample_pool_item_response(item: CorrectionSamplePoolItem) -> SamplePoolItemResponse:
+        return SamplePoolItemResponse(
+            item_id=item.item_id,
+            dataset_id=item.dataset_id,
+            dataset_type=item.dataset_type,
+            sample_id=item.sample_id,
+            confirmed_snapshot_id=item.confirmed_snapshot_id,
+            source_submission_id=item.source_submission_id,
+            event_ids=list(item.event_ids),
+            event_count=item.event_count,
+            changed_field_count=item.changed_field_count,
+            event_types=list(item.event_types),
+            attribution_codes=list(item.attribution_codes),
+            category=item.category,
+            primary_category=item.primary_category,
+            reviewer_id=item.reviewer_id,
+            confirmed_by=item.confirmed_by,
+            confirmed_at=item.confirmed_at,
+            status=item.status,
+            created_at=item.created_at,
+            updated_at=item.updated_at,
+        )
+
+    @staticmethod
+    def _extract_categories_from_snapshot_payload(payload: dict[str, Any]) -> list[str]:
+        stage2 = payload.get("stage2", {})
+        candidates = stage2.get("candidates", [])
+        categories: set[str] = set()
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            raw = candidate.get("violation_category")
+            if isinstance(raw, list):
+                for item in raw:
+                    if isinstance(item, str) and item.strip():
+                        categories.add(item.strip())
+                continue
+            if isinstance(raw, str) and raw.strip():
+                categories.add(raw.strip())
+        return sorted(categories)
 
     @staticmethod
     def _normalize_field_name(field: str) -> str:
@@ -1602,8 +1670,99 @@ class FixtureRuntimeService:
             submission_id=submission.submission_id,
             created_at=created_at,
         )
-        inserted = self._state_store.save_modification_events(dataset_id=dataset_id, events=events)
-        return baseline_snapshot, confirmed_snapshot, inserted
+        self._state_store.save_modification_events(dataset_id=dataset_id, events=events)
+        effective_events = self._state_store.list_modification_events(
+            dataset_id,
+            sample_id=sample.sample_id,
+            submission_id=submission.submission_id,
+        )
+        return baseline_snapshot, confirmed_snapshot, effective_events
+
+    def _upsert_sample_pool_item(
+        self,
+        *,
+        dataset_id: str,
+        sample_id: str,
+        confirmed_snapshot: AnnotationSnapshot,
+        events: list[ModificationEvent],
+        source_submission_id: str | None,
+        reviewer_id: str | None,
+        confirmed_by: str | None,
+        confirmed_at: datetime,
+    ) -> CorrectionSamplePoolItem | None:
+        if not events:
+            return None
+        dataset_type = self._resolve_dataset_type(dataset_id)
+        item_key = f"{dataset_id}:{sample_id}:{confirmed_snapshot.snapshot_id}"
+        existing = self._state_store.get_sample_pool_item_by_key(item_key)
+        event_ids = [item.event_id for item in events]
+        event_types = sorted({item.event_type for item in events}, key=lambda item: item.value)
+        attribution_codes = sorted({item.attribution_code for item in events})
+        changed_field_count = len({f"{item.target_id}:{item.field}" for item in events})
+        categories = self._extract_categories_from_snapshot_payload(confirmed_snapshot.payload or {})
+        primary_category = categories[0] if categories else None
+        now = confirmed_at
+        row = CorrectionSamplePoolItem(
+            item_id=(existing.item_id if existing is not None else self._state_store.new_id("spi")),
+            item_key=item_key,
+            dataset_id=dataset_id,
+            dataset_type=dataset_type,
+            sample_id=sample_id,
+            confirmed_snapshot_id=confirmed_snapshot.snapshot_id,
+            source_submission_id=source_submission_id,
+            event_ids=event_ids,
+            event_count=len(event_ids),
+            changed_field_count=changed_field_count,
+            event_types=event_types,
+            attribution_codes=attribution_codes,
+            category=primary_category,
+            primary_category=primary_category,
+            reviewer_id=reviewer_id,
+            confirmed_by=confirmed_by,
+            confirmed_at=confirmed_at,
+            status=SamplePoolItemStatus.ACTIVE,
+            created_at=(existing.created_at if existing is not None else now),
+            updated_at=now,
+        )
+        return self._state_store.upsert_sample_pool_item(row)
+
+    def _filter_sample_pool_items(
+        self,
+        *,
+        items: list[CorrectionSamplePoolItem],
+        dataset_id: str | None = None,
+        dataset_type: str | None = None,
+        sample_id: str | None = None,
+        category: str | None = None,
+        attribution_code: str | None = None,
+        event_type: ModificationEventType | None = None,
+        reviewer_id: str | None = None,
+        status: SamplePoolItemStatus | None = None,
+    ) -> list[CorrectionSamplePoolItem]:
+        filtered = items
+        if dataset_id:
+            filtered = [item for item in filtered if item.dataset_id == dataset_id]
+        if dataset_type:
+            filtered = [item for item in filtered if item.dataset_type == dataset_type]
+        if sample_id:
+            filtered = [item for item in filtered if item.sample_id == sample_id]
+        if category:
+            filtered = [
+                item
+                for item in filtered
+                if item.category == category or item.primary_category == category
+            ]
+        if attribution_code:
+            filtered = [
+                item for item in filtered if attribution_code in item.attribution_codes
+            ]
+        if event_type:
+            filtered = [item for item in filtered if event_type in item.event_types]
+        if reviewer_id:
+            filtered = [item for item in filtered if item.reviewer_id == reviewer_id]
+        if status:
+            filtered = [item for item in filtered if item.status == status]
+        return filtered
 
     def list_annotation_snapshots(
         self,
@@ -1730,6 +1889,245 @@ class FixtureRuntimeService:
             changed_samples=changed_samples,
             generated_at=self._state_store.now(),
         )
+
+    def list_sample_pool(
+        self,
+        *,
+        context: AuthContext,
+        dataset_id: str | None = None,
+        dataset_type: str | None = None,
+        sample_id: str | None = None,
+        category: str | None = None,
+        attribution_code: str | None = None,
+        event_type: ModificationEventType | None = None,
+        reviewer_id: str | None = None,
+        status: SamplePoolItemStatus | None = None,
+    ) -> SamplePoolListResponse:
+        if dataset_id is not None:
+            self._require_dataset(dataset_id)
+            self._require_permission(context=context, action="qc_queue:read", dataset_id=dataset_id)
+        else:
+            can_read_any = any(
+                self._has_permission(context=context, action="qc_queue:read", dataset_id=item_id)
+                for item_id in self._accepted_dataset_ids
+            )
+            if not can_read_any:
+                raise forbidden(
+                    message="Insufficient permissions for this action.",
+                    action="qc_queue:read",
+                    dataset_id="",
+                )
+        if dataset_type is not None:
+            self._require_dataset_or_type(dataset_type)
+        items = [
+            item
+            for item in self._state_store.list_sample_pool_items()
+            if self._has_permission(context=context, action="qc_queue:read", dataset_id=item.dataset_id)
+        ]
+        filtered = self._filter_sample_pool_items(
+            items=items,
+            dataset_id=(self._effective_batch_dataset_id(dataset_id) if dataset_id else None),
+            dataset_type=dataset_type,
+            sample_id=sample_id,
+            category=category,
+            attribution_code=attribution_code,
+            event_type=event_type,
+            reviewer_id=reviewer_id,
+            status=status,
+        )
+        return SamplePoolListResponse(
+            items=[self._to_sample_pool_item_response(item) for item in filtered],
+            total=len(filtered),
+            filters=SamplePoolFiltersResponse(
+                dataset_id=(self._effective_batch_dataset_id(dataset_id) if dataset_id else None),
+                dataset_type=dataset_type,
+                sample_id=sample_id,
+                category=category,
+                attribution_code=attribution_code,
+                event_type=event_type,
+                reviewer_id=reviewer_id,
+                status=status,
+            ),
+            generated_at=self._state_store.now(),
+        )
+
+    def get_sample_pool_stats(self, *, context: AuthContext) -> SamplePoolStatsResponse:
+        can_read_any = any(
+            self._has_permission(context=context, action="qc_queue:read", dataset_id=item_id)
+            for item_id in self._accepted_dataset_ids
+        )
+        if not can_read_any:
+            raise forbidden(
+                message="Insufficient permissions for this action.",
+                action="qc_queue:read",
+                dataset_id="",
+            )
+        items = [
+            item
+            for item in self._state_store.list_sample_pool_items()
+            if self._has_permission(context=context, action="qc_queue:read", dataset_id=item.dataset_id)
+        ]
+        by_dataset_counter: Counter[tuple[str, str]] = Counter()
+        by_category_counter: Counter[str] = Counter()
+        by_attribution_counter: Counter[str] = Counter()
+        by_event_type_counter: Counter[str] = Counter()
+        active_items = 0
+        for item in items:
+            by_dataset_counter[(item.dataset_id, item.dataset_type)] += 1
+            if item.status == SamplePoolItemStatus.ACTIVE:
+                active_items += 1
+            if item.primary_category:
+                by_category_counter[item.primary_category] += 1
+            elif item.category:
+                by_category_counter[item.category] += 1
+            for code in item.attribution_codes:
+                by_attribution_counter[code] += 1
+            for sample_event_type in item.event_types:
+                by_event_type_counter[sample_event_type.value] += 1
+
+        by_dataset = [
+            SamplePoolDatasetCount(dataset_id=dataset_key[0], dataset_type=dataset_key[1], count=count)
+            for dataset_key, count in sorted(by_dataset_counter.items(), key=lambda row: (-row[1], row[0][0]))
+        ]
+        by_category = [
+            SamplePoolKeyCount(key=key, count=count)
+            for key, count in sorted(by_category_counter.items(), key=lambda row: (-row[1], row[0]))
+        ]
+        by_attribution = [
+            SamplePoolKeyCount(key=key, count=count)
+            for key, count in sorted(by_attribution_counter.items(), key=lambda row: (-row[1], row[0]))
+        ]
+        by_event_type = [
+            SamplePoolKeyCount(key=key, count=count)
+            for key, count in sorted(by_event_type_counter.items(), key=lambda row: (-row[1], row[0]))
+        ]
+        recent_items = [
+            self._to_sample_pool_item_response(item)
+            for item in sorted(items, key=lambda row: row.updated_at, reverse=True)[:20]
+        ]
+        return SamplePoolStatsResponse(
+            total_items=len(items),
+            active_items=active_items,
+            by_dataset=by_dataset,
+            by_category=by_category,
+            by_attribution=by_attribution,
+            by_event_type=by_event_type,
+            recent_items=recent_items,
+            generated_at=self._state_store.now(),
+        )
+
+    def get_sample_pool_item(self, item_id: str, *, context: AuthContext) -> SamplePoolItemDetailResponse:
+        item = self._state_store.get_sample_pool_item(item_id)
+        if item is None:
+            raise ApiError(status_code=404, code="not_found", message=f"Sample pool item not found: {item_id}")
+        self._require_permission(context=context, action="qc_queue:read", dataset_id=item.dataset_id)
+        events = self._state_store.list_modification_events(
+            item.dataset_id,
+            sample_id=item.sample_id,
+            submission_id=item.source_submission_id,
+        )
+        snapshots = self._state_store.list_annotation_snapshots(
+            item.dataset_id,
+            sample_id=item.sample_id,
+            snapshot_type=AnnotationSnapshotType.CONFIRMED,
+        )
+        snapshot = next((row for row in snapshots if row.snapshot_id == item.confirmed_snapshot_id), None)
+        return SamplePoolItemDetailResponse(
+            item=self._to_sample_pool_item_response(item),
+            events=[ModificationEventResponse(**row.model_dump()) for row in events],
+            snapshot=(AnnotationSnapshotResponse(**snapshot.model_dump()) if snapshot is not None else None),
+        )
+
+    def create_or_reactivate_sample_pool_item(
+        self,
+        *,
+        context: AuthContext,
+        request: SamplePoolItemUpsertRequest,
+    ) -> SamplePoolItemResponse:
+        self._require_dataset(request.dataset_id)
+        self._require_sample(request.dataset_id, request.sample_id)
+        self._require_permission(
+            context=context,
+            action="label_edit:confirm",
+            dataset_id=request.dataset_id,
+        )
+        active_dataset_id = self._effective_batch_dataset_id(request.dataset_id)
+        snapshots = self._state_store.list_annotation_snapshots(
+            active_dataset_id,
+            sample_id=request.sample_id,
+            snapshot_type=AnnotationSnapshotType.CONFIRMED,
+        )
+        if request.confirmed_snapshot_id is not None:
+            snapshots = [row for row in snapshots if row.snapshot_id == request.confirmed_snapshot_id]
+        if request.source_submission_id is not None:
+            snapshots = [row for row in snapshots if row.source_submission_id == request.source_submission_id]
+        if not snapshots:
+            raise conflict(
+                "confirmed_snapshot_required",
+                "Confirmed snapshot is required before sample can enter correction pool.",
+                dataset_id=active_dataset_id,
+                sample_id=request.sample_id,
+            )
+        confirmed_snapshot = sorted(snapshots, key=lambda row: row.created_at)[-1]
+        events = self._state_store.list_modification_events(
+            active_dataset_id,
+            sample_id=request.sample_id,
+            submission_id=(request.source_submission_id or confirmed_snapshot.source_submission_id),
+        )
+        if not events:
+            raise conflict(
+                "meaningful_event_required",
+                "Sample has no meaningful modification events.",
+                dataset_id=active_dataset_id,
+                sample_id=request.sample_id,
+            )
+        reviewer_id = events[-1].reviewer_id
+        confirmed_by = events[-1].lead_user_id or context.user_id
+        confirmed_at = confirmed_snapshot.created_at
+        stored = self._upsert_sample_pool_item(
+            dataset_id=active_dataset_id,
+            sample_id=request.sample_id,
+            confirmed_snapshot=confirmed_snapshot,
+            events=events,
+            source_submission_id=(request.source_submission_id or confirmed_snapshot.source_submission_id),
+            reviewer_id=reviewer_id,
+            confirmed_by=confirmed_by,
+            confirmed_at=confirmed_at,
+        )
+        if stored is None:
+            raise conflict(
+                "meaningful_event_required",
+                "Sample has no meaningful modification events.",
+                dataset_id=active_dataset_id,
+                sample_id=request.sample_id,
+            )
+        self._record_audit(
+            actor=context,
+            action="sample_pool.upsert",
+            entity="sample_pool_item",
+            dataset_id=active_dataset_id,
+            sample_id=request.sample_id,
+            details={"item_id": stored.item_id, "confirmed_snapshot_id": stored.confirmed_snapshot_id},
+        )
+        return self._to_sample_pool_item_response(stored)
+
+    def remove_sample_pool_item(self, item_id: str, *, context: AuthContext) -> SamplePoolItemResponse:
+        current = self._state_store.get_sample_pool_item(item_id)
+        if current is None:
+            raise ApiError(status_code=404, code="not_found", message=f"Sample pool item not found: {item_id}")
+        self._require_permission(context=context, action="label_edit:confirm", dataset_id=current.dataset_id)
+        removed = self._state_store.soft_remove_sample_pool_item(item_id, removed_at=self._state_store.now())
+        if removed is None:
+            raise ApiError(status_code=404, code="not_found", message=f"Sample pool item not found: {item_id}")
+        self._record_audit(
+            actor=context,
+            action="sample_pool.remove",
+            entity="sample_pool_item",
+            dataset_id=removed.dataset_id,
+            sample_id=removed.sample_id,
+            details={"item_id": removed.item_id},
+        )
+        return self._to_sample_pool_item_response(removed)
 
     def _active_lease_for_sample(self, dataset_id: str, sample_id: str) -> SampleLease | None:
         now = self._state_store.now()
@@ -3254,13 +3652,23 @@ class FixtureRuntimeService:
             )
         now = self._state_store.now()
         sample = self._require_sample(dataset_id, sample_id)
-        self._persist_submission_snapshots_and_events(
+        _, confirmed_snapshot, effective_events = self._persist_submission_snapshots_and_events(
             dataset_id=active_dataset_id,
             sample=sample,
             task=task,
             submission=submission,
             lead_user_id=context.user_id,
             created_at=now,
+        )
+        self._upsert_sample_pool_item(
+            dataset_id=active_dataset_id,
+            sample_id=sample_id,
+            confirmed_snapshot=confirmed_snapshot,
+            events=effective_events,
+            source_submission_id=submission.submission_id,
+            reviewer_id=submission.user_id,
+            confirmed_by=context.user_id,
+            confirmed_at=now,
         )
         updated_task = task.model_copy(
             update={

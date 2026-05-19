@@ -77,6 +77,11 @@ import type {
   RoleBindingCreatePayload,
   SampleId,
   SampleLease,
+  SamplePoolAttributionTag,
+  SamplePoolItem,
+  SamplePoolItemDetail,
+  SamplePoolListFilters,
+  SamplePoolStats,
   Stage2Candidate,
   Stage2Failure,
   StageRelation,
@@ -155,6 +160,9 @@ export interface UrbanViolationApi {
   getQcModificationEventStats(datasetId: DatasetId): Promise<QcModificationEventStats>;
   listDatasetBatchQcModificationEvents(batchId: DatasetBatchId): Promise<QcModificationEvent[]>;
   listQcModificationEvents(datasetId: DatasetId): Promise<QcModificationEvent[]>;
+  listSamplePoolItems(filters?: SamplePoolListFilters): Promise<SamplePoolItem[]>;
+  getSamplePoolStats(filters?: SamplePoolListFilters): Promise<SamplePoolStats>;
+  getSamplePoolItem(itemId: string): Promise<SamplePoolItemDetail>;
   getBatchAssignment(datasetId: DatasetId): Promise<BatchQcAssignment | undefined>;
   assignBatch(datasetId: DatasetId, payload: BatchAssignmentPayload): Promise<BatchQcAssignment>;
   reassignBatch(datasetId: DatasetId, payload: BatchAssignmentPayload): Promise<BatchQcAssignment>;
@@ -484,6 +492,21 @@ export class HttpUrbanViolationApi implements UrbanViolationApi {
     return listPayload(payload, 'events').map((item) => normalizeQcModificationEvent(item, datasetId));
   }
 
+  async listSamplePoolItems(filters: SamplePoolListFilters = {}): Promise<SamplePoolItem[]> {
+    const payload = await this.http.get<unknown>(`/sample-pool${samplePoolFilterQuery(filters)}`);
+    return listPayload(payload, 'items').map((item) => normalizeSamplePoolItem(item));
+  }
+
+  async getSamplePoolStats(filters: SamplePoolListFilters = {}): Promise<SamplePoolStats> {
+    const payload = await this.http.get<unknown>(`/sample-pool/stats${samplePoolFilterQuery(filters)}`);
+    return normalizeSamplePoolStats(payload);
+  }
+
+  async getSamplePoolItem(itemId: string): Promise<SamplePoolItemDetail> {
+    const payload = await this.http.get<unknown>(`/sample-pool/items/${encodeURIComponent(itemId)}`);
+    return normalizeSamplePoolItemDetail(payload, itemId);
+  }
+
   async getBatchAssignment(datasetId: DatasetId): Promise<BatchQcAssignment | undefined> {
     try {
       const payload = await this.http.get<unknown>(`/datasets/${encodeURIComponent(datasetId)}/qc/assignment`);
@@ -780,6 +803,28 @@ const listPayload = (payload: unknown, preferredKey: string): unknown[] => {
   }
 
   return [];
+};
+
+const samplePoolFilterQuery = (filters: SamplePoolListFilters) => {
+  const search = new URLSearchParams();
+  const queryMap: Array<[keyof SamplePoolListFilters, string]> = [
+    ['datasetType', 'dataset_type'],
+    ['batchId', 'batch_id'],
+    ['category', 'category'],
+    ['attribution', 'attribution'],
+    ['eventType', 'event_type'],
+    ['reviewer', 'reviewer'],
+    ['status', 'status'],
+    ['search', 'search'],
+  ];
+  queryMap.forEach(([key, param]) => {
+    const value = filters[key];
+    if (value && value !== 'all') {
+      search.set(param, String(value));
+    }
+  });
+  const query = search.toString();
+  return query ? `?${query}` : '';
 };
 
 const normalizeRole = (value: unknown): UserRole | undefined => {
@@ -1107,6 +1152,158 @@ const normalizeQcModificationEvent = (value: unknown, datasetId: DatasetId): QcM
     createdAt: optionalString(record.createdAt ?? record.created_at),
     details: isRecord(record.details) ? record.details : undefined,
   };
+};
+
+const normalizeSamplePoolStats = (payload: unknown): SamplePoolStats => {
+  const wrapper = isRecord(payload) ? payload : {};
+  const record = firstRecord(wrapper.stats, wrapper.summary, payload) ?? {};
+  const byAttribution = arrayValue<unknown>(record.byAttribution ?? record.by_attribution ?? record.attributions)
+    .map((item) => normalizeSamplePoolAttribution(item))
+    .filter((item) => item.code);
+  const involvedBatches = record.involvedBatches ?? record.involved_batches ?? record.batches;
+  const primaryAttributionValue = firstRecord(record.primaryAttribution, record.primary_attribution);
+  const primaryAttribution = primaryAttributionValue
+    ? normalizeSamplePoolAttribution(primaryAttributionValue)
+    : byAttribution[0];
+
+  return {
+    totalItems: numberValue(record.totalItems ?? record.total_items ?? record.total),
+    activeItems: numberValue(
+      record.activeItems ?? record.active_items ?? record.active_count,
+      numberValue(record.totalActiveItems ?? record.total_active_items),
+    ),
+    primaryAttribution,
+    involvedBatchCount: numberValue(
+      record.involvedBatchCount ?? record.involved_batch_count ?? record.batchCount ?? record.batch_count,
+      Array.isArray(involvedBatches) ? involvedBatches.length : 0,
+    ),
+    recentlyAddedAt: optionalString(
+      record.recentlyAddedAt ?? record.recently_added_at ?? record.latestAddedAt ?? record.latest_added_at,
+    ),
+    byAttribution,
+    byStatus: arrayValue<unknown>(record.byStatus ?? record.by_status).map((item) => {
+      const itemRecord = isRecord(item) ? item : {};
+      const status = stringValue(itemRecord.status ?? itemRecord.key, 'active');
+      return {
+        status,
+        label: stringValue(itemRecord.label, status),
+        count: numberValue(itemRecord.count),
+      };
+    }),
+    generatedAt: optionalString(record.generatedAt ?? record.generated_at),
+  };
+};
+
+const normalizeSamplePoolItem = (value: unknown, fallbackItemId = 'sample-pool-item'): SamplePoolItem => {
+  const wrapper = isRecord(value) ? value : {};
+  const record = firstRecord(wrapper.item, wrapper.pool_item, value) ?? {};
+  const datasetId = stringValue(
+    record.datasetId ?? record.dataset_id ?? record.batchId ?? record.batch_id ?? record.sourceBatchId ?? record.source_batch_id,
+    'unknown-dataset',
+  );
+  const sampleId = stringValue(record.sampleId ?? record.sample_id, 'unknown-sample');
+  const itemId = stringValue(record.itemId ?? record.item_id ?? record.id, `${fallbackItemId}-${sampleId}`);
+  const eventTypes = normalizeSamplePoolEventTypes(
+    record.eventTypes ?? record.event_types ?? record.modificationEventTypes ?? record.modification_event_types ?? record.events,
+  );
+  const attributionTags = normalizeSamplePoolAttributionList(
+    record.attributionTags ?? record.attribution_tags ?? record.attributions ?? record.attributionCodes ?? record.attribution_codes,
+    record.attributionCode ?? record.attribution_code,
+    record.attributionLabel ?? record.attribution_label,
+  );
+  const changedFields = normalizeStringList(record.changedFields ?? record.changed_fields);
+  const eventSource = record.events ?? record.modificationEvents ?? record.modification_events;
+
+  return {
+    itemId,
+    datasetId,
+    datasetType: optionalString(record.datasetType ?? record.dataset_type),
+    batchId: optionalString(record.batchId ?? record.batch_id ?? record.sourceBatchId ?? record.source_batch_id ?? datasetId),
+    batchName: optionalString(record.batchName ?? record.batch_name ?? record.sourceBatchName ?? record.source_batch_name),
+    sampleId,
+    category: optionalString(record.category ?? record.primaryCategory ?? record.primary_category ?? record.violation_category),
+    attributionTags,
+    eventTypes,
+    eventCount: numberValue(
+      record.eventCount ?? record.event_count,
+      Array.isArray(eventSource) ? eventSource.length : eventTypes.length,
+    ),
+    changedFieldCount: numberValue(record.changedFieldCount ?? record.changed_field_count, changedFields.length),
+    reviewerId: optionalString(record.reviewerId ?? record.reviewer_id ?? record.reviewer ?? record.annotator_id),
+    reviewerDisplayName: optionalString(record.reviewerDisplayName ?? record.reviewer_display_name ?? record.reviewer_name),
+    confirmedBy: optionalString(record.confirmedBy ?? record.confirmed_by ?? record.leadUserId ?? record.lead_user_id),
+    confirmedByDisplayName: optionalString(
+      record.confirmedByDisplayName ?? record.confirmed_by_display_name ?? record.confirmed_by_name,
+    ),
+    confirmedAt: optionalString(record.confirmedAt ?? record.confirmed_at),
+    addedAt: optionalString(record.addedAt ?? record.added_at ?? record.createdAt ?? record.created_at),
+    status: stringValue(record.status, 'active'),
+    confirmedSnapshotId: optionalString(
+      record.confirmedSnapshotId ?? record.confirmed_snapshot_id ?? record.snapshotId ?? record.snapshot_id,
+    ),
+    sourceEventIds: normalizeStringList(record.sourceEventIds ?? record.source_event_ids ?? record.eventIds ?? record.event_ids),
+  };
+};
+
+const normalizeSamplePoolItemDetail = (payload: unknown, fallbackItemId: string): SamplePoolItemDetail => {
+  const wrapper = isRecord(payload) ? payload : {};
+  const item = normalizeSamplePoolItem(firstRecord(wrapper.item, wrapper.pool_item, payload) ?? payload, fallbackItemId);
+  return {
+    ...item,
+    beforeSnapshotId: optionalString(wrapper.beforeSnapshotId ?? wrapper.before_snapshot_id),
+    confirmedSnapshotPayload: wrapper.confirmedSnapshotPayload ?? wrapper.confirmed_snapshot_payload,
+    baselineSnapshotPayload: wrapper.baselineSnapshotPayload ?? wrapper.baseline_snapshot_payload,
+    changedFields: normalizeStringList(wrapper.changedFields ?? wrapper.changed_fields),
+    events: listPayload(wrapper.events ?? wrapper.modification_events, 'events').map((event) =>
+      normalizeQcModificationEvent(event, item.datasetId),
+    ),
+    notes: optionalString(wrapper.notes),
+  };
+};
+
+const normalizeSamplePoolAttributionList = (
+  value: unknown,
+  fallbackCode?: unknown,
+  fallbackLabel?: unknown,
+): SamplePoolAttributionTag[] => {
+  const tags = Array.isArray(value)
+    ? value.map((item) => normalizeSamplePoolAttribution(item)).filter((item) => item.code)
+    : normalizeStringList(value).map((code) => normalizeSamplePoolAttribution(code));
+  if (tags.length) {
+    return tags;
+  }
+  const code = optionalString(fallbackCode);
+  return code ? [normalizeSamplePoolAttribution({ code, label: fallbackLabel })] : [];
+};
+
+const normalizeSamplePoolAttribution = (value: unknown): SamplePoolAttributionTag => {
+  if (!isRecord(value)) {
+    const code = stringValue(value, 'unknown');
+    return { code, label: code };
+  }
+  const code = stringValue(value.code ?? value.attributionCode ?? value.attribution_code ?? value.key, 'unknown');
+  return {
+    code,
+    label: stringValue(value.label ?? value.attributionLabel ?? value.attribution_label ?? value.name, code),
+    count: maybeNumber(value.count),
+    weightSum: maybeNumber(value.weightSum ?? value.weight_sum),
+  };
+};
+
+const normalizeSamplePoolEventTypes = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => {
+      if (typeof item === 'string') {
+        return [item];
+      }
+      if (isRecord(item)) {
+        const eventType = optionalString(item.eventType ?? item.event_type ?? item.type);
+        return eventType ? [eventType] : [];
+      }
+      return [];
+    });
+  }
+  return normalizeStringList(value);
 };
 
 const normalizeAssetSummary = (

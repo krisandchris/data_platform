@@ -44,6 +44,11 @@ from urban_violation_backend.api_schemas import (
     ReviewSubmitRequest,
     RoleBindingCreateRequest,
     SampleLeaseResponse,
+    SamplePoolItemDetailResponse,
+    SamplePoolItemResponse,
+    SamplePoolItemUpsertRequest,
+    SamplePoolListResponse,
+    SamplePoolStatsResponse,
     SearchResponse,
     UserAccountCreateRequest,
     UserAccountPatchRequest,
@@ -55,7 +60,13 @@ from urban_violation_backend.labels import (
     LabelSuggestionResponse,
     StoredLabelConfig,
 )
-from urban_violation_backend.schemas import AnnotationSnapshotType, HumanReview, RoleBinding
+from urban_violation_backend.schemas import (
+    AnnotationSnapshotType,
+    HumanReview,
+    ModificationEventType,
+    RoleBinding,
+    SamplePoolItemStatus,
+)
 from urban_violation_backend.service import (
     ActiveLabelConfigAccessError,
     DatasetNotFoundError,
@@ -997,6 +1008,62 @@ def build_router(service: FixtureRuntimeService) -> APIRouter:
             sample_id=sample_id,
             snapshot_type=snapshot_type,
         )
+
+    @router.get("/api/sample-pool", response_model=SamplePoolListResponse)
+    async def list_sample_pool(
+        dataset_id: str | None = Query(default=None),
+        dataset_type: str | None = Query(default=None),
+        sample_id: str | None = Query(default=None),
+        category: str | None = Query(default=None),
+        attribution_code: str | None = Query(default=None),
+        event_type: ModificationEventType | None = Query(default=None),
+        reviewer_id: str | None = Query(default=None),
+        status_filter: SamplePoolItemStatus | None = Query(default=None, alias="status"),
+        runtime: FixtureRuntimeService = Depends(get_service),
+        context=Depends(get_context),
+    ) -> SamplePoolListResponse:
+        return runtime.list_sample_pool(
+            context=context,
+            dataset_id=dataset_id,
+            dataset_type=dataset_type,
+            sample_id=sample_id,
+            category=category,
+            attribution_code=attribution_code,
+            event_type=event_type,
+            reviewer_id=reviewer_id,
+            status=status_filter,
+        )
+
+    @router.get("/api/sample-pool/stats", response_model=SamplePoolStatsResponse)
+    async def sample_pool_stats(
+        runtime: FixtureRuntimeService = Depends(get_service),
+        context=Depends(get_context),
+    ) -> SamplePoolStatsResponse:
+        return runtime.get_sample_pool_stats(context=context)
+
+    @router.get("/api/sample-pool/items/{item_id}", response_model=SamplePoolItemDetailResponse)
+    async def sample_pool_item_detail(
+        item_id: str,
+        runtime: FixtureRuntimeService = Depends(get_service),
+        context=Depends(get_context),
+    ) -> SamplePoolItemDetailResponse:
+        return runtime.get_sample_pool_item(item_id=item_id, context=context)
+
+    @router.post("/api/sample-pool/items", response_model=SamplePoolItemResponse)
+    async def upsert_sample_pool_item(
+        payload: SamplePoolItemUpsertRequest,
+        runtime: FixtureRuntimeService = Depends(get_service),
+        context=Depends(get_context),
+    ) -> SamplePoolItemResponse:
+        return runtime.create_or_reactivate_sample_pool_item(context=context, request=payload)
+
+    @router.delete("/api/sample-pool/items/{item_id}", response_model=SamplePoolItemResponse)
+    async def remove_sample_pool_item(
+        item_id: str,
+        runtime: FixtureRuntimeService = Depends(get_service),
+        context=Depends(get_context),
+    ) -> SamplePoolItemResponse:
+        return runtime.remove_sample_pool_item(item_id=item_id, context=context)
 
     @router.get("/api/datasets/{dataset_id}/search", response_model=SearchResponse)
     async def search(
