@@ -86,6 +86,9 @@ import type {
   Stage2Failure,
   StageRelation,
   StageStatus,
+  TrainingExportCreatePayload,
+  TrainingExportDownload,
+  TrainingExportJob,
   UserAccount,
   UserCreatePayload,
   UserRole,
@@ -163,6 +166,12 @@ export interface UrbanViolationApi {
   listSamplePoolItems(filters?: SamplePoolListFilters): Promise<SamplePoolItem[]>;
   getSamplePoolStats(filters?: SamplePoolListFilters): Promise<SamplePoolStats>;
   getSamplePoolItem(itemId: string): Promise<SamplePoolItemDetail>;
+  createTrainingExport(payload: TrainingExportCreatePayload): Promise<TrainingExportJob>;
+  listTrainingExports(): Promise<TrainingExportJob[]>;
+  getTrainingExport(exportId: string): Promise<TrainingExportJob>;
+  downloadTrainingExport(exportId: string): Promise<TrainingExportDownload>;
+  getTrainingExportDownloadUrl(exportId: string): string;
+  cancelTrainingExport(exportId: string): Promise<TrainingExportJob>;
   getBatchAssignment(datasetId: DatasetId): Promise<BatchQcAssignment | undefined>;
   assignBatch(datasetId: DatasetId, payload: BatchAssignmentPayload): Promise<BatchQcAssignment>;
   reassignBatch(datasetId: DatasetId, payload: BatchAssignmentPayload): Promise<BatchQcAssignment>;
@@ -507,6 +516,40 @@ export class HttpUrbanViolationApi implements UrbanViolationApi {
     return normalizeSamplePoolItemDetail(payload, itemId);
   }
 
+  async createTrainingExport(payload: TrainingExportCreatePayload): Promise<TrainingExportJob> {
+    const response = await this.http.post<unknown>('/exports', {
+      format: payload.format,
+      source: payload.source,
+      filters: samplePoolFiltersToBackend(payload.filters ?? {}),
+    });
+    return normalizeTrainingExportJob(response);
+  }
+
+  async listTrainingExports(): Promise<TrainingExportJob[]> {
+    const payload = await this.http.get<unknown>('/exports');
+    return listPayload(payload, 'exports').map((item) => normalizeTrainingExportJob(item));
+  }
+
+  async getTrainingExport(exportId: string): Promise<TrainingExportJob> {
+    const payload = await this.http.get<unknown>(`/exports/${encodeURIComponent(exportId)}`);
+    return normalizeTrainingExportJob(payload, exportId);
+  }
+
+  async downloadTrainingExport(exportId: string): Promise<TrainingExportDownload> {
+    const path = `/exports/${encodeURIComponent(exportId)}/download`;
+    const payload = await this.http.get<unknown>(path);
+    return normalizeTrainingExportDownload(payload, exportId, this.http.url(path));
+  }
+
+  getTrainingExportDownloadUrl(exportId: string): string {
+    return this.http.url(`/exports/${encodeURIComponent(exportId)}/download`);
+  }
+
+  async cancelTrainingExport(exportId: string): Promise<TrainingExportJob> {
+    const payload = await this.http.post<unknown>(`/exports/${encodeURIComponent(exportId)}/cancel`);
+    return normalizeTrainingExportJob(payload, exportId);
+  }
+
   async getBatchAssignment(datasetId: DatasetId): Promise<BatchQcAssignment | undefined> {
     try {
       const payload = await this.http.get<unknown>(`/datasets/${encodeURIComponent(datasetId)}/qc/assignment`);
@@ -806,7 +849,13 @@ const listPayload = (payload: unknown, preferredKey: string): unknown[] => {
 };
 
 const samplePoolFilterQuery = (filters: SamplePoolListFilters) => {
-  const search = new URLSearchParams();
+  const search = new URLSearchParams(samplePoolFiltersToBackend(filters));
+  const query = search.toString();
+  return query ? `?${query}` : '';
+};
+
+const samplePoolFiltersToBackend = (filters: SamplePoolListFilters) => {
+  const payload: Record<string, string> = {};
   const queryMap: Array<[keyof SamplePoolListFilters, string]> = [
     ['datasetType', 'dataset_type'],
     ['batchId', 'batch_id'],
@@ -820,11 +869,10 @@ const samplePoolFilterQuery = (filters: SamplePoolListFilters) => {
   queryMap.forEach(([key, param]) => {
     const value = filters[key];
     if (value && value !== 'all') {
-      search.set(param, String(value));
+      payload[param] = String(value);
     }
   });
-  const query = search.toString();
-  return query ? `?${query}` : '';
+  return payload;
 };
 
 const normalizeRole = (value: unknown): UserRole | undefined => {
@@ -1258,6 +1306,69 @@ const normalizeSamplePoolItemDetail = (payload: unknown, fallbackItemId: string)
       normalizeQcModificationEvent(event, item.datasetId),
     ),
     notes: optionalString(wrapper.notes),
+  };
+};
+
+const normalizeTrainingExportJob = (payload: unknown, fallbackExportId = 'training-export'): TrainingExportJob => {
+  const wrapper = isRecord(payload) ? payload : {};
+  const record = firstRecord(wrapper.export, wrapper.export_job, wrapper.job, payload) ?? {};
+  const exportId = stringValue(
+    record.exportId ?? record.export_id ?? record.id ?? record.jobId ?? record.job_id,
+    fallbackExportId,
+  );
+  const filters = normalizeSamplePoolListFilters(
+    record.filters ?? record.sourceFilters ?? record.source_filters ?? record.filter,
+  );
+  const errorValue = record.error ?? record.errorMessage ?? record.error_message ?? record.failureReason ?? record.failure_reason;
+
+  return {
+    exportId,
+    format: stringValue(record.format ?? record.exportFormat ?? record.export_format, 'coco_json'),
+    source: stringValue(record.source ?? record.sourceScope ?? record.source_scope ?? record.poolSource ?? record.pool_source, 'current_filters'),
+    filters,
+    filterSummary: optionalString(record.filterSummary ?? record.filter_summary ?? record.filtersSummary ?? record.filters_summary),
+    sampleCount: maybeNumber(
+      record.sampleCount ??
+        record.sample_count ??
+        record.itemCount ??
+        record.item_count ??
+        record.totalItems ??
+        record.total_items,
+    ),
+    status: stringValue(record.status ?? record.state, 'pending'),
+    createdAt: optionalString(record.createdAt ?? record.created_at),
+    completedAt: optionalString(record.completedAt ?? record.completed_at ?? record.finishedAt ?? record.finished_at),
+    error: typeof errorValue === 'string' && errorValue ? errorValue : undefined,
+    downloadUrl: optionalString(record.downloadUrl ?? record.download_url ?? record.artifactUrl ?? record.artifact_url),
+  };
+};
+
+const normalizeTrainingExportDownload = (
+  payload: unknown,
+  exportId: string,
+  fallbackUrl: string,
+): TrainingExportDownload => {
+  const record = firstRecord(payload) ?? {};
+  const url = stringValue(record.downloadUrl ?? record.download_url ?? record.url, fallbackUrl);
+  return {
+    exportId: stringValue(record.exportId ?? record.export_id ?? record.id, exportId),
+    url,
+    fileName: optionalString(record.fileName ?? record.file_name ?? record.filename),
+    content: isRecord(payload) ? undefined : payload,
+  };
+};
+
+const normalizeSamplePoolListFilters = (value: unknown): SamplePoolListFilters => {
+  const record = isRecord(value) ? value : {};
+  return {
+    datasetType: optionalString(record.datasetType ?? record.dataset_type),
+    batchId: optionalString(record.batchId ?? record.batch_id),
+    category: optionalString(record.category),
+    attribution: optionalString(record.attribution ?? record.attributionCode ?? record.attribution_code),
+    eventType: optionalString(record.eventType ?? record.event_type),
+    reviewer: optionalString(record.reviewer ?? record.reviewerId ?? record.reviewer_id),
+    status: optionalString(record.status),
+    search: optionalString(record.search),
   };
 };
 

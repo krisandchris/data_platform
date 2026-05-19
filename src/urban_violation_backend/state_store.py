@@ -15,6 +15,7 @@ from urban_violation_backend.schemas import (
     AuthSession,
     BatchQcAssignment,
     CorrectionSamplePoolItem,
+    ExportJob,
     LabelEditDraft,
     LabelEditSubmission,
     ModificationEvent,
@@ -88,6 +89,17 @@ class PlatformStateStore:
 
     def _sample_pool_items_path(self) -> Path:
         return self._sample_pool_dir() / "items.json"
+
+    def _exports_dir(self) -> Path:
+        return self.root / "exports"
+
+    def _export_jobs_path(self) -> Path:
+        return self._exports_dir() / "jobs.json"
+
+    def export_artifacts_dir(self) -> Path:
+        path = self._exports_dir() / "artifacts"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
 
     def list_users(self) -> list[UserAccount]:
         payload = self._read_json(self.users_path, default=[])
@@ -287,6 +299,36 @@ class PlatformStateStore:
             [row.model_dump(mode="json") for row in updated],
         )
         return removed_item
+
+    def list_export_jobs(self) -> list[ExportJob]:
+        payload = self._read_json(self._export_jobs_path(), default=[])
+        items = [ExportJob.model_validate(item) for item in payload]
+        items.sort(key=lambda item: (item.created_at, item.export_id), reverse=True)
+        return items
+
+    def get_export_job(self, export_id: str) -> ExportJob | None:
+        for job in self.list_export_jobs():
+            if job.export_id == export_id:
+                return job
+        return None
+
+    def save_export_job(self, job: ExportJob) -> ExportJob:
+        jobs = self.list_export_jobs()
+        updated: list[ExportJob] = []
+        replaced = False
+        for existing in jobs:
+            if existing.export_id == job.export_id:
+                updated.append(job)
+                replaced = True
+                continue
+            updated.append(existing)
+        if not replaced:
+            updated.append(job)
+        self._write_json(
+            self._export_jobs_path(),
+            [row.model_dump(mode="json") for row in updated],
+        )
+        return job
 
     def get_assignment(self, dataset_id: str) -> BatchQcAssignment | None:
         payload = self._read_json(self._assignment_path(dataset_id), default=None)

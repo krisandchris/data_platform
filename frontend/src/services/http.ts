@@ -77,8 +77,12 @@ export class HttpClient {
     return this.request<T>(path, { ...init, method: 'DELETE' });
   }
 
+  url(path: string): string {
+    return joinUrl(this.baseUrl, path);
+  }
+
   private async request<T>(path: string, init: RequestInit): Promise<T> {
-    const response = await this.fetcher(joinUrl(this.baseUrl, path), {
+    const response = await this.fetcher(this.url(path), {
       ...init,
       credentials: init.credentials ?? 'include',
       headers: {

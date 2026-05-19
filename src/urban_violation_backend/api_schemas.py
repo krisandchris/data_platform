@@ -12,6 +12,10 @@ from urban_violation_backend.schemas import (
     AnnotationSnapshotType,
     BatchAssignmentStatus,
     DatasetLifecycleStatus,
+    ExportFormat,
+    ExportJobStatus,
+    ExportSourceFilters,
+    ExportSourceType,
     HumanReview,
     LeaseStatus,
     ModificationEventType,
@@ -815,6 +819,52 @@ class SearchResponse(StrictModel):
     query: str
     total: int = Field(ge=0)
     items: list[SearchResultItem] = Field(default_factory=list)
+
+
+class ExportJobCreateRequest(StrictModel):
+    """Create one export job from a supported source."""
+
+    format: ExportFormat
+    source_type: ExportSourceType
+    filters: ExportSourceFilters = Field(default_factory=ExportSourceFilters)
+
+
+class ExportJobResponse(StrictModel):
+    """Export job response payload."""
+
+    export_id: str
+    format: ExportFormat
+    source_type: ExportSourceType
+    filters: ExportSourceFilters = Field(default_factory=ExportSourceFilters)
+    status: ExportJobStatus
+    item_count: int = Field(default=0, ge=0)
+    artifact_path: str | None = None
+    artifact_name: str | None = None
+    artifact_size: int | None = Field(default=None, ge=0)
+    artifact_content_type: str | None = None
+    created_by: str
+    created_at: datetime
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    cancelled_at: datetime | None = None
+    error_message: str | None = None
+
+
+class ExportJobListFiltersResponse(StrictModel):
+    """Echo of applied export-job list filters."""
+
+    status: ExportJobStatus | None = None
+    source_type: ExportSourceType | None = None
+    format: ExportFormat | None = None
+
+
+class ExportJobListResponse(StrictModel):
+    """Export job listing response."""
+
+    items: list[ExportJobResponse] = Field(default_factory=list)
+    total: int = Field(default=0, ge=0)
+    filters: ExportJobListFiltersResponse = Field(default_factory=ExportJobListFiltersResponse)
+    generated_at: datetime
 
 
 class ExportRequest(StrictModel):

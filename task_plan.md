@@ -210,25 +210,39 @@ Acceptance:
 
 ### P2 - QC Closed Loop Phase 3: Training Export
 
+Dispatch status:
+
+- Backend agent: completed training export backend implementation in `../data_platform_backend_agent`.
+- Frontend agent: completed training export frontend implementation in `../data_platform_frontend_agent`.
+- Integration/test agent: completed combined validation after both implementation agents completed.
+
 Backend agent tasks:
 
 - Add export job models, retention metadata, and generated artifact paths under `PLATFORM_STATE_ROOT`.
 - Implement COCO JSON export from correction pool filters first.
 - Add VOC XML and custom JSON only after COCO passes validation.
+- Use correction sample pool confirmed snapshots as the export source of truth.
+- Keep generated artifacts under `PLATFORM_STATE_ROOT`, not `DATASET/`.
+- Provide export list/detail/download/cancel APIs without breaking existing export routes.
 
 Frontend agent tasks:
 
 - Add export creation and export task management surfaces under sample-pool workflow.
 - Show status, source filter, format, item count, error, and download action.
+- Keep this as sample-pool export management; do not add model evaluation UI in this phase.
+- Keep all visible copy in Chinese and preserve current management-page style.
 
 Integration agent tasks:
 
 - Create a pool-filtered COCO export and validate that the generated JSON can be parsed and contains expected images/annotations/categories.
+- Verify the frontend export UI can create/read/download export jobs against backend APIs.
+- Start only after frontend/backend implementation agents finish.
 
 Acceptance:
 
 - Export output is generated from confirmed snapshots, not from unconfirmed drafts.
 - Export jobs can be listed, inspected, downloaded, and failed/cancelled without breaking existing export routes.
+- Integration validation passed on agent worktree outputs and accepted changes were synchronized into main.
 
 ### P2 - QC Closed Loop Phase 4: Evaluation And Version Governance
 

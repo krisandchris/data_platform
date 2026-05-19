@@ -18,6 +18,9 @@ from urban_violation_backend.api_schemas import (
     DatasetTypeCreateRequest,
     DatasetTypeResponse,
     DatasetSummaryResponse,
+    ExportJobCreateRequest,
+    ExportJobListResponse,
+    ExportJobResponse,
     ErrorResponse,
     ExportRequest,
     ExportResponse,
@@ -62,6 +65,9 @@ from urban_violation_backend.labels import (
 )
 from urban_violation_backend.schemas import (
     AnnotationSnapshotType,
+    ExportFormat,
+    ExportJobStatus,
+    ExportSourceType,
     HumanReview,
     ModificationEventType,
     RoleBinding,
@@ -1075,6 +1081,58 @@ def build_router(service: FixtureRuntimeService) -> APIRouter:
             return runtime.search(dataset_id=dataset_id, query=q)
         except DatasetNotFoundError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    @router.post("/api/exports", response_model=ExportJobResponse)
+    async def create_export_job(
+        payload: ExportJobCreateRequest,
+        runtime: FixtureRuntimeService = Depends(get_service),
+        context=Depends(get_context),
+    ) -> ExportJobResponse:
+        return runtime.create_export_job(context=context, request=payload)
+
+    @router.get("/api/exports", response_model=ExportJobListResponse)
+    async def list_export_jobs(
+        status_filter: ExportJobStatus | None = Query(default=None, alias="status"),
+        source_type: ExportSourceType | None = Query(default=None),
+        format: ExportFormat | None = Query(default=None),
+        runtime: FixtureRuntimeService = Depends(get_service),
+        context=Depends(get_context),
+    ) -> ExportJobListResponse:
+        return runtime.list_export_jobs(
+            context=context,
+            status=status_filter,
+            source_type=source_type,
+            format=format,
+        )
+
+    @router.get("/api/exports/{export_id}", response_model=ExportJobResponse)
+    async def export_job_detail(
+        export_id: str,
+        runtime: FixtureRuntimeService = Depends(get_service),
+        context=Depends(get_context),
+    ) -> ExportJobResponse:
+        return runtime.get_export_job(export_id=export_id, context=context)
+
+    @router.get("/api/exports/{export_id}/download")
+    async def export_job_download(
+        export_id: str,
+        runtime: FixtureRuntimeService = Depends(get_service),
+        context=Depends(get_context),
+    ) -> FileResponse:
+        job, file_path = runtime.resolve_export_download(export_id=export_id, context=context)
+        return FileResponse(
+            file_path,
+            media_type=job.artifact_content_type or "application/octet-stream",
+            filename=(job.artifact_name or f"{export_id}.json"),
+        )
+
+    @router.post("/api/exports/{export_id}/cancel", response_model=ExportJobResponse)
+    async def cancel_export_job(
+        export_id: str,
+        runtime: FixtureRuntimeService = Depends(get_service),
+        context=Depends(get_context),
+    ) -> ExportJobResponse:
+        return runtime.cancel_export_job(export_id=export_id, context=context)
 
     @router.post("/api/datasets/{dataset_id}/exports", response_model=ExportResponse)
     async def create_export(

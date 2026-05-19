@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import mimetypes
 import os
 from pathlib import Path
 import re
@@ -33,6 +34,10 @@ from urban_violation_backend.api_schemas import (
     DatasetTypeCreateRequest,
     DatasetTypeResponse,
     DatasetSummaryResponse,
+    ExportJobCreateRequest,
+    ExportJobListResponse,
+    ExportJobListFiltersResponse,
+    ExportJobResponse,
     ExportResponse,
     ImportJobCreateRequest,
     ImportMappingStep,
@@ -115,6 +120,11 @@ from urban_violation_backend.schemas import (
     BatchQcAssignment,
     CorrectionSamplePoolItem,
     DatasetLifecycleStatus,
+    ExportFormat,
+    ExportJob,
+    ExportJobStatus,
+    ExportSourceFilters,
+    ExportSourceType,
     HumanReview,
     ImportJob,
     ImportJobState,
@@ -2128,6 +2138,479 @@ class FixtureRuntimeService:
             details={"item_id": removed.item_id},
         )
         return self._to_sample_pool_item_response(removed)
+
+    @staticmethod
+    def _to_export_job_response(job: ExportJob) -> ExportJobResponse:
+        return ExportJobResponse(
+            export_id=job.export_id,
+            format=job.format,
+            source_type=job.source_type,
+            filters=job.filters,
+            status=job.status,
+            item_count=job.item_count,
+            artifact_path=job.artifact_path,
+            artifact_name=job.artifact_name,
+            artifact_size=job.artifact_size,
+            artifact_content_type=job.artifact_content_type,
+            created_by=job.created_by,
+            created_at=job.created_at,
+            started_at=job.started_at,
+            completed_at=job.completed_at,
+            cancelled_at=job.cancelled_at,
+            error_message=job.error_message,
+        )
+
+    def _require_export_read_permission(
+        self,
+        *,
+        context: AuthContext,
+        dataset_id: str | None = None,
+    ) -> None:
+        if dataset_id is not None:
+            self._require_dataset(dataset_id)
+            self._require_permission(context=context, action="qc_queue:read", dataset_id=dataset_id)
+            return
+        can_read_any = any(
+            self._has_permission(context=context, action="qc_queue:read", dataset_id=item_id)
+            for item_id in self._accepted_dataset_ids
+        )
+        if not can_read_any:
+            raise forbidden(
+                message="Insufficient permissions for this action.",
+                action="qc_queue:read",
+                dataset_id="",
+            )
+
+    def _list_label_categories(self, dataset_type: str) -> list[str]:
+        try:
+            active = self._label_config_repo.get_active(dataset_id=dataset_type)
+        except ActiveLabelConfigNotFoundError:
+            return []
+        options: set[str] = set()
+        fields = active.config.get("fields", []) if isinstance(active.config, dict) else []
+        for field in fields:
+            if not isinstance(field, dict):
+                continue
+            field_name = field.get("field")
+            if field_name not in {"violation_category", "category"}:
+                continue
+            raw_options = field.get("options", [])
+            if not isinstance(raw_options, list):
+                continue
+            for option in raw_options:
+                if isinstance(option, str) and option.strip():
+                    options.add(option.strip())
+                    continue
+                if not isinstance(option, dict):
+                    continue
+                code = option.get("code")
+                label = option.get("label")
+                if isinstance(code, str) and code.strip():
+                    options.add(code.strip())
+                elif isinstance(label, str) and label.strip():
+                    options.add(label.strip())
+        return sorted(options)
+
+    def _export_source_items(
+        self,
+        *,
+        context: AuthContext,
+        source_type: ExportSourceType,
+        filters: ExportSourceFilters,
+    ) -> list[CorrectionSamplePoolItem]:
+        if source_type != ExportSourceType.CORRECTION_SAMPLE_POOL:
+            raise ApiError(
+                status_code=400,
+                code="unsupported_export_source",
+                message=f"Unsupported export source: {source_type.value}",
+            )
+        if filters.dataset_type is not None:
+            self._require_dataset_or_type(filters.dataset_type)
+        target_dataset_id = (
+            self._effective_batch_dataset_id(filters.dataset_id)
+            if filters.dataset_id
+            else None
+        )
+        self._require_export_read_permission(context=context, dataset_id=target_dataset_id)
+        readable_items = [
+            item
+            for item in self._state_store.list_sample_pool_items()
+            if self._has_permission(context=context, action="qc_queue:read", dataset_id=item.dataset_id)
+        ]
+        filtered = self._filter_sample_pool_items(
+            items=readable_items,
+            dataset_id=target_dataset_id,
+            dataset_type=filters.dataset_type,
+            category=filters.category,
+            attribution_code=filters.attribution_code,
+            event_type=filters.event_type,
+            reviewer_id=filters.reviewer,
+            status=filters.status,
+        )
+        active_only = [item for item in filtered if item.status == SamplePoolItemStatus.ACTIVE]
+        if filters.search:
+            keyword = filters.search.strip().lower()
+            if keyword:
+                active_only = [
+                    item
+                    for item in active_only
+                    if keyword in item.sample_id.lower()
+                    or keyword in (item.primary_category or "").lower()
+                    or keyword in (item.category or "").lower()
+                    or any(keyword in code.lower() for code in item.attribution_codes)
+                    or any(keyword in event_type.value.lower() for event_type in item.event_types)
+                ]
+        return sorted(active_only, key=lambda item: item.updated_at, reverse=True)
+
+    def _build_coco_payload(
+        self,
+        *,
+        export_id: str,
+        items: list[CorrectionSamplePoolItem],
+    ) -> dict[str, Any]:
+        images: list[dict[str, Any]] = []
+        raw_annotations: list[dict[str, Any]] = []
+        image_id_by_key: dict[str, int] = {}
+        category_names: set[str] = set()
+
+        for item in items:
+            sample = self._require_sample(item.dataset_id, item.sample_id)
+            snapshots = self._state_store.list_annotation_snapshots(
+                item.dataset_id,
+                sample_id=item.sample_id,
+                snapshot_type=AnnotationSnapshotType.CONFIRMED,
+            )
+            snapshot = next((row for row in snapshots if row.snapshot_id == item.confirmed_snapshot_id), None)
+            if snapshot is None or snapshot.payload is None:
+                raise conflict(
+                    code="confirmed_snapshot_missing",
+                    message="Confirmed snapshot missing for export item.",
+                    item_id=item.item_id,
+                    dataset_id=item.dataset_id,
+                    sample_id=item.sample_id,
+                )
+
+            image_key = f"{item.dataset_id}:{item.sample_id}"
+            image_id = image_id_by_key.get(image_key)
+            if image_id is None:
+                image_id = len(image_id_by_key) + 1
+                image_id_by_key[image_key] = image_id
+                images.append(
+                    {
+                        "id": image_id,
+                        "file_name": Path(sample.raw_asset.image_url).name or f"{sample.sample_id}.jpg",
+                        "width": sample.raw_asset.width if sample.raw_asset.width > 0 else 0,
+                        "height": sample.raw_asset.height if sample.raw_asset.height > 0 else 0,
+                    }
+                )
+
+            stage1 = snapshot.payload.get("stage1", {})
+            stage2 = snapshot.payload.get("stage2", {})
+            relations = stage1.get("key_relations", []) if isinstance(stage1, dict) else []
+            verifications = stage2.get("fact_verifications", []) if isinstance(stage2, dict) else []
+            candidates = stage2.get("candidates", []) if isinstance(stage2, dict) else []
+
+            relation_bbox_by_id: dict[str, list[float]] = {}
+            for relation in relations:
+                if not isinstance(relation, dict):
+                    continue
+                relation_id = relation.get("id")
+                bbox = relation.get("bbox")
+                if isinstance(relation_id, str) and isinstance(bbox, list) and len(bbox) == 4:
+                    relation_bbox_by_id[relation_id] = bbox
+            for verification in verifications:
+                if not isinstance(verification, dict):
+                    continue
+                relation_id = verification.get("id")
+                bbox = verification.get("bbox")
+                if (
+                    isinstance(relation_id, str)
+                    and relation_id not in relation_bbox_by_id
+                    and isinstance(bbox, list)
+                    and len(bbox) == 4
+                ):
+                    relation_bbox_by_id[relation_id] = bbox
+
+            for candidate in candidates:
+                if not isinstance(candidate, dict):
+                    continue
+                categories_raw = candidate.get("violation_category")
+                if isinstance(categories_raw, list):
+                    candidate_categories = [item for item in categories_raw if isinstance(item, str) and item.strip()]
+                elif isinstance(categories_raw, str) and categories_raw.strip():
+                    candidate_categories = [categories_raw.strip()]
+                else:
+                    candidate_categories = []
+                if not candidate_categories:
+                    continue
+                category_names.update(candidate_categories)
+
+                evidence_indices = candidate.get("evidence_relation_indices")
+                relation_ids: list[str] = []
+                if isinstance(evidence_indices, list):
+                    for relation_index in evidence_indices:
+                        if isinstance(relation_index, int):
+                            relation_ids.append(f"R{relation_index}")
+                        elif isinstance(relation_index, str) and relation_index.strip():
+                            cleaned = relation_index.strip()
+                            relation_ids.append(cleaned if cleaned.startswith("R") else f"R{cleaned}")
+
+                for category_name in candidate_categories:
+                    for relation_id in relation_ids:
+                        bbox_raw = relation_bbox_by_id.get(relation_id)
+                        if not isinstance(bbox_raw, list) or len(bbox_raw) != 4:
+                            continue
+                        try:
+                            x_min = float(bbox_raw[0])
+                            y_min = float(bbox_raw[1])
+                            x_max = float(bbox_raw[2])
+                            y_max = float(bbox_raw[3])
+                        except (TypeError, ValueError):
+                            continue
+                        width = max(0.0, x_max - x_min)
+                        height = max(0.0, y_max - y_min)
+                        if width <= 0.0 or height <= 0.0:
+                            continue
+                        raw_annotations.append(
+                            {
+                                "image_id": image_id,
+                                "category_name": category_name,
+                                "bbox": [x_min, y_min, width, height],
+                                "area": width * height,
+                                "iscrowd": 0,
+                            }
+                        )
+
+        if not category_names and items:
+            fallback_categories: set[str] = set()
+            for item in items:
+                fallback_categories.update(self._list_label_categories(item.dataset_type))
+            category_names = fallback_categories
+
+        categories = [
+            {"id": index + 1, "name": name, "supercategory": "violation"}
+            for index, name in enumerate(sorted(category_names))
+        ]
+        category_id_by_name = {item["name"]: item["id"] for item in categories}
+        annotations: list[dict[str, Any]] = []
+        for index, item in enumerate(raw_annotations, start=1):
+            category_id = category_id_by_name.get(item["category_name"])
+            if category_id is None:
+                continue
+            annotations.append(
+                {
+                    "id": index,
+                    "image_id": item["image_id"],
+                    "category_id": category_id,
+                    "bbox": item["bbox"],
+                    "area": item["area"],
+                    "iscrowd": item["iscrowd"],
+                }
+            )
+
+        return {
+            "info": {
+                "description": "Urban Violation QC correction export",
+                "version": "phase3",
+                "export_id": export_id,
+                "coordinate_space": "quantized_1000",
+                "bbox_format": "xywh",
+                "generated_at": self._state_store.now().isoformat(),
+            },
+            "images": images,
+            "annotations": annotations,
+            "categories": categories,
+        }
+
+    def create_export_job(
+        self,
+        *,
+        context: AuthContext,
+        request: ExportJobCreateRequest,
+    ) -> ExportJobResponse:
+        now = self._state_store.now()
+        export_id = self._state_store.new_id("exp")
+        job = ExportJob(
+            export_id=export_id,
+            format=request.format,
+            source_type=request.source_type,
+            filters=request.filters,
+            status=ExportJobStatus.QUEUED,
+            item_count=0,
+            artifact_path=None,
+            artifact_name=None,
+            artifact_size=None,
+            artifact_content_type=None,
+            created_by=context.user_id,
+            created_at=now,
+            started_at=None,
+            completed_at=None,
+            cancelled_at=None,
+            error_message=None,
+        )
+        self._state_store.save_export_job(job)
+        try:
+            source_items = self._export_source_items(
+                context=context,
+                source_type=request.source_type,
+                filters=request.filters,
+            )
+            if not source_items:
+                raise conflict(
+                    code="export_source_empty",
+                    message="No active correction sample pool items matched filters.",
+                )
+            running = job.model_copy(update={"status": ExportJobStatus.RUNNING, "started_at": self._state_store.now()})
+            self._state_store.save_export_job(running)
+
+            if request.format != ExportFormat.COCO_JSON:
+                raise ApiError(
+                    status_code=400,
+                    code="unsupported_export_format",
+                    message=f"Unsupported export format: {request.format.value}",
+                )
+            payload = self._build_coco_payload(export_id=export_id, items=source_items)
+            artifact_name = f"{export_id}.coco.json"
+            artifact_full_path = self._state_store.export_artifacts_dir() / artifact_name
+            artifact_full_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+            artifact_size = artifact_full_path.stat().st_size
+            completed_at = self._state_store.now()
+            completed = running.model_copy(
+                update={
+                    "status": ExportJobStatus.COMPLETED,
+                    "item_count": len(source_items),
+                    "artifact_path": f"exports/artifacts/{artifact_name}",
+                    "artifact_name": artifact_name,
+                    "artifact_size": artifact_size,
+                    "artifact_content_type": (
+                        mimetypes.guess_type(artifact_name)[0] or "application/json"
+                    ),
+                    "completed_at": completed_at,
+                }
+            )
+            self._state_store.save_export_job(completed)
+            return self._to_export_job_response(completed)
+        except ApiError as exc:
+            failed = job.model_copy(
+                update={
+                    "status": ExportJobStatus.FAILED,
+                    "completed_at": self._state_store.now(),
+                    "error_message": exc.message,
+                }
+            )
+            self._state_store.save_export_job(failed)
+            raise
+        except Exception as exc:
+            failed = job.model_copy(
+                update={
+                    "status": ExportJobStatus.FAILED,
+                    "completed_at": self._state_store.now(),
+                    "error_message": str(exc),
+                }
+            )
+            self._state_store.save_export_job(failed)
+            raise ApiError(
+                status_code=500,
+                code="export_failed",
+                message="Export job failed unexpectedly.",
+                details={"export_id": export_id},
+            ) from exc
+
+    def list_export_jobs(
+        self,
+        *,
+        context: AuthContext,
+        status: ExportJobStatus | None = None,
+        source_type: ExportSourceType | None = None,
+        format: ExportFormat | None = None,
+    ) -> ExportJobListResponse:
+        self._require_export_read_permission(context=context)
+        jobs = self._state_store.list_export_jobs()
+        visible: list[ExportJob] = []
+        for job in jobs:
+            dataset_id = (
+                self._effective_batch_dataset_id(job.filters.dataset_id)
+                if job.filters.dataset_id
+                else None
+            )
+            if dataset_id is not None and not self._has_permission(
+                context=context, action="qc_queue:read", dataset_id=dataset_id
+            ):
+                continue
+            if status is not None and job.status != status:
+                continue
+            if source_type is not None and job.source_type != source_type:
+                continue
+            if format is not None and job.format != format:
+                continue
+            visible.append(job)
+        return ExportJobListResponse(
+            items=[self._to_export_job_response(job) for job in visible],
+            total=len(visible),
+            filters=ExportJobListFiltersResponse(
+                status=status,
+                source_type=source_type,
+                format=format,
+            ),
+            generated_at=self._state_store.now(),
+        )
+
+    def get_export_job(self, export_id: str, *, context: AuthContext) -> ExportJobResponse:
+        job = self._state_store.get_export_job(export_id)
+        if job is None:
+            raise ApiError(status_code=404, code="not_found", message=f"Export job not found: {export_id}")
+        dataset_id = self._effective_batch_dataset_id(job.filters.dataset_id) if job.filters.dataset_id else None
+        self._require_export_read_permission(context=context, dataset_id=dataset_id)
+        return self._to_export_job_response(job)
+
+    def cancel_export_job(self, export_id: str, *, context: AuthContext) -> ExportJobResponse:
+        job = self._state_store.get_export_job(export_id)
+        if job is None:
+            raise ApiError(status_code=404, code="not_found", message=f"Export job not found: {export_id}")
+        dataset_id = self._effective_batch_dataset_id(job.filters.dataset_id) if job.filters.dataset_id else None
+        self._require_export_read_permission(context=context, dataset_id=dataset_id)
+        if job.status in {ExportJobStatus.COMPLETED, ExportJobStatus.FAILED}:
+            raise conflict(
+                code="export_not_cancellable",
+                message=f"Export job in status `{job.status.value}` cannot be cancelled.",
+                export_id=export_id,
+                status=job.status.value,
+            )
+        if job.status == ExportJobStatus.CANCELLED:
+            return self._to_export_job_response(job)
+        cancelled = job.model_copy(
+            update={
+                "status": ExportJobStatus.CANCELLED,
+                "cancelled_at": self._state_store.now(),
+            }
+        )
+        self._state_store.save_export_job(cancelled)
+        return self._to_export_job_response(cancelled)
+
+    def resolve_export_download(self, export_id: str, *, context: AuthContext) -> tuple[ExportJobResponse, Path]:
+        job = self._state_store.get_export_job(export_id)
+        if job is None:
+            raise ApiError(status_code=404, code="not_found", message=f"Export job not found: {export_id}")
+        dataset_id = self._effective_batch_dataset_id(job.filters.dataset_id) if job.filters.dataset_id else None
+        self._require_export_read_permission(context=context, dataset_id=dataset_id)
+        if not job.artifact_path:
+            raise conflict(
+                code="export_artifact_unavailable",
+                message="Export artifact is not available yet.",
+                export_id=export_id,
+                status=job.status.value,
+            )
+        artifact_path = self._platform_state_root / job.artifact_path
+        resolved = artifact_path.resolve(strict=False)
+        exports_root = (self._platform_state_root / "exports").resolve(strict=True)
+        if exports_root not in resolved.parents:
+            raise ApiError(status_code=404, code="not_found", message="Export artifact path is invalid.")
+        if not resolved.is_file():
+            raise ApiError(status_code=404, code="not_found", message="Export artifact file not found.")
+        return self._to_export_job_response(job), resolved
 
     def _active_lease_for_sample(self, dataset_id: str, sample_id: str) -> SampleLease | None:
         now = self._state_store.now()

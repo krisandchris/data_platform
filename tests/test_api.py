@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 from typing import Any
@@ -156,6 +157,76 @@ def _acquire_lease(
     )
     assert response.status_code == 200
     return response.json()["lease"]["lease_id"]
+
+
+def _submit_and_confirm_changed_sample(
+    client: TestClient,
+    *,
+    sample_id: str = MULTI_CANDIDATE_SAMPLE_ID,
+) -> tuple[str, dict[str, Any]]:
+    """Create one meaningful change and return submission id + active pool item."""
+    _activate_label_config(client)
+    _create_user(client, "annotator_a", role="annotator")
+    _create_user(client, "qc_lead_a", role="qc_lead")
+    _assign_batch(client, "annotator_a", dataset_id=BATCH_DATASET_ID)
+    lease_id = _acquire_lease(
+        client,
+        "annotator_a",
+        sample_id=sample_id,
+        dataset_id=BATCH_DATASET_ID,
+    )
+
+    detail_response = client.get(
+        f"/api/datasets/{BATCH_DATASET_ID}/samples/{sample_id}/review",
+        headers=_admin_headers(),
+    )
+    assert detail_response.status_code == 200
+    relation_before = detail_response.json()["stage1"]["key_relations"][0]
+
+    submit = client.post(
+        f"/api/datasets/{BATCH_DATASET_ID}/samples/{sample_id}/label-edits",
+        json={
+            "task_mode": "label_edit",
+            "submit_action": "submit_changes",
+            "task_status": "annotation_submitted",
+            "lease_id": lease_id,
+            "base_revision": 0,
+            "operations": [
+                {
+                    "scope": "relation:R1",
+                    "field": "description",
+                    "op": "replace",
+                    "before": relation_before["description"],
+                    "after": f"{relation_before['description']}#phase3",
+                }
+            ],
+        },
+        headers=_user_headers("annotator_a", "annotator"),
+    )
+    assert submit.status_code == 200
+
+    history = client.get(
+        f"/api/datasets/{BATCH_DATASET_ID}/samples/{sample_id}/label-edits/history",
+        headers=_user_headers("qc_lead_a", "qc_lead"),
+    )
+    assert history.status_code == 200
+    submission_id = history.json()[-1]["submission_id"]
+
+    confirmed = client.post(
+        f"/api/datasets/{BATCH_DATASET_ID}/samples/{sample_id}/label-edits/{submission_id}/confirm",
+        headers=_user_headers("qc_lead_a", "qc_lead"),
+    )
+    assert confirmed.status_code == 200
+
+    pool = client.get(
+        "/api/sample-pool",
+        params={"dataset_id": BATCH_DATASET_ID, "sample_id": sample_id, "status": "active"},
+        headers=_admin_headers(),
+    )
+    assert pool.status_code == 200
+    payload = pool.json()
+    assert payload["total"] == 1
+    return submission_id, payload["items"][0]
 
 
 def test_health_and_dataset_summary(client: TestClient) -> None:
@@ -1753,3 +1824,156 @@ def test_qc_confirmation_without_meaningful_events_does_not_enter_sample_pool(tm
         stats = client.get("/api/sample-pool/stats", headers=_admin_headers())
         assert stats.status_code == 200
         assert stats.json()["total_items"] == 0
+
+
+def test_qc_closed_loop_phase3_export_job_coco_and_download(tmp_path: Path) -> None:
+    state_root = tmp_path / "PLATFORM_STATE"
+    with TestClient(
+        create_app(
+            label_config_store_root=tmp_path / "LABEL_CONFIG_STATE",
+            platform_state_root=state_root,
+        )
+    ) as client:
+        _, pool_item = _submit_and_confirm_changed_sample(client, sample_id=MULTI_CANDIDATE_SAMPLE_ID)
+
+        created = client.post(
+            "/api/exports",
+            json={
+                "format": "coco_json",
+                "source_type": "correction_sample_pool",
+                "filters": {"dataset_id": BATCH_DATASET_ID, "status": "active"},
+            },
+            headers=_admin_headers(),
+        )
+        assert created.status_code == 200
+        created_payload = created.json()
+        assert created_payload["status"] == "completed"
+        assert created_payload["format"] == "coco_json"
+        assert created_payload["source_type"] == "correction_sample_pool"
+        assert created_payload["item_count"] == 1
+        assert created_payload["artifact_path"].startswith("exports/artifacts/")
+        assert created_payload["artifact_name"].endswith(".coco.json")
+        assert created_payload["artifact_size"] > 0
+        assert created_payload["artifact_content_type"] == "application/json"
+        assert created_payload["created_by"] == "platform_admin"
+        assert created_payload["completed_at"] is not None
+
+        artifact_path = state_root / created_payload["artifact_path"]
+        assert artifact_path.is_file()
+        assert "DATASET" not in str(artifact_path)
+
+        list_all = client.get("/api/exports", headers=_admin_headers())
+        assert list_all.status_code == 200
+        list_payload = list_all.json()
+        assert list_payload["total"] >= 1
+        assert any(item["export_id"] == created_payload["export_id"] for item in list_payload["items"])
+
+        list_completed = client.get(
+            "/api/exports",
+            params={"status": "completed", "source_type": "correction_sample_pool", "format": "coco_json"},
+            headers=_admin_headers(),
+        )
+        assert list_completed.status_code == 200
+        assert any(
+            item["export_id"] == created_payload["export_id"] for item in list_completed.json()["items"]
+        )
+
+        detail = client.get(f"/api/exports/{created_payload['export_id']}", headers=_admin_headers())
+        assert detail.status_code == 200
+        detail_payload = detail.json()
+        assert detail_payload["export_id"] == created_payload["export_id"]
+        assert detail_payload["filters"]["dataset_id"] == BATCH_DATASET_ID
+
+        download = client.get(
+            f"/api/exports/{created_payload['export_id']}/download",
+            headers=_admin_headers(),
+        )
+        assert download.status_code == 200
+        assert download.headers["content-type"].startswith("application/json")
+        coco_payload = json.loads(download.content.decode("utf-8"))
+        assert set(coco_payload) >= {"info", "images", "annotations", "categories"}
+        assert coco_payload["info"]["coordinate_space"] == "quantized_1000"
+        assert len(coco_payload["images"]) >= 1
+        assert len(coco_payload["categories"]) >= 1
+        assert len(coco_payload["annotations"]) >= 1
+
+        image_ids = {item["id"] for item in coco_payload["images"]}
+        category_ids = {item["id"] for item in coco_payload["categories"]}
+        first_annotation = coco_payload["annotations"][0]
+        assert first_annotation["image_id"] in image_ids
+        assert first_annotation["category_id"] in category_ids
+        assert len(first_annotation["bbox"]) == 4
+        assert first_annotation["bbox"][2] > 0
+        assert first_annotation["bbox"][3] > 0
+
+        cancelled_completed = client.post(
+            f"/api/exports/{created_payload['export_id']}/cancel",
+            headers=_admin_headers(),
+        )
+        assert cancelled_completed.status_code == 409
+        assert cancelled_completed.json()["code"] == "export_not_cancellable"
+
+        removed = client.delete(
+            f"/api/sample-pool/items/{pool_item['item_id']}",
+            headers=_admin_headers(),
+        )
+        assert removed.status_code == 200
+        assert removed.json()["status"] == "removed"
+
+        empty_export = client.post(
+            "/api/exports",
+            json={
+                "format": "coco_json",
+                "source_type": "correction_sample_pool",
+                "filters": {"dataset_id": BATCH_DATASET_ID, "status": "active"},
+            },
+            headers=_admin_headers(),
+        )
+        assert empty_export.status_code == 409
+        assert empty_export.json()["code"] == "export_source_empty"
+
+
+def test_qc_closed_loop_phase3_export_cancel_queued_job(tmp_path: Path) -> None:
+    state_root = tmp_path / "PLATFORM_STATE"
+    with TestClient(
+        create_app(
+            label_config_store_root=tmp_path / "LABEL_CONFIG_STATE",
+            platform_state_root=state_root,
+        )
+    ) as client:
+        created_at = datetime.now(timezone.utc).isoformat()
+        jobs_path = state_root / "exports" / "jobs.json"
+        jobs_path.parent.mkdir(parents=True, exist_ok=True)
+        jobs_path.write_text(
+            json.dumps(
+                [
+                    {
+                        "export_id": "exp_test_cancel_queued",
+                        "format": "coco_json",
+                        "source_type": "correction_sample_pool",
+                        "filters": {"dataset_id": BATCH_DATASET_ID, "status": "active"},
+                        "status": "queued",
+                        "item_count": 0,
+                        "artifact_path": None,
+                        "artifact_name": None,
+                        "artifact_size": None,
+                        "artifact_content_type": None,
+                        "created_by": "platform_admin",
+                        "created_at": created_at,
+                        "started_at": None,
+                        "completed_at": None,
+                        "cancelled_at": None,
+                        "error_message": None,
+                    }
+                ],
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        cancel = client.post("/api/exports/exp_test_cancel_queued/cancel", headers=_admin_headers())
+        assert cancel.status_code == 200
+        payload = cancel.json()
+        assert payload["status"] == "cancelled"
+        assert payload["cancelled_at"] is not None

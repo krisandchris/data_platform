@@ -16,6 +16,7 @@ import type {
   ReviewSampleDetail,
   SamplePoolItem,
   SamplePoolStats,
+  TrainingExportJob,
 } from '../shared/types/contract';
 
 const mockApiClient = vi.hoisted(() => ({
@@ -50,6 +51,12 @@ const mockApiClient = vi.hoisted(() => ({
   listSamplePoolItems: vi.fn(),
   getSamplePoolStats: vi.fn(),
   getSamplePoolItem: vi.fn(),
+  createTrainingExport: vi.fn(),
+  listTrainingExports: vi.fn(),
+  getTrainingExport: vi.fn(),
+  downloadTrainingExport: vi.fn(),
+  getTrainingExportDownloadUrl: vi.fn(),
+  cancelTrainingExport: vi.fn(),
   getQcWorkspace: vi.fn(),
   generateQcQueue: vi.fn(),
   getQcProgress: vi.fn(),
@@ -302,6 +309,20 @@ const makeSamplePoolItem = (overrides: Partial<SamplePoolItem> = {}): SamplePool
   status: 'active',
   confirmedSnapshotId: 'snap-confirmed-1',
   sourceEventIds: ['event-1'],
+  ...overrides,
+});
+
+const makeTrainingExportJob = (overrides: Partial<TrainingExportJob> = {}): TrainingExportJob => ({
+  exportId: 'export-coco-1',
+  format: 'coco_json',
+  source: 'current_filters',
+  filters: { category: 'goods_blocking_road', status: 'active' },
+  filterSummary: '类别：物品占道，状态：活跃',
+  sampleCount: 1,
+  status: 'completed',
+  createdAt: '2026-05-19T10:00:00Z',
+  completedAt: '2026-05-19T10:02:00Z',
+  downloadUrl: 'http://backend.test/api/exports/export-coco-1/download',
   ...overrides,
 });
 
@@ -744,6 +765,31 @@ beforeEach(() => {
     changedFields: ['bbox'],
     events: [],
   });
+  mockApiClient.createTrainingExport.mockResolvedValue(makeTrainingExportJob({ exportId: 'export-created' }));
+  mockApiClient.listTrainingExports.mockResolvedValue([
+    makeTrainingExportJob(),
+    makeTrainingExportJob({
+      exportId: 'export-running',
+      source: 'all_active_pool_items',
+      filters: { status: 'active' },
+      filterSummary: '全部活跃样本',
+      sampleCount: 2,
+      status: 'running',
+      completedAt: undefined,
+      downloadUrl: undefined,
+    }),
+  ]);
+  mockApiClient.getTrainingExport.mockResolvedValue(makeTrainingExportJob());
+  mockApiClient.downloadTrainingExport.mockResolvedValue({
+    exportId: 'export-coco-1',
+    url: 'http://backend.test/api/exports/export-coco-1/download',
+  });
+  mockApiClient.getTrainingExportDownloadUrl.mockImplementation(
+    (exportId: string) => `http://backend.test/api/exports/${exportId}/download`,
+  );
+  mockApiClient.cancelTrainingExport.mockImplementation((exportId: string) =>
+    Promise.resolve(makeTrainingExportJob({ exportId, status: 'cancelled', completedAt: '2026-05-19T10:04:00Z' })),
+  );
   mockApiClient.listDatasetBatchAssets.mockResolvedValue([makeAsset('ds-live', 'sample-1')]);
   mockApiClient.getDatasetBatchImportJob.mockResolvedValue(importJob);
   mockApiClient.getDatasetBatchPreannotationSummary.mockResolvedValue(makePreannotationSummary('ds-live', 2));
@@ -1064,6 +1110,131 @@ describe('route rendering and live route states', () => {
     expect(wrapper.find('a.sample-pool-review-link').attributes('href')).toBe(
       '/datasets/urban_violation__0508_fixture/samples/sample-1/review',
     );
+  });
+
+  it('renders sample pool export controls and task states', async () => {
+    mockApiClient.listTrainingExports.mockResolvedValueOnce([
+      makeTrainingExportJob(),
+      makeTrainingExportJob({
+        exportId: 'export-running',
+        source: 'all_active_pool_items',
+        filters: { status: 'active' },
+        filterSummary: '全部活跃样本',
+        sampleCount: 2,
+        status: 'running',
+        completedAt: undefined,
+        downloadUrl: undefined,
+      }),
+      makeTrainingExportJob({
+        exportId: 'export-failed',
+        status: 'failed',
+        error: '生成文件失败',
+        completedAt: '2026-05-19T10:03:00Z',
+        downloadUrl: undefined,
+      }),
+    ]);
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/sample-pool', component: SamplePoolPage }],
+    });
+    await router.push('/sample-pool');
+    await router.isReady();
+
+    const wrapper = mount(SamplePoolPage, {
+      global: {
+        plugins: [router],
+      },
+    });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('导出管理');
+    expect(wrapper.find('[data-testid="training-export-format"]').text()).toContain('COCO JSON');
+    expect(wrapper.find('[data-testid="training-export-format"]').text()).toContain('VOC XML（不可用）');
+    expect(wrapper.find('[data-testid="training-export-table"]').text()).toContain('export-coco-1');
+    expect(wrapper.find('[data-testid="training-export-table"]').text()).toContain('已完成');
+    expect(wrapper.find('[data-testid="training-export-table"]').text()).toContain('生成中');
+    expect(wrapper.find('[data-testid="training-export-table"]').text()).toContain('生成文件失败');
+    expect(wrapper.find('[data-testid="training-export-download-export-running"]').attributes('disabled')).toBeDefined();
+    expect(wrapper.find('[data-testid="training-export-cancel-export-coco-1"]').attributes('disabled')).toBeDefined();
+  });
+
+  it('creates a sample pool export from current filters', async () => {
+    const created = makeTrainingExportJob({
+      exportId: 'export-new',
+      filters: { category: 'goods_blocking_road', status: 'active' },
+      filterSummary: '类别：物品占道，状态：活跃',
+    });
+    mockApiClient.listTrainingExports.mockResolvedValueOnce([]).mockResolvedValueOnce([created]);
+    mockApiClient.createTrainingExport.mockResolvedValueOnce(created);
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/sample-pool', component: SamplePoolPage }],
+    });
+    await router.push('/sample-pool');
+    await router.isReady();
+
+    const wrapper = mount(SamplePoolPage, {
+      global: {
+        plugins: [router],
+      },
+    });
+    await flushPromises();
+
+    await wrapper.find('[data-testid="sample-pool-filter-category"]').setValue('goods_blocking_road');
+    await wrapper.find('[data-testid="sample-pool-filter-status"]').setValue('active');
+    await wrapper.find('form.sample-pool-export-create').trigger('submit');
+    await flushPromises();
+
+    expect(mockApiClient.createTrainingExport).toHaveBeenCalledWith({
+      format: 'coco_json',
+      source: 'current_filters',
+      filters: {
+        category: 'goods_blocking_road',
+        status: 'active',
+      },
+    });
+    expect(wrapper.find('[data-testid="training-export-success"]').text()).toContain('已创建导出任务 export-new');
+    expect(wrapper.find('[data-testid="training-export-table"]').text()).toContain('export-new');
+  });
+
+  it('opens completed export downloads and cancels running exports', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+    mockApiClient.listTrainingExports.mockResolvedValueOnce([
+      makeTrainingExportJob(),
+      makeTrainingExportJob({
+        exportId: 'export-running',
+        source: 'all_active_pool_items',
+        filters: { status: 'active' },
+        filterSummary: '全部活跃样本',
+        sampleCount: 2,
+        status: 'running',
+        completedAt: undefined,
+        downloadUrl: undefined,
+      }),
+    ]);
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/sample-pool', component: SamplePoolPage }],
+    });
+    await router.push('/sample-pool');
+    await router.isReady();
+
+    const wrapper = mount(SamplePoolPage, {
+      global: {
+        plugins: [router],
+      },
+    });
+    await flushPromises();
+
+    await wrapper.find('[data-testid="training-export-download-export-coco-1"]').trigger('click');
+    await wrapper.find('[data-testid="training-export-cancel-export-running"]').trigger('click');
+    await flushPromises();
+
+    expect(openSpy).toHaveBeenCalledWith('http://backend.test/api/exports/export-coco-1/download', '_blank', 'noopener');
+    expect(mockApiClient.cancelTrainingExport).toHaveBeenCalledWith('export-running');
+    expect(wrapper.find('[data-testid="training-export-table"]').text()).toContain('已取消');
+
+    openSpy.mockRestore();
   });
 
   it('renders the sample pool empty state when no items exist', async () => {

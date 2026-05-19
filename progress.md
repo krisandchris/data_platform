@@ -60,6 +60,39 @@ This file now records only current project progress and recent verification cont
   - `cd frontend && npm run build`: passed.
 - Confirmed protected review workbench files have no diff.
 - Stopped main and agent stacks; service status reports stopped and checked ports were released.
+- Committed the accepted code as `f333fae feat: add qc correction sample pool`.
+- Fast-forwarded frontend, backend, and integration agent worktrees to `f333fae` after preserving their accepted Phase 2 dirty states in stashes.
+
+### QC Closed Loop Phase 3 Dispatch
+
+- Started Phase 3: training export.
+- Backend agent is assigned to implement export job state, COCO JSON generation from correction sample pool confirmed snapshots, artifact retention metadata, and export APIs.
+- Frontend agent is assigned to implement sample-pool export creation/task management/download UI.
+- Integration/test agent remains queued until both implementation agents complete.
+- Backend Phase 3 implementation completed in the backend agent worktree: added export job state, COCO JSON artifact generation, list/detail/download/cancel APIs, compatibility for the legacy dataset export route, and backend tests; reported `47 passed`.
+- Frontend Phase 3 implementation completed in the frontend agent worktree: added sample-pool export management UI, export API client/types, task table, download/cancel actions, and tests; reported `71 passed` and build passing.
+- Integration/test agent completed Phase 3 validation successfully:
+  - Backend full test suite passed: 47 tests.
+  - Backend COCO export targeted chain was rerun 5 times without failures.
+  - Frontend test suite passed: 71 tests.
+  - Frontend build passed.
+  - Agent stack launched backend `18031` and frontend `15195`.
+  - Online flow created an active pool item, created a COCO export job, read details, downloaded artifact, and parsed `info/images/annotations/categories`.
+  - Export artifact was written under `PLATFORM_STATE_ROOT/exports/artifacts`, not `DATASET/`.
+  - Browser screenshot smoke confirmed `/sample-pool` renders the `导出管理` area.
+  - Protected review workbench files were not modified.
+  - Services were stopped and checked ports were released.
+- Non-blocking validation note: an initial verification script used older export request fields and correctly received 422; the accepted contract is `format`, `source_type`, and `filters`.
+
+### QC Closed Loop Phase 3 Main Sync
+
+- Synchronized the verified Phase 3 frontend/backend outputs from agent worktrees into the main workspace.
+- Main workspace verification passed:
+  - `PLATFORM_STATE_ROOT=/tmp/uvp-export-main uv run pytest`: 47 passed.
+  - `cd frontend && npm run test`: 71 passed.
+  - `cd frontend && npm run build`: passed.
+- Confirmed protected review workbench files have no diff.
+- Stopped main and agent stacks; service status reports stopped and checked ports were released.
 
 ### QC Closed Loop Plan Adaptation
 

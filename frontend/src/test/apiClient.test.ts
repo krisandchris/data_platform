@@ -1099,4 +1099,93 @@ describe('HTTP API adapter', () => {
       'http://backend.test/api/sample-pool/items/pool-1',
     ]);
   });
+
+  it('creates, lists, inspects, downloads, and cancels training exports', async () => {
+    const exportPayload = {
+      export_id: 'export-1',
+      format: 'coco_json',
+      source: 'current_filters',
+      filters: {
+        dataset_type: 'urban_violation',
+        batch_id: 'urban_violation__0508_fixture',
+        status: 'active',
+      },
+      filter_summary: '状态：活跃',
+      sample_count: 12,
+      status: 'completed',
+      created_at: '2026-05-19T10:00:00Z',
+      completed_at: '2026-05-19T10:02:00Z',
+      download_url: 'http://backend.test/api/exports/export-1/download',
+    };
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ export: exportPayload }))
+      .mockResolvedValueOnce(jsonResponse({ exports: [exportPayload] }))
+      .mockResolvedValueOnce(jsonResponse({ job: exportPayload }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          export_id: 'export-1',
+          download_url: 'http://backend.test/api/exports/export-1/download',
+          file_name: 'export-1.json',
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ export: { ...exportPayload, status: 'cancelled' } }));
+    const api = new HttpUrbanViolationApi(new HttpClient({ baseUrl: 'http://backend.test/api', fetcher }));
+
+    const created = await api.createTrainingExport({
+      format: 'coco_json',
+      source: 'current_filters',
+      filters: {
+        datasetType: 'urban_violation',
+        batchId: 'urban_violation__0508_fixture',
+        status: 'active',
+      },
+    });
+    const exports = await api.listTrainingExports();
+    const detail = await api.getTrainingExport('export-1');
+    const download = await api.downloadTrainingExport('export-1');
+    const cancelled = await api.cancelTrainingExport('export-1');
+
+    expect(fetcher).toHaveBeenNthCalledWith(
+      1,
+      'http://backend.test/api/exports',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          format: 'coco_json',
+          source: 'current_filters',
+          filters: {
+            dataset_type: 'urban_violation',
+            batch_id: 'urban_violation__0508_fixture',
+            status: 'active',
+          },
+        }),
+      }),
+    );
+    expect(fetcher.mock.calls.map((call) => call[0])).toEqual([
+      'http://backend.test/api/exports',
+      'http://backend.test/api/exports',
+      'http://backend.test/api/exports/export-1',
+      'http://backend.test/api/exports/export-1/download',
+      'http://backend.test/api/exports/export-1/cancel',
+    ]);
+    expect(created).toMatchObject({
+      exportId: 'export-1',
+      format: 'coco_json',
+      source: 'current_filters',
+      filters: { datasetType: 'urban_violation', batchId: 'urban_violation__0508_fixture', status: 'active' },
+      sampleCount: 12,
+      status: 'completed',
+      downloadUrl: 'http://backend.test/api/exports/export-1/download',
+    });
+    expect(exports[0].filterSummary).toBe('状态：活跃');
+    expect(detail.exportId).toBe('export-1');
+    expect(download).toMatchObject({
+      exportId: 'export-1',
+      url: 'http://backend.test/api/exports/export-1/download',
+      fileName: 'export-1.json',
+    });
+    expect(api.getTrainingExportDownloadUrl('export-1')).toBe('http://backend.test/api/exports/export-1/download');
+    expect(cancelled.status).toBe('cancelled');
+  });
 });

@@ -135,6 +135,28 @@ class SamplePoolItemStatus(str, Enum):
     REMOVED = "removed"
 
 
+class ExportFormat(str, Enum):
+    """Supported training export artifact formats."""
+
+    COCO_JSON = "coco_json"
+
+
+class ExportSourceType(str, Enum):
+    """Supported data sources for export jobs."""
+
+    CORRECTION_SAMPLE_POOL = "correction_sample_pool"
+
+
+class ExportJobStatus(str, Enum):
+    """Export job lifecycle status."""
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
 class StrictModel(BaseModel):
     """Base model that rejects unknown fields for safer contracts."""
 
@@ -490,6 +512,40 @@ class CorrectionSamplePoolItem(StrictModel):
     status: SamplePoolItemStatus = SamplePoolItemStatus.ACTIVE
     created_at: datetime
     updated_at: datetime
+
+
+class ExportSourceFilters(StrictModel):
+    """Filter contract for correction sample pool export source."""
+
+    dataset_id: str | None = None
+    dataset_type: str | None = None
+    category: str | None = None
+    attribution_code: str | None = None
+    event_type: ModificationEventType | None = None
+    reviewer: str | None = None
+    status: SamplePoolItemStatus | None = None
+    search: str | None = None
+
+
+class ExportJob(StrictModel):
+    """Persisted export job metadata and artifact pointers."""
+
+    export_id: str
+    format: ExportFormat
+    source_type: ExportSourceType
+    filters: ExportSourceFilters = Field(default_factory=ExportSourceFilters)
+    status: ExportJobStatus
+    item_count: int = Field(default=0, ge=0)
+    artifact_path: str | None = None
+    artifact_name: str | None = None
+    artifact_size: int | None = Field(default=None, ge=0)
+    artifact_content_type: str | None = None
+    created_by: str
+    created_at: datetime
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    cancelled_at: datetime | None = None
+    error_message: str | None = None
 
 
 class AuditEvent(StrictModel):

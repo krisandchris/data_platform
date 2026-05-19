@@ -402,6 +402,45 @@ export interface SamplePoolItemDetail extends SamplePoolItem {
   notes?: string;
 }
 
+export type TrainingExportFormat = 'coco_json' | 'voc_xml' | 'custom_json' | string;
+export type TrainingExportSource = 'current_filters' | 'all_active_pool_items' | string;
+export type TrainingExportStatus =
+  | 'pending'
+  | 'queued'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'expired'
+  | string;
+
+export interface TrainingExportCreatePayload {
+  format: TrainingExportFormat;
+  source: TrainingExportSource;
+  filters?: SamplePoolListFilters;
+}
+
+export interface TrainingExportJob {
+  exportId: string;
+  format: TrainingExportFormat;
+  source: TrainingExportSource;
+  filters: SamplePoolListFilters;
+  filterSummary?: string;
+  sampleCount?: number;
+  status: TrainingExportStatus;
+  createdAt?: string;
+  completedAt?: string;
+  error?: string;
+  downloadUrl?: string;
+}
+
+export interface TrainingExportDownload {
+  exportId: string;
+  url: string;
+  fileName?: string;
+  content?: unknown;
+}
+
 export interface Dataset {
   id: DatasetId;
   name: string;

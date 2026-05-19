@@ -38,6 +38,9 @@ import type {
   SamplePoolItemDetail,
   SamplePoolListFilters,
   SamplePoolStats,
+  TrainingExportCreatePayload,
+  TrainingExportDownload,
+  TrainingExportJob,
   UserAccount,
   UserCreatePayload,
   UserUpdatePayload,
@@ -218,6 +221,33 @@ const samplePoolStats: SamplePoolStats = {
   byStatus: [{ status: 'active', label: '活跃', count: samplePoolItems.length }],
   generatedAt: '2026-05-19T09:30:00+08:00',
 };
+
+const exportDownloadUrl = (exportId: string) => `/api/exports/${encodeURIComponent(exportId)}/download`;
+
+let trainingExportJobs: TrainingExportJob[] = [
+  {
+    exportId: 'export-coco-0508',
+    format: 'coco_json',
+    source: 'all_active_pool_items',
+    filters: { status: 'active' },
+    filterSummary: '全部活跃样本',
+    sampleCount: samplePoolItems.filter((item) => item.status === 'active').length,
+    status: 'completed',
+    createdAt: '2026-05-19T10:00:00+08:00',
+    completedAt: '2026-05-19T10:02:00+08:00',
+    downloadUrl: exportDownloadUrl('export-coco-0508'),
+  },
+  {
+    exportId: 'export-coco-running',
+    format: 'coco_json',
+    source: 'current_filters',
+    filters: { attribution: 'model_bbox_offset', status: 'active' },
+    filterSummary: '归因：模型框偏移，状态：活跃',
+    sampleCount: 1,
+    status: 'running',
+    createdAt: '2026-05-19T10:08:00+08:00',
+  },
+];
 
 const fixtureUsers: UserAccount[] = [
   {
@@ -1325,6 +1355,23 @@ const filterSamplePoolItems = (filters: SamplePoolListFilters = {}) =>
     );
   });
 
+const samplePoolFilterSummary = (filters: SamplePoolListFilters = {}) => {
+  const parts = [
+    filters.datasetType ? `类型：${filters.datasetType}` : '',
+    filters.batchId ? `批次：${filters.batchId}` : '',
+    filters.category ? `类别：${filters.category}` : '',
+    filters.attribution ? `归因：${filters.attribution}` : '',
+    filters.eventType ? `事件：${filters.eventType}` : '',
+    filters.reviewer ? `人员：${filters.reviewer}` : '',
+    filters.status ? `状态：${filters.status}` : '',
+    filters.search ? `搜索：${filters.search}` : '',
+  ].filter(Boolean);
+  return parts.length ? parts.join('，') : '全部匹配';
+};
+
+const exportFiltersForPayload = (payload: TrainingExportCreatePayload): SamplePoolListFilters =>
+  payload.source === 'all_active_pool_items' ? { status: 'active' } : { ...(payload.filters ?? {}) };
+
 const labelConfigValidation = (config: LabelConfig = fixtureLabelConfig): LabelConfigValidationResult => ({
   valid: true,
   datasetId: dataset.id,
@@ -1665,6 +1712,65 @@ export const fixtureApiClient: UrbanViolationApi = {
       notes: '确认后自动入池',
     };
     return clone(detail);
+  },
+  async createTrainingExport(payload) {
+    await delay();
+    const filters = exportFiltersForPayload(payload);
+    const exportId = `export-coco-${Date.now()}`;
+    const job: TrainingExportJob = {
+      exportId,
+      format: payload.format,
+      source: payload.source,
+      filters,
+      filterSummary: payload.source === 'all_active_pool_items' ? '全部活跃样本' : samplePoolFilterSummary(filters),
+      sampleCount: filterSamplePoolItems(filters).length,
+      status: 'completed',
+      createdAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      downloadUrl: exportDownloadUrl(exportId),
+    };
+    trainingExportJobs = [job, ...trainingExportJobs];
+    return clone(job);
+  },
+  async listTrainingExports() {
+    await delay();
+    return clone(trainingExportJobs);
+  },
+  async getTrainingExport(exportId) {
+    await delay();
+    return clone(trainingExportJobs.find((job) => job.exportId === exportId) ?? trainingExportJobs[0]);
+  },
+  async downloadTrainingExport(exportId): Promise<TrainingExportDownload> {
+    await delay();
+    return clone({
+      exportId,
+      url: exportDownloadUrl(exportId),
+      fileName: `${exportId}.json`,
+    });
+  },
+  getTrainingExportDownloadUrl(exportId) {
+    return exportDownloadUrl(exportId);
+  },
+  async cancelTrainingExport(exportId) {
+    await delay();
+    const index = trainingExportJobs.findIndex((job) => job.exportId === exportId);
+    const next: TrainingExportJob = {
+      ...(trainingExportJobs[index] ?? {
+        exportId,
+        format: 'coco_json',
+        source: 'current_filters',
+        filters: {},
+        createdAt: new Date().toISOString(),
+      }),
+      status: 'cancelled',
+      completedAt: new Date().toISOString(),
+    };
+    if (index >= 0) {
+      trainingExportJobs[index] = next;
+    } else {
+      trainingExportJobs = [next, ...trainingExportJobs];
+    }
+    return clone(next);
   },
   async getBatchAssignment() {
     await delay();

@@ -129,6 +129,8 @@
       </form>
     </section>
 
+    <SamplePoolExportPanel :filters="activeApiFilters" :active-filter-count="activeFilterCount" />
+
     <section class="panel sample-pool-list">
       <div class="panel__header">
         <h2 class="panel__title">样本列表</h2>
@@ -207,6 +209,7 @@ import { RouterLink } from 'vue-router';
 import { Activity, ArrowRight, Clock, Database, Filter, Layers, RefreshCw, Tags } from 'lucide-vue-next';
 import { apiClient } from '../../services/urbanViolationApi';
 import MetricCard from '../../shared/components/MetricCard.vue';
+import SamplePoolExportPanel from './components/SamplePoolExportPanel.vue';
 import type {
   SamplePoolAttributionTag,
   SamplePoolItem,
@@ -243,6 +246,7 @@ const filters = reactive<FilterState>({
 });
 
 const activeFilterCount = computed(() => Object.values(filters).filter(Boolean).length);
+const activeApiFilters = computed(() => toApiFilters());
 const datasetTypeOptions = computed(() => optionsFrom(items.value.map((item) => item.datasetType), filters.datasetType));
 const batchOptions = computed(() => optionsFrom(items.value.map((item) => item.batchId || item.datasetId), filters.batchId));
 const categoryOptions = computed(() => optionsFrom(items.value.map((item) => item.category), filters.category));
