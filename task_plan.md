@@ -246,27 +246,40 @@ Acceptance:
 
 ### P2 - QC Closed Loop Phase 4: Evaluation And Version Governance
 
+Dispatch status:
+
+- Backend agent: completed evaluation and version-governance backend implementation in `../data_platform_backend_agent`.
+- Frontend agent: completed evaluation and version-history frontend implementation in `../data_platform_frontend_agent`.
+- Integration/test agent: completed combined validation after both implementation agents completed.
+
 Backend agent tasks:
 
 - Add evaluation run records, metric summaries, comparison APIs, and changed sample references.
 - Add snapshot list and snapshot diff APIs.
 - Implement rollback only after exact restore semantics and permission checks are specified and tested.
+- Keep rollback disabled or admin-gated unless exact restore tests pass.
+- Reuse existing Phase 1 annotation snapshots and Phase 3 export/evaluation concepts; do not write raw `DATASET/`.
 
 Frontend agent tasks:
 
 - Add `模型评估` and `版本历史` tabs to batch overview.
 - Display metric deltas, category-level metrics, snapshot timeline, and diff summaries.
+- Do not modify the protected sample review workbench.
+- Keep visible copy in Chinese and preserve current management-page style.
 
 Integration agent tasks:
 
 - Seed or create evaluation records and verify comparison output.
 - Verify snapshot list/diff permissions and exact payload restoration before enabling rollback controls.
+- Verify batch overview tabs read real backend data from the agent stack.
+- Start only after frontend/backend implementation agents finish.
 
 Acceptance:
 
 - Evaluation comparison shows metric deltas and related changed samples.
 - Version history shows import baseline, confirmed annotation snapshots, and model-preannotation snapshots.
 - Rollback is gated behind tests and management permissions.
+- Integration validation passed on agent worktree outputs; accepted changes are ready for main-workspace synchronization.
 
 ### P2 - Integration Test Environment
 

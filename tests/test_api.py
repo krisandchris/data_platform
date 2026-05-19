@@ -229,6 +229,31 @@ def _submit_and_confirm_changed_sample(
     return submission_id, payload["items"][0]
 
 
+def _create_evaluation(
+    client: TestClient,
+    *,
+    dataset_id: str,
+    model_version: str,
+    metrics: dict[str, float] | None = None,
+    category_metrics: dict[str, dict[str, float]] | None = None,
+    changed_sample_ids: list[str] | None = None,
+    headers: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    response = client.post(
+        f"/api/datasets/{dataset_id}/evaluations",
+        json={
+            "model_version": model_version,
+            "metrics": metrics,
+            "category_metrics": category_metrics or {},
+            "changed_sample_ids": changed_sample_ids or [],
+            "notes": f"eval:{model_version}",
+        },
+        headers=headers or _admin_headers(),
+    )
+    assert response.status_code == 201
+    return response.json()
+
+
 def test_health_and_dataset_summary(client: TestClient) -> None:
     health = client.get("/health")
     assert health.status_code == 200
@@ -1977,3 +2002,183 @@ def test_qc_closed_loop_phase3_export_cancel_queued_job(tmp_path: Path) -> None:
         payload = cancel.json()
         assert payload["status"] == "cancelled"
         assert payload["cancelled_at"] is not None
+
+
+def test_qc_closed_loop_phase4_evaluation_apis(tmp_path: Path) -> None:
+    state_root = tmp_path / "PLATFORM_STATE"
+    with TestClient(
+        create_app(
+            label_config_store_root=tmp_path / "LABEL_CONFIG_STATE",
+            platform_state_root=state_root,
+        )
+    ) as client:
+        _create_user(client, "manager_a", role="batch_manager")
+        created = _create_evaluation(
+            client,
+            dataset_id=DATASET_ID,
+            model_version="uvp-v1",
+            metrics={
+                "mAP": 0.72,
+                "precision": 0.81,
+                "recall": 0.74,
+                "f1": 0.77,
+                "false_positive_rate": 0.19,
+                "hard_sample_hit_rate": 0.66,
+            },
+            category_metrics={
+                "illegal_parking": {"mAP": 0.71, "precision": 0.8, "recall": 0.73, "f1": 0.76},
+                "helmet": {"mAP": 0.62, "precision": 0.74, "recall": 0.68, "f1": 0.71},
+            },
+            changed_sample_ids=[SUCCESS_SAMPLE_ID, MULTI_CANDIDATE_SAMPLE_ID],
+            headers=_user_headers("manager_a", "batch_manager"),
+        )
+        assert created["dataset_id"] == BATCH_DATASET_ID
+        assert created["dataset_type"] == DATASET_ID
+        assert created["created_by"] == "manager_a"
+        assert created["hard_sample_count"] == 2
+        assert created["status"] == "completed"
+
+        forbidden_create = client.post(
+            f"/api/datasets/{BATCH_DATASET_ID}/evaluations",
+            json={"model_version": "uvp-forbidden"},
+            headers=_user_headers("annotator_readonly", "annotator"),
+        )
+        assert forbidden_create.status_code == 403
+
+        created_second = _create_evaluation(
+            client,
+            dataset_id=BATCH_DATASET_ID,
+            model_version="uvp-v2",
+            metrics={
+                "mAP": 0.78,
+                "precision": 0.86,
+                "recall": 0.8,
+                "f1": 0.83,
+                "false_positive_rate": 0.13,
+                "hard_sample_hit_rate": 0.81,
+            },
+            category_metrics={
+                "illegal_parking": {"mAP": 0.77, "precision": 0.85, "recall": 0.79, "f1": 0.82},
+                "helmet": {"mAP": 0.7, "precision": 0.8, "recall": 0.75, "f1": 0.77},
+            },
+            changed_sample_ids=[MULTI_CANDIDATE_SAMPLE_ID, FAILURE_SAMPLE_ID],
+        )
+        assert created_second["dataset_id"] == BATCH_DATASET_ID
+        assert created_second["hard_sample_count"] == 2
+
+        listed = client.get(
+            f"/api/datasets/{BATCH_DATASET_ID}/evaluations",
+            headers=_admin_headers(),
+        )
+        assert listed.status_code == 200
+        listed_payload = listed.json()
+        assert len(listed_payload) == 2
+        assert {item["evaluation_id"] for item in listed_payload} == {
+            created["evaluation_id"],
+            created_second["evaluation_id"],
+        }
+
+        detail = client.get(
+            f"/api/datasets/{BATCH_DATASET_ID}/evaluations/{created['evaluation_id']}",
+            headers=_admin_headers(),
+        )
+        assert detail.status_code == 200
+        detail_payload = detail.json()
+        assert detail_payload["evaluation_id"] == created["evaluation_id"]
+        assert detail_payload["model_version"] == "uvp-v1"
+
+        compared = client.get(
+            "/api/evaluations/compare",
+            params={"left_id": created["evaluation_id"], "right_id": created_second["evaluation_id"]},
+            headers=_admin_headers(),
+        )
+        assert compared.status_code == 200
+        compared_payload = compared.json()
+        assert compared_payload["left"]["evaluation_id"] == created["evaluation_id"]
+        assert compared_payload["right"]["evaluation_id"] == created_second["evaluation_id"]
+        assert compared_payload["metric_delta"]["mAP"] == pytest.approx(0.06)
+        assert compared_payload["metric_delta"]["hard_sample_hit_rate"] == pytest.approx(0.15)
+        assert compared_payload["changed_samples"]["left_only"] == [SUCCESS_SAMPLE_ID]
+        assert compared_payload["changed_samples"]["right_only"] == [FAILURE_SAMPLE_ID]
+        assert compared_payload["changed_samples"]["intersection"] == [MULTI_CANDIDATE_SAMPLE_ID]
+        assert any(
+            row["category"] == "illegal_parking"
+            and row["metric_delta"]["mAP"] == pytest.approx(0.06)
+            for row in compared_payload["category_deltas"]
+        )
+
+        delta_samples = client.get(
+            f"/api/evaluations/{created_second['evaluation_id']}/delta-samples",
+            headers=_admin_headers(),
+        )
+        assert delta_samples.status_code == 200
+        delta_payload = delta_samples.json()
+        assert delta_payload["evaluation_id"] == created_second["evaluation_id"]
+        assert delta_payload["dataset_id"] == BATCH_DATASET_ID
+        assert delta_payload["total"] == 2
+        assert {item["sample_id"] for item in delta_payload["samples"]} == {
+            MULTI_CANDIDATE_SAMPLE_ID,
+            FAILURE_SAMPLE_ID,
+        }
+        assert all(item["dataset_id"] == BATCH_DATASET_ID for item in delta_payload["samples"])
+        assert all("/review?dataset_id=" in item["review_url"] for item in delta_payload["samples"])
+
+        evaluations_path = state_root / "qc" / BATCH_DATASET_ID / "evaluations.json"
+        legacy_path = state_root / "qc" / DATASET_ID / "evaluations.json"
+        assert evaluations_path.is_file()
+        assert not legacy_path.exists()
+
+
+def test_qc_closed_loop_phase4_snapshots_diff_and_rollback_disabled(tmp_path: Path) -> None:
+    state_root = tmp_path / "PLATFORM_STATE"
+    with TestClient(
+        create_app(
+            label_config_store_root=tmp_path / "LABEL_CONFIG_STATE",
+            platform_state_root=state_root,
+        )
+    ) as client:
+        _submit_and_confirm_changed_sample(client, sample_id=MULTI_CANDIDATE_SAMPLE_ID)
+
+        snapshots = client.get(
+            f"/api/datasets/{DATASET_ID}/snapshots",
+            headers=_admin_headers(),
+        )
+        assert snapshots.status_code == 200
+        snapshot_rows = snapshots.json()
+        assert len(snapshot_rows) >= 2
+        assert {item["dataset_id"] for item in snapshot_rows} == {BATCH_DATASET_ID}
+        sample_snapshots = [item for item in snapshot_rows if item["sample_id"] == MULTI_CANDIDATE_SAMPLE_ID]
+        left = next(item for item in sample_snapshots if item["snapshot_type"] == "baseline")
+        right = next(item for item in sample_snapshots if item["snapshot_type"] == "confirmed")
+
+        diff = client.get(
+            f"/api/datasets/{BATCH_DATASET_ID}/snapshots/diff",
+            params={"left_snapshot_id": left["snapshot_id"], "right_snapshot_id": right["snapshot_id"]},
+            headers=_admin_headers(),
+        )
+        assert diff.status_code == 200
+        diff_payload = diff.json()
+        assert diff_payload["dataset_id"] == BATCH_DATASET_ID
+        assert diff_payload["left_snapshot"]["snapshot_id"] == left["snapshot_id"]
+        assert diff_payload["right_snapshot"]["snapshot_id"] == right["snapshot_id"]
+        assert diff_payload["operation_count"] >= 1
+        assert diff_payload["changed_fields"]
+        assert any(
+            value.startswith("relation:") or value.startswith("verification:")
+            for value in diff_payload["changed_relations"]
+        )
+
+        rollback_forbidden = client.post(
+            f"/api/datasets/{BATCH_DATASET_ID}/snapshots/{right['snapshot_id']}/rollback",
+            headers=_user_headers("annotator_a", "annotator"),
+        )
+        assert rollback_forbidden.status_code == 403
+
+        rollback_disabled = client.post(
+            f"/api/datasets/{BATCH_DATASET_ID}/snapshots/{right['snapshot_id']}/rollback",
+            headers=_admin_headers(),
+        )
+        assert rollback_disabled.status_code == 501
+        rollback_payload = rollback_disabled.json()
+        assert rollback_payload["code"] == "rollback_disabled"
+        assert "disabled pending exact restore validation" in rollback_payload["message"]

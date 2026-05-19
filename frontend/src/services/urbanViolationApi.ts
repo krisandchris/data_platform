@@ -60,6 +60,17 @@ import type {
   LabelSuggestion,
   LeaseStatus,
   LoginPayload,
+  AnnotationSnapshot,
+  AnnotationSnapshotDiff,
+  AnnotationSnapshotFieldDiff,
+  AnnotationSnapshotCandidateDiff,
+  AnnotationSnapshotRelationDiff,
+  ModelEvaluationCategoryMetric,
+  ModelEvaluationCompareResult,
+  ModelEvaluationCreatePayload,
+  ModelEvaluationDeltaSample,
+  ModelEvaluationMetric,
+  ModelEvaluationRun,
   PreannotationSummary,
   PreAnnotationStep1,
   PreAnnotationStep2,
@@ -172,6 +183,22 @@ export interface UrbanViolationApi {
   downloadTrainingExport(exportId: string): Promise<TrainingExportDownload>;
   getTrainingExportDownloadUrl(exportId: string): string;
   cancelTrainingExport(exportId: string): Promise<TrainingExportJob>;
+  createDatasetBatchEvaluation(batchId: DatasetBatchId, payload: ModelEvaluationCreatePayload): Promise<ModelEvaluationRun>;
+  createModelEvaluation(datasetId: DatasetId, payload: ModelEvaluationCreatePayload): Promise<ModelEvaluationRun>;
+  listDatasetBatchEvaluations(batchId: DatasetBatchId): Promise<ModelEvaluationRun[]>;
+  listModelEvaluations(datasetId: DatasetId): Promise<ModelEvaluationRun[]>;
+  getDatasetBatchEvaluation(batchId: DatasetBatchId, evaluationId: string): Promise<ModelEvaluationRun>;
+  getModelEvaluation(datasetId: DatasetId, evaluationId: string): Promise<ModelEvaluationRun>;
+  compareModelEvaluations(leftId: string, rightId: string): Promise<ModelEvaluationCompareResult>;
+  listModelEvaluationDeltaSamples(evaluationId: string): Promise<ModelEvaluationDeltaSample[]>;
+  listDatasetBatchSnapshots(batchId: DatasetBatchId): Promise<AnnotationSnapshot[]>;
+  listSnapshots(datasetId: DatasetId): Promise<AnnotationSnapshot[]>;
+  diffDatasetBatchSnapshots(
+    batchId: DatasetBatchId,
+    leftSnapshotId: string,
+    rightSnapshotId: string,
+  ): Promise<AnnotationSnapshotDiff>;
+  diffSnapshots(datasetId: DatasetId, leftSnapshotId: string, rightSnapshotId: string): Promise<AnnotationSnapshotDiff>;
   getBatchAssignment(datasetId: DatasetId): Promise<BatchQcAssignment | undefined>;
   assignBatch(datasetId: DatasetId, payload: BatchAssignmentPayload): Promise<BatchQcAssignment>;
   reassignBatch(datasetId: DatasetId, payload: BatchAssignmentPayload): Promise<BatchQcAssignment>;
@@ -550,6 +577,77 @@ export class HttpUrbanViolationApi implements UrbanViolationApi {
     return normalizeTrainingExportJob(payload, exportId);
   }
 
+  async createDatasetBatchEvaluation(
+    batchId: DatasetBatchId,
+    payload: ModelEvaluationCreatePayload,
+  ): Promise<ModelEvaluationRun> {
+    return this.createModelEvaluation(batchId, payload);
+  }
+
+  async createModelEvaluation(datasetId: DatasetId, payload: ModelEvaluationCreatePayload): Promise<ModelEvaluationRun> {
+    const response = await this.http.post<unknown>(
+      `/datasets/${encodeURIComponent(datasetId)}/evaluations`,
+      toBackendModelEvaluationCreatePayload(payload),
+    );
+    return normalizeModelEvaluationRun(response, datasetId);
+  }
+
+  async listDatasetBatchEvaluations(batchId: DatasetBatchId): Promise<ModelEvaluationRun[]> {
+    return this.listModelEvaluations(batchId);
+  }
+
+  async listModelEvaluations(datasetId: DatasetId): Promise<ModelEvaluationRun[]> {
+    const payload = await this.http.get<unknown>(`/datasets/${encodeURIComponent(datasetId)}/evaluations`);
+    return listPayload(payload, 'evaluations').map((item) => normalizeModelEvaluationRun(item, datasetId));
+  }
+
+  async getDatasetBatchEvaluation(batchId: DatasetBatchId, evaluationId: string): Promise<ModelEvaluationRun> {
+    return this.getModelEvaluation(batchId, evaluationId);
+  }
+
+  async getModelEvaluation(datasetId: DatasetId, evaluationId: string): Promise<ModelEvaluationRun> {
+    const payload = await this.http.get<unknown>(
+      `/datasets/${encodeURIComponent(datasetId)}/evaluations/${encodeURIComponent(evaluationId)}`,
+    );
+    return normalizeModelEvaluationRun(payload, datasetId, evaluationId);
+  }
+
+  async compareModelEvaluations(leftId: string, rightId: string): Promise<ModelEvaluationCompareResult> {
+    const search = new URLSearchParams({ left_id: leftId, right_id: rightId });
+    const payload = await this.http.get<unknown>(`/evaluations/compare?${search.toString()}`);
+    return normalizeModelEvaluationCompare(payload, leftId, rightId);
+  }
+
+  async listModelEvaluationDeltaSamples(evaluationId: string): Promise<ModelEvaluationDeltaSample[]> {
+    const payload = await this.http.get<unknown>(`/evaluations/${encodeURIComponent(evaluationId)}/delta-samples`);
+    return listPayload(payload, 'samples').map((item) => normalizeModelEvaluationDeltaSample(item));
+  }
+
+  async listDatasetBatchSnapshots(batchId: DatasetBatchId): Promise<AnnotationSnapshot[]> {
+    return this.listSnapshots(batchId);
+  }
+
+  async listSnapshots(datasetId: DatasetId): Promise<AnnotationSnapshot[]> {
+    const payload = await this.http.get<unknown>(`/datasets/${encodeURIComponent(datasetId)}/snapshots`);
+    return listPayload(payload, 'snapshots').map((item) => normalizeAnnotationSnapshot(item, datasetId));
+  }
+
+  async diffDatasetBatchSnapshots(
+    batchId: DatasetBatchId,
+    leftSnapshotId: string,
+    rightSnapshotId: string,
+  ): Promise<AnnotationSnapshotDiff> {
+    return this.diffSnapshots(batchId, leftSnapshotId, rightSnapshotId);
+  }
+
+  async diffSnapshots(datasetId: DatasetId, leftSnapshotId: string, rightSnapshotId: string): Promise<AnnotationSnapshotDiff> {
+    const search = new URLSearchParams({ left_snapshot_id: leftSnapshotId, right_snapshot_id: rightSnapshotId });
+    const payload = await this.http.get<unknown>(
+      `/datasets/${encodeURIComponent(datasetId)}/snapshots/diff?${search.toString()}`,
+    );
+    return normalizeAnnotationSnapshotDiff(payload, datasetId, leftSnapshotId, rightSnapshotId);
+  }
+
   async getBatchAssignment(datasetId: DatasetId): Promise<BatchQcAssignment | undefined> {
     try {
       const payload = await this.http.get<unknown>(`/datasets/${encodeURIComponent(datasetId)}/qc/assignment`);
@@ -874,6 +972,15 @@ const samplePoolFiltersToBackend = (filters: SamplePoolListFilters) => {
   });
   return payload;
 };
+
+const toBackendModelEvaluationCreatePayload = (payload: ModelEvaluationCreatePayload) => ({
+  model_version: payload.modelVersion,
+  model_name: payload.modelName,
+  source_export_id: payload.sourceExportId,
+  source_snapshot_id: payload.sourceSnapshotId,
+  notes: payload.notes,
+  parameters: payload.parameters,
+});
 
 const normalizeRole = (value: unknown): UserRole | undefined => {
   const source = isRecord(value) ? value.role : value;
@@ -1357,6 +1464,312 @@ const normalizeTrainingExportDownload = (
     content: isRecord(payload) ? undefined : payload,
   };
 };
+
+const normalizeModelEvaluationRun = (
+  payload: unknown,
+  datasetId: DatasetId,
+  fallbackEvaluationId = 'model-evaluation',
+): ModelEvaluationRun => {
+  const wrapper = isRecord(payload) ? payload : {};
+  const record = firstRecord(wrapper.evaluation, wrapper.evaluation_run, wrapper.run, wrapper.item, payload) ?? {};
+  const evaluationId = stringValue(
+    record.evaluationId ?? record.evaluation_id ?? record.id ?? record.runId ?? record.run_id,
+    fallbackEvaluationId,
+  );
+  const modelVersion = stringValue(record.modelVersion ?? record.model_version ?? record.version, '未记录模型版本');
+  return {
+    evaluationId,
+    datasetId: stringValue(record.datasetId ?? record.dataset_id ?? record.batchId ?? record.batch_id, datasetId),
+    modelVersion,
+    modelName: optionalString(record.modelName ?? record.model_name),
+    status: stringValue(record.status ?? record.state, 'completed'),
+    sampleCount: maybeNumber(record.sampleCount ?? record.sample_count ?? record.totalSamples ?? record.total_samples),
+    sourceExportId: optionalString(record.sourceExportId ?? record.source_export_id),
+    sourceExportName: optionalString(record.sourceExportName ?? record.source_export_name),
+    sourceSnapshotId: optionalString(record.sourceSnapshotId ?? record.source_snapshot_id),
+    sourceSnapshotType: optionalString(record.sourceSnapshotType ?? record.source_snapshot_type),
+    metrics: normalizeModelEvaluationMetrics(record.metrics ?? record.metricSummary ?? record.metric_summary),
+    metricDeltas: normalizeModelEvaluationMetrics(record.metricDeltas ?? record.metric_deltas ?? record.deltas),
+    categoryMetrics: normalizeModelEvaluationCategoryMetrics(
+      record.categoryMetrics ?? record.category_metrics ?? record.classificationMetrics ?? record.classification_metrics,
+    ),
+    changedSampleCount: maybeNumber(record.changedSampleCount ?? record.changed_sample_count),
+    createdBy: optionalString(record.createdBy ?? record.created_by),
+    createdAt: optionalString(record.createdAt ?? record.created_at),
+    completedAt: optionalString(record.completedAt ?? record.completed_at ?? record.finishedAt ?? record.finished_at),
+    notes: optionalString(record.notes ?? record.description),
+  };
+};
+
+const normalizeModelEvaluationCompare = (
+  payload: unknown,
+  leftId: string,
+  rightId: string,
+): ModelEvaluationCompareResult => {
+  const wrapper = isRecord(payload) ? payload : {};
+  const record = firstRecord(wrapper.comparison, wrapper.compare, wrapper.result, wrapper.diff, payload) ?? {};
+  const leftRecord = firstRecord(record.left);
+  const rightRecord = firstRecord(record.right);
+  const changedSamples = isRecord(record.changedSamples ?? record.changed_samples)
+    ? (record.changedSamples ?? record.changed_samples) as Record<string, unknown>
+    : {};
+  const leftOnlyCount = arrayValue(changedSamples.leftOnly ?? changedSamples.left_only).length;
+  const rightOnlyCount = arrayValue(changedSamples.rightOnly ?? changedSamples.right_only).length;
+  const intersectionCount = arrayValue(changedSamples.intersection).length;
+  const changedSamplesTotal = leftOnlyCount + rightOnlyCount + intersectionCount;
+  return {
+    leftEvaluationId: stringValue(
+      record.leftEvaluationId ??
+        record.left_evaluation_id ??
+        record.leftId ??
+        record.left_id ??
+        leftRecord?.evaluationId ??
+        leftRecord?.evaluation_id ??
+        leftRecord?.id ??
+        leftRecord?.runId ??
+        leftRecord?.run_id,
+      leftId,
+    ),
+    rightEvaluationId: stringValue(
+      record.rightEvaluationId ??
+        record.right_evaluation_id ??
+        record.rightId ??
+        record.right_id ??
+        rightRecord?.evaluationId ??
+        rightRecord?.evaluation_id ??
+        rightRecord?.id ??
+        rightRecord?.runId ??
+        rightRecord?.run_id,
+      rightId,
+    ),
+    leftModelVersion: optionalString(
+      record.leftModelVersion ?? record.left_model_version ?? leftRecord?.modelVersion ?? leftRecord?.model_version ?? leftRecord?.version,
+    ),
+    rightModelVersion: optionalString(
+      record.rightModelVersion ?? record.right_model_version ?? rightRecord?.modelVersion ?? rightRecord?.model_version ?? rightRecord?.version,
+    ),
+    metricDeltas: normalizeModelEvaluationMetricDeltas(
+      record.metricDeltas ?? record.metric_deltas ?? record.metricDelta ?? record.metric_delta ?? record.metrics ?? record.deltas,
+    ),
+    categoryDeltas: normalizeModelEvaluationCategoryMetrics(
+      record.categoryDeltas ?? record.category_deltas ?? record.categoryMetrics ?? record.category_metrics,
+    ),
+    changedSampleCount: maybeNumber(record.changedSampleCount ?? record.changed_sample_count) ??
+      (changedSamplesTotal > 0 ? changedSamplesTotal : undefined),
+    improvedCount: maybeNumber(record.improvedCount ?? record.improved_count) ??
+      (rightOnlyCount > 0 ? rightOnlyCount : undefined),
+    regressedCount: maybeNumber(record.regressedCount ?? record.regressed_count) ??
+      (leftOnlyCount > 0 ? leftOnlyCount : undefined),
+    summary: optionalString(record.summary ?? record.description),
+  };
+};
+
+const normalizeModelEvaluationDeltaSample = (value: unknown): ModelEvaluationDeltaSample => {
+  const record = isRecord(value) ? value : {};
+  return {
+    sampleId: stringValue(record.sampleId ?? record.sample_id, 'unknown-sample'),
+    category: optionalString(record.category ?? record.violationCategory ?? record.violation_category),
+    changeType: optionalString(record.changeType ?? record.change_type ?? record.status),
+    beforeSnapshotId: optionalString(record.beforeSnapshotId ?? record.before_snapshot_id ?? record.leftSnapshotId ?? record.left_snapshot_id),
+    afterSnapshotId: optionalString(record.afterSnapshotId ?? record.after_snapshot_id ?? record.rightSnapshotId ?? record.right_snapshot_id),
+    metricImpacts: normalizeModelEvaluationMetrics(record.metricImpacts ?? record.metric_impacts ?? record.metrics),
+    reason: optionalString(record.reason ?? record.summary),
+  };
+};
+
+const normalizeModelEvaluationMetrics = (value: unknown): ModelEvaluationMetric[] => {
+  const entries = Array.isArray(value)
+    ? value.map((item, index) => [String(index), item] as const)
+    : isRecord(value)
+      ? Object.entries(value)
+      : [];
+
+  return entries.map(([fallbackKey, item]) => {
+    if (!isRecord(item)) {
+      const numeric = typeof item === 'number' && Number.isFinite(item) ? item : 0;
+      return {
+        key: fallbackKey,
+        label: fallbackKey,
+        value: numeric,
+      };
+    }
+    const key = stringValue(item.key ?? item.metric ?? item.metricKey ?? item.metric_key ?? item.name, fallbackKey);
+    const rightValue = maybeNumber(item.rightValue ?? item.right_value ?? item.after ?? item.current);
+    const leftValue = maybeNumber(item.leftValue ?? item.left_value ?? item.before ?? item.baselineValue ?? item.baseline_value);
+    const valueNumber = numberValue(item.value ?? item.score ?? rightValue, 0);
+    const explicitDelta = maybeNumber(item.delta ?? item.change ?? item.diff);
+    return {
+      key,
+      label: stringValue(item.label ?? item.labelZh ?? item.label_zh ?? item.name, key),
+      value: valueNumber,
+      baselineValue: leftValue,
+      delta: explicitDelta ?? (typeof rightValue === 'number' && typeof leftValue === 'number' ? rightValue - leftValue : undefined),
+      unit: optionalString(item.unit),
+    };
+  });
+};
+
+const metricDeltaLabels: Record<string, string> = {
+  mAP: 'mAP',
+  map: 'mAP',
+  precision: '精确率',
+  recall: '召回率',
+  f1: 'F1',
+  false_positive_rate: '误报率',
+  hard_sample_hit_rate: '困难样本命中率',
+};
+
+const normalizeModelEvaluationMetricDeltas = (value: unknown): ModelEvaluationMetric[] => {
+  if (!isRecord(value) || Array.isArray(value)) {
+    return normalizeModelEvaluationMetrics(value);
+  }
+
+  return Object.entries(value).flatMap(([fallbackKey, item]) => {
+    if (typeof item === 'number' && Number.isFinite(item)) {
+      return [{
+        key: fallbackKey,
+        label: metricDeltaLabels[fallbackKey] ?? fallbackKey,
+        value: item,
+        delta: item,
+      }];
+    }
+    if (!isRecord(item)) {
+      return [];
+    }
+    const metric = normalizeModelEvaluationMetrics([{ ...item, key: item.key ?? fallbackKey }])[0];
+    return metric ? [{
+      ...metric,
+      label: metric.label || metricDeltaLabels[metric.key] || metric.key,
+      delta: metric.delta ?? maybeNumber(item.delta ?? item.change ?? item.diff),
+    }] : [];
+  });
+};
+
+const normalizeModelEvaluationCategoryMetrics = (value: unknown): ModelEvaluationCategoryMetric[] => {
+  const entries = Array.isArray(value)
+    ? value.map((item, index) => [String(index), item] as const)
+    : isRecord(value)
+      ? Object.entries(value)
+      : [];
+
+  return entries.map(([fallbackCategory, item]) => {
+    if (!isRecord(item)) {
+      return { category: fallbackCategory, label: fallbackCategory };
+    }
+    const category = stringValue(
+      item.category ?? item.categoryKey ?? item.category_key ?? item.key ?? item.name,
+      fallbackCategory,
+    );
+    const metricDelta = isRecord(item.metricDelta ?? item.metric_delta)
+      ? (item.metricDelta ?? item.metric_delta) as Record<string, unknown>
+      : {};
+    return {
+      category,
+      label: optionalString(item.label ?? item.labelZh ?? item.label_zh ?? item.name),
+      precision: maybeNumber(item.precision) ?? maybeNumber(metricDelta.precision),
+      recall: maybeNumber(item.recall) ?? maybeNumber(metricDelta.recall),
+      f1: maybeNumber(item.f1 ?? item.f1Score ?? item.f1_score) ?? maybeNumber(metricDelta.f1),
+      accuracy: maybeNumber(item.accuracy),
+      sampleCount: maybeNumber(item.sampleCount ?? item.sample_count ?? item.count),
+      delta: maybeNumber(item.delta ?? item.change) ?? maybeNumber(metricDelta.f1),
+    };
+  });
+};
+
+const normalizeAnnotationSnapshot = (
+  payload: unknown,
+  datasetId: DatasetId,
+  fallbackSnapshotId = 'annotation-snapshot',
+): AnnotationSnapshot => {
+  const wrapper = isRecord(payload) ? payload : {};
+  const record = firstRecord(wrapper.snapshot, wrapper.item, payload) ?? {};
+  const source = isRecord(record.source) ? record.source : {};
+  return {
+    snapshotId: stringValue(record.snapshotId ?? record.snapshot_id ?? record.id, fallbackSnapshotId),
+    datasetId: stringValue(record.datasetId ?? record.dataset_id ?? record.batchId ?? record.batch_id, datasetId),
+    sampleId: optionalString(record.sampleId ?? record.sample_id),
+    snapshotType: stringValue(record.snapshotType ?? record.snapshot_type ?? record.type, 'baseline'),
+    labelConfigId: optionalString(record.labelConfigId ?? record.label_config_id),
+    labelConfigVersion: optionalDisplayString(record.labelConfigVersion ?? record.label_config_version),
+    sourceSubmissionId: optionalString(record.sourceSubmissionId ?? record.source_submission_id ?? source.submission_id),
+    sourceExportId: optionalString(record.sourceExportId ?? record.source_export_id ?? source.export_id),
+    sourceModelVersion: optionalString(record.sourceModelVersion ?? record.source_model_version ?? source.model_version),
+    sourceEvaluationId: optionalString(record.sourceEvaluationId ?? record.source_evaluation_id ?? source.evaluation_id),
+    payloadHash: optionalString(record.payloadHash ?? record.payload_hash),
+    payloadRef: optionalString(record.payloadRef ?? record.payload_ref),
+    createdBy: optionalString(record.createdBy ?? record.created_by),
+    createdAt: optionalString(record.createdAt ?? record.created_at),
+    rollbackAvailable: booleanValue(record.rollbackAvailable ?? record.rollback_available ?? record.rollbackEnabled ?? record.rollback_enabled),
+  };
+};
+
+const normalizeAnnotationSnapshotDiff = (
+  payload: unknown,
+  datasetId: DatasetId,
+  leftSnapshotId: string,
+  rightSnapshotId: string,
+): AnnotationSnapshotDiff => {
+  const wrapper = isRecord(payload) ? payload : {};
+  const record = firstRecord(wrapper.diff, wrapper.snapshot_diff, wrapper.result, payload) ?? {};
+  const changedFields = normalizeSnapshotFieldDiffs(record.changedFields ?? record.changed_fields ?? record.fields);
+  const relations = normalizeSnapshotRelationDiffs(
+    record.relations ?? record.relationDiffs ?? record.relation_diffs ?? record.changedRelations ?? record.changed_relations,
+  );
+  const candidates = normalizeSnapshotCandidateDiffs(
+    record.candidates ?? record.candidateDiffs ?? record.candidate_diffs ?? record.changedCandidates ?? record.changed_candidates,
+  );
+  const operationCount = maybeNumber(record.operationCount ?? record.operation_count);
+  return {
+    datasetId: optionalString(record.datasetId ?? record.dataset_id) ?? datasetId,
+    leftSnapshotId: stringValue(record.leftSnapshotId ?? record.left_snapshot_id ?? record.leftId ?? record.left_id, leftSnapshotId),
+    rightSnapshotId: stringValue(record.rightSnapshotId ?? record.right_snapshot_id ?? record.rightId ?? record.right_id, rightSnapshotId),
+    changedFieldCount: numberValue(record.changedFieldCount ?? record.changed_field_count, changedFields.length),
+    changedRelationCount: numberValue(record.changedRelationCount ?? record.changed_relation_count, relations.length),
+    changedCandidateCount: numberValue(record.changedCandidateCount ?? record.changed_candidate_count, candidates.length),
+    changedFields,
+    relations,
+    candidates,
+    summary: optionalString(record.summary ?? record.description) ?? (typeof operationCount === 'number' ? `操作数 ${operationCount}` : undefined),
+    rollbackAvailable: booleanValue(record.rollbackAvailable ?? record.rollback_available ?? record.rollbackEnabled ?? record.rollback_enabled),
+  };
+};
+
+const normalizeSnapshotFieldDiffs = (value: unknown): AnnotationSnapshotFieldDiff[] =>
+  arrayValue<unknown>(value).map((item) => {
+    if (!isRecord(item)) {
+      return { field: stringValue(item, 'unknown') };
+    }
+    const field = stringValue(item.field ?? item.path ?? item.key, 'unknown');
+    return {
+      field,
+      label: optionalString(item.label ?? item.labelZh ?? item.label_zh),
+      changeType: optionalString(item.changeType ?? item.change_type ?? item.type),
+      before: item.before ?? item.left,
+      after: item.after ?? item.right,
+    };
+  });
+
+const normalizeSnapshotRelationDiffs = (value: unknown): AnnotationSnapshotRelationDiff[] =>
+  normalizeSnapshotFieldDiffs(value).map((item, index) => {
+    const source = arrayValue<unknown>(value)[index];
+    const record = isRecord(source) ? source : {};
+    return {
+      ...item,
+      relationId: optionalString(record.relationId ?? record.relation_id),
+      relationIndex: optionalString(record.relationIndex ?? record.relation_index ?? record.targetId ?? record.target_id),
+    };
+  });
+
+const normalizeSnapshotCandidateDiffs = (value: unknown): AnnotationSnapshotCandidateDiff[] =>
+  normalizeSnapshotFieldDiffs(value).map((item, index) => {
+    const source = arrayValue<unknown>(value)[index];
+    const record = isRecord(source) ? source : {};
+    return {
+      ...item,
+      candidateId: optionalString(record.candidateId ?? record.candidate_id),
+      candidateIndex: optionalString(record.candidateIndex ?? record.candidate_index ?? record.targetId ?? record.target_id),
+    };
+  });
 
 const normalizeSamplePoolListFilters = (value: unknown): SamplePoolListFilters => {
   const record = isRecord(value) ? value : {};

@@ -3,6 +3,8 @@ import type {
   AssetListFilters,
   AssetListItem,
   AssetSummary,
+  AnnotationSnapshot,
+  AnnotationSnapshotDiff,
   AuditEvent,
   AuditEventFilters,
   BatchAssignmentPayload,
@@ -23,6 +25,10 @@ import type {
   LabelConfigValidationResult,
   LabelSuggestion,
   LoginPayload,
+  ModelEvaluationCompareResult,
+  ModelEvaluationCreatePayload,
+  ModelEvaluationDeltaSample,
+  ModelEvaluationRun,
   PreannotationSummary,
   QcModificationEvent,
   QcModificationEventStats,
@@ -248,6 +254,146 @@ let trainingExportJobs: TrainingExportJob[] = [
     createdAt: '2026-05-19T10:08:00+08:00',
   },
 ];
+
+let modelEvaluations: ModelEvaluationRun[] = [
+  {
+    evaluationId: 'eval-qwen25-v2',
+    datasetId: dataset.id,
+    modelName: 'Qwen2.5-VL',
+    modelVersion: 'qwen2.5-vl-qc-v2',
+    status: 'completed',
+    sampleCount: 780,
+    sourceExportId: 'export-coco-0508',
+    sourceExportName: '全部活跃样本',
+    sourceSnapshotId: 'snap-model-v2',
+    metrics: [
+      { key: 'mAP50', label: 'mAP50', value: 0.842, baselineValue: 0.818, delta: 0.024 },
+      { key: 'precision', label: '精确率', value: 0.891, baselineValue: 0.872, delta: 0.019 },
+      { key: 'recall', label: '召回率', value: 0.804, baselineValue: 0.781, delta: 0.023 },
+    ],
+    metricDeltas: [
+      { key: 'mAP50', label: 'mAP50', value: 0.842, baselineValue: 0.818, delta: 0.024 },
+      { key: 'recall', label: '召回率', value: 0.804, baselineValue: 0.781, delta: 0.023 },
+    ],
+    categoryMetrics: [
+      { category: 'goods_blocking_road', label: '物品占道', precision: 0.9, recall: 0.82, f1: 0.858, sampleCount: 188, delta: 0.021 },
+      { category: 'nonmotor_vehicle_illegal_parking', label: '非机动车违停', precision: 0.87, recall: 0.79, f1: 0.828, sampleCount: 156, delta: 0.012 },
+    ],
+    changedSampleCount: 24,
+    createdBy: 'ml_ops',
+    createdAt: '2026-05-19T11:00:00+08:00',
+    completedAt: '2026-05-19T11:08:00+08:00',
+    notes: '基于修正样本池导出的 COCO 数据完成评估',
+  },
+  {
+    evaluationId: 'eval-qwen25-v1',
+    datasetId: dataset.id,
+    modelName: 'Qwen2.5-VL',
+    modelVersion: 'qwen2.5-vl-qc-v1',
+    status: 'completed',
+    sampleCount: 780,
+    sourceExportId: 'export-coco-0508',
+    sourceExportName: '全部活跃样本',
+    sourceSnapshotId: 'snap-model-v1',
+    metrics: [
+      { key: 'mAP50', label: 'mAP50', value: 0.818 },
+      { key: 'precision', label: '精确率', value: 0.872 },
+      { key: 'recall', label: '召回率', value: 0.781 },
+    ],
+    metricDeltas: [],
+    categoryMetrics: [
+      { category: 'goods_blocking_road', label: '物品占道', precision: 0.88, recall: 0.79, f1: 0.833, sampleCount: 188 },
+      { category: 'nonmotor_vehicle_illegal_parking', label: '非机动车违停', precision: 0.86, recall: 0.77, f1: 0.813, sampleCount: 156 },
+    ],
+    changedSampleCount: 31,
+    createdBy: 'ml_ops',
+    createdAt: '2026-05-18T18:30:00+08:00',
+    completedAt: '2026-05-18T18:37:00+08:00',
+  },
+];
+
+const modelEvaluationDeltaSamples: ModelEvaluationDeltaSample[] = [
+  {
+    sampleId: 'sample-0001',
+    category: 'goods_blocking_road',
+    changeType: '指标提升',
+    beforeSnapshotId: 'snap-baseline-sample-0001',
+    afterSnapshotId: 'snap-model-v2-sample-0001',
+    metricImpacts: [{ key: 'confidence', label: '置信度', value: 0.91, baselineValue: 0.76, delta: 0.15 }],
+    reason: '修正后的边界框提高了候选置信度',
+  },
+  {
+    sampleId: 'sample-0002',
+    category: 'nonmotor_vehicle_illegal_parking',
+    changeType: '结果变化',
+    beforeSnapshotId: 'snap-baseline-sample-0002',
+    afterSnapshotId: 'snap-model-v2-sample-0002',
+    metricImpacts: [{ key: 'recall', label: '召回率', value: 0.8, baselineValue: 0.71, delta: 0.09 }],
+    reason: '可见性修正样本被新模型正确召回',
+  },
+];
+
+const annotationSnapshots: AnnotationSnapshot[] = [
+  {
+    snapshotId: 'snap-baseline-sample-0001',
+    datasetId: dataset.id,
+    sampleId: 'sample-0001',
+    snapshotType: 'baseline',
+    labelConfigVersion: dataset.activeLabelConfigVersion,
+    payloadHash: 'a7c2e109d1',
+    createdBy: 'importer',
+    createdAt: '2026-05-18T09:10:00+08:00',
+    rollbackAvailable: false,
+  },
+  {
+    snapshotId: 'snap-confirmed-sample-0001',
+    datasetId: dataset.id,
+    sampleId: 'sample-0001',
+    snapshotType: 'confirmed',
+    sourceSubmissionId: 'submission-sample-0001',
+    labelConfigVersion: dataset.activeLabelConfigVersion,
+    payloadHash: 'b8d4a201ff',
+    createdBy: 'qc_lead_a',
+    createdAt: '2026-05-19T09:20:00+08:00',
+    rollbackAvailable: false,
+  },
+  {
+    snapshotId: 'snap-model-v2-sample-0001',
+    datasetId: dataset.id,
+    sampleId: 'sample-0001',
+    snapshotType: 'model_preannotation',
+    sourceExportId: 'export-coco-0508',
+    sourceModelVersion: 'qwen2.5-vl-qc-v2',
+    sourceEvaluationId: 'eval-qwen25-v2',
+    labelConfigVersion: dataset.activeLabelConfigVersion,
+    payloadHash: 'f1c9c23391',
+    createdBy: 'ml_ops',
+    createdAt: '2026-05-19T11:12:00+08:00',
+    rollbackAvailable: false,
+  },
+];
+
+const snapshotDiff: AnnotationSnapshotDiff = {
+  datasetId: dataset.id,
+  leftSnapshotId: 'snap-baseline-sample-0001',
+  rightSnapshotId: 'snap-confirmed-sample-0001',
+  changedFieldCount: 3,
+  changedRelationCount: 1,
+  changedCandidateCount: 1,
+  changedFields: [
+    { field: 'stage1.key_relations.R1.bbox', label: '关系框', changeType: 'replace', before: [310, 180, 620, 360], after: [320, 190, 650, 372] },
+    { field: 'stage2.candidates.C1.violation_category', label: '候选类别', changeType: 'replace', before: 'road_occupying_vendor', after: 'goods_blocking_road' },
+    { field: 'stage2.candidates.C1.evidence_reasoning', label: '证据说明', changeType: 'replace', before: '摊贩占道', after: '物品占道证据更完整' },
+  ],
+  relations: [
+    { relationIndex: 'R1', field: 'bbox', label: '关系框', changeType: 'replace', before: [310, 180, 620, 360], after: [320, 190, 650, 372] },
+  ],
+  candidates: [
+    { candidateIndex: 'C1', field: 'violation_category', label: '候选类别', changeType: 'replace', before: 'road_occupying_vendor', after: 'goods_blocking_road' },
+  ],
+  summary: '确认版本相对基线修改了关系框、候选类别和候选证据说明',
+  rollbackAvailable: false,
+};
 
 const fixtureUsers: UserAccount[] = [
   {
@@ -1771,6 +1917,90 @@ export const fixtureApiClient: UrbanViolationApi = {
       trainingExportJobs = [next, ...trainingExportJobs];
     }
     return clone(next);
+  },
+  async createModelEvaluation(_datasetId, payload: ModelEvaluationCreatePayload) {
+    await delay();
+    const evaluation: ModelEvaluationRun = {
+      evaluationId: `eval-${Date.now()}`,
+      datasetId: dataset.id,
+      modelName: payload.modelName,
+      modelVersion: payload.modelVersion,
+      status: 'completed',
+      sampleCount: samplePoolItems.length,
+      sourceExportId: payload.sourceExportId,
+      sourceSnapshotId: payload.sourceSnapshotId,
+      metrics: [
+        { key: 'mAP50', label: 'mAP50', value: 0.84 },
+        { key: 'precision', label: '精确率', value: 0.89 },
+        { key: 'recall', label: '召回率', value: 0.8 },
+      ],
+      metricDeltas: [{ key: 'mAP50', label: 'mAP50', value: 0.84, baselineValue: 0.82, delta: 0.02 }],
+      categoryMetrics: [],
+      changedSampleCount: modelEvaluationDeltaSamples.length,
+      createdBy: currentFixtureUser().userId,
+      createdAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      notes: payload.notes,
+    };
+    modelEvaluations = [evaluation, ...modelEvaluations];
+    return clone(evaluation);
+  },
+  async createDatasetBatchEvaluation(batchId, payload) {
+    return this.createModelEvaluation(batchId, payload);
+  },
+  async listModelEvaluations() {
+    await delay();
+    return clone(modelEvaluations);
+  },
+  async listDatasetBatchEvaluations(batchId) {
+    return this.listModelEvaluations(batchId);
+  },
+  async getModelEvaluation(_datasetId, evaluationId) {
+    await delay();
+    return clone(modelEvaluations.find((item) => item.evaluationId === evaluationId) ?? modelEvaluations[0]);
+  },
+  async getDatasetBatchEvaluation(batchId, evaluationId) {
+    return this.getModelEvaluation(batchId, evaluationId);
+  },
+  async compareModelEvaluations(leftId, rightId) {
+    await delay();
+    const left = modelEvaluations.find((item) => item.evaluationId === leftId) ?? modelEvaluations[1];
+    const right = modelEvaluations.find((item) => item.evaluationId === rightId) ?? modelEvaluations[0];
+    const result: ModelEvaluationCompareResult = {
+      leftEvaluationId: left.evaluationId,
+      rightEvaluationId: right.evaluationId,
+      leftModelVersion: left.modelVersion,
+      rightModelVersion: right.modelVersion,
+      metricDeltas: right.metricDeltas.length ? right.metricDeltas : right.metrics,
+      categoryDeltas: right.categoryMetrics,
+      changedSampleCount: modelEvaluationDeltaSamples.length,
+      improvedCount: 18,
+      regressedCount: 6,
+      summary: '新版本在召回和边界框指标上整体提升',
+    };
+    return clone(result);
+  },
+  async listModelEvaluationDeltaSamples() {
+    await delay();
+    return clone(modelEvaluationDeltaSamples);
+  },
+  async listSnapshots() {
+    await delay();
+    return clone(annotationSnapshots);
+  },
+  async listDatasetBatchSnapshots(batchId) {
+    return this.listSnapshots(batchId);
+  },
+  async diffSnapshots(_datasetId, leftSnapshotId, rightSnapshotId) {
+    await delay();
+    return clone({
+      ...snapshotDiff,
+      leftSnapshotId,
+      rightSnapshotId,
+    });
+  },
+  async diffDatasetBatchSnapshots(batchId, leftSnapshotId, rightSnapshotId) {
+    return this.diffSnapshots(batchId, leftSnapshotId, rightSnapshotId);
   },
   async getBatchAssignment() {
     await delay();

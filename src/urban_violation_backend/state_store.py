@@ -15,6 +15,7 @@ from urban_violation_backend.schemas import (
     AuthSession,
     BatchQcAssignment,
     CorrectionSamplePoolItem,
+    EvaluationRun,
     ExportJob,
     LabelEditDraft,
     LabelEditSubmission,
@@ -83,6 +84,9 @@ class PlatformStateStore:
 
     def _modification_events_path(self, dataset_id: str) -> Path:
         return self._qc_dir(dataset_id) / "modification_events.jsonl"
+
+    def _evaluations_path(self, dataset_id: str) -> Path:
+        return self._qc_dir(dataset_id) / "evaluations.json"
 
     def _sample_pool_dir(self) -> Path:
         return self.root / "sample_pool"
@@ -329,6 +333,52 @@ class PlatformStateStore:
             [row.model_dump(mode="json") for row in updated],
         )
         return job
+
+    def list_evaluations(self, dataset_id: str) -> list[EvaluationRun]:
+        payload = self._read_json(self._evaluations_path(dataset_id), default=[])
+        items = [EvaluationRun.model_validate(item) for item in payload]
+        items.sort(key=lambda item: (item.created_at, item.evaluation_id), reverse=True)
+        return items
+
+    def list_all_evaluations(self) -> list[EvaluationRun]:
+        qc_root = self.root / "qc"
+        if not qc_root.is_dir():
+            return []
+        items: list[EvaluationRun] = []
+        for dataset_dir in sorted(path for path in qc_root.iterdir() if path.is_dir()):
+            items.extend(self.list_evaluations(dataset_dir.name))
+        items.sort(key=lambda item: (item.created_at, item.evaluation_id), reverse=True)
+        return items
+
+    def get_evaluation(self, dataset_id: str, evaluation_id: str) -> EvaluationRun | None:
+        for run in self.list_evaluations(dataset_id):
+            if run.evaluation_id == evaluation_id:
+                return run
+        return None
+
+    def get_evaluation_by_id(self, evaluation_id: str) -> EvaluationRun | None:
+        for run in self.list_all_evaluations():
+            if run.evaluation_id == evaluation_id:
+                return run
+        return None
+
+    def save_evaluation(self, run: EvaluationRun) -> EvaluationRun:
+        rows = self.list_evaluations(run.dataset_id)
+        updated: list[EvaluationRun] = []
+        replaced = False
+        for existing in rows:
+            if existing.evaluation_id == run.evaluation_id:
+                updated.append(run)
+                replaced = True
+                continue
+            updated.append(existing)
+        if not replaced:
+            updated.append(run)
+        self._write_json(
+            self._evaluations_path(run.dataset_id),
+            [item.model_dump(mode="json") for item in updated],
+        )
+        return run
 
     def get_assignment(self, dataset_id: str) -> BatchQcAssignment | None:
         payload = self._read_json(self._assignment_path(dataset_id), default=None)

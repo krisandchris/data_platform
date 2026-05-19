@@ -93,6 +93,43 @@ This file now records only current project progress and recent verification cont
   - `cd frontend && npm run build`: passed.
 - Confirmed protected review workbench files have no diff.
 - Stopped main and agent stacks; service status reports stopped and checked ports were released.
+- Committed the accepted code as `202d11f feat: add qc training export`.
+- Fast-forwarded frontend, backend, and integration agent worktrees to `202d11f` after preserving their accepted Phase 3 dirty states in stashes.
+
+### QC Closed Loop Phase 4 Dispatch
+
+- Started Phase 4: model evaluation feedback and annotation version governance.
+- Backend agent is assigned to implement evaluation run records, metric summaries, comparison APIs, changed sample references, snapshot list/diff APIs, and rollback only if exact restore tests pass.
+- Frontend agent is assigned to add `模型评估` and `版本历史` surfaces to batch overview with metric deltas, snapshot timeline, and diff summaries.
+- Backend Phase 4 implementation completed in the backend agent worktree: added evaluation persistence, metric comparison and delta-sample APIs, snapshot list/diff APIs, rollback-disabled audit path, and backend tests; reported `49 passed`.
+- Frontend Phase 4 implementation completed in the frontend agent worktree: added `模型评估` and `版本历史` batch overview surfaces, evaluation/snapshot API client types, comparison/delta-sample UI, rollback-disabled messaging, and tests; reported `74 passed` and build passing.
+- Integration/test agent is now ready to validate the combined Phase 4 frontend/backend worktree products.
+- Integration/test agent completed Phase 4 validation successfully:
+  - Backend full test suite passed: 49 tests.
+  - Frontend full test suite passed: 74 tests.
+  - Frontend build passed.
+  - Agent stack launched backend `18031` and frontend `15195`.
+  - Online API flow verified evaluation create/list/detail/compare/delta-samples.
+  - Online snapshot flow verified snapshot list/diff after confirmed sample modification.
+  - Rollback endpoint returned `501 rollback_disabled`, confirming rollback is disabled rather than fake-successful.
+  - Browser screenshot smoke confirmed batch overview renders `模型评估` and `版本历史`.
+  - Protected review workbench files were not modified.
+  - Services were stopped and checked ports were released.
+
+### QC Closed Loop Phase 4 Main Sync
+
+- Synchronized the verified Phase 4 frontend/backend outputs from agent worktrees into the main workspace.
+- Main workspace verification passed:
+  - `PLATFORM_STATE_ROOT=/tmp/uvp-eval-version-main uv run pytest`: 49 passed.
+  - `cd frontend && npm run test`: 74 passed.
+  - `cd frontend && npm run build`: passed.
+- Main accepted-code stack smoke passed:
+  - `scripts/dev-stack.sh start` launched backend `8000` and frontend `5173`.
+  - `GET /health` returned 200.
+  - Browser screenshot smoke confirmed batch overview renders `模型评估` and `版本历史`.
+- Confirmed protected review workbench files have no diff.
+- Confirmed `质检闭环整改方案.pdf` is not tracked.
+- Stopped main and agent stacks; service status reports stopped and checked ports were released.
 
 ### QC Closed Loop Plan Adaptation
 

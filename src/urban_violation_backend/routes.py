@@ -18,6 +18,10 @@ from urban_violation_backend.api_schemas import (
     DatasetTypeCreateRequest,
     DatasetTypeResponse,
     DatasetSummaryResponse,
+    EvaluationCompareResponse,
+    EvaluationDeltaSamplesResponse,
+    EvaluationRunCreateRequest,
+    EvaluationRunResponse,
     ExportJobCreateRequest,
     ExportJobListResponse,
     ExportJobResponse,
@@ -45,6 +49,8 @@ from urban_violation_backend.api_schemas import (
     QcProgressResponse,
     QcTaskResponse,
     ReviewSubmitRequest,
+    SnapshotDiffResponse,
+    SnapshotRollbackResponse,
     RoleBindingCreateRequest,
     SampleLeaseResponse,
     SamplePoolItemDetailResponse,
@@ -1014,6 +1020,110 @@ def build_router(service: FixtureRuntimeService) -> APIRouter:
             sample_id=sample_id,
             snapshot_type=snapshot_type,
         )
+
+    @router.post(
+        "/api/datasets/{dataset_id}/evaluations",
+        response_model=EvaluationRunResponse,
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def create_evaluation_run(
+        dataset_id: str,
+        payload: EvaluationRunCreateRequest,
+        runtime: FixtureRuntimeService = Depends(get_service),
+        context=Depends(get_context),
+    ) -> EvaluationRunResponse:
+        return runtime.create_evaluation_run(dataset_id=dataset_id, context=context, request=payload)
+
+    @router.get(
+        "/api/datasets/{dataset_id}/evaluations",
+        response_model=list[EvaluationRunResponse],
+    )
+    async def list_evaluation_runs(
+        dataset_id: str,
+        runtime: FixtureRuntimeService = Depends(get_service),
+        context=Depends(get_context),
+    ) -> list[EvaluationRunResponse]:
+        return runtime.list_evaluation_runs(dataset_id=dataset_id, context=context)
+
+    @router.get(
+        "/api/datasets/{dataset_id}/evaluations/{evaluation_id}",
+        response_model=EvaluationRunResponse,
+    )
+    async def get_evaluation_run(
+        dataset_id: str,
+        evaluation_id: str,
+        runtime: FixtureRuntimeService = Depends(get_service),
+        context=Depends(get_context),
+    ) -> EvaluationRunResponse:
+        return runtime.get_evaluation_run(
+            dataset_id=dataset_id,
+            evaluation_id=evaluation_id,
+            context=context,
+        )
+
+    @router.get(
+        "/api/evaluations/compare",
+        response_model=EvaluationCompareResponse,
+    )
+    async def compare_evaluations(
+        left_id: str = Query(..., min_length=1),
+        right_id: str = Query(..., min_length=1),
+        runtime: FixtureRuntimeService = Depends(get_service),
+        context=Depends(get_context),
+    ) -> EvaluationCompareResponse:
+        return runtime.compare_evaluation_runs(left_id=left_id, right_id=right_id, context=context)
+
+    @router.get(
+        "/api/evaluations/{evaluation_id}/delta-samples",
+        response_model=EvaluationDeltaSamplesResponse,
+    )
+    async def evaluation_delta_samples(
+        evaluation_id: str,
+        runtime: FixtureRuntimeService = Depends(get_service),
+        context=Depends(get_context),
+    ) -> EvaluationDeltaSamplesResponse:
+        return runtime.get_evaluation_delta_samples(evaluation_id=evaluation_id, context=context)
+
+    @router.get(
+        "/api/datasets/{dataset_id}/snapshots",
+        response_model=list[AnnotationSnapshotResponse],
+    )
+    async def list_snapshots(
+        dataset_id: str,
+        runtime: FixtureRuntimeService = Depends(get_service),
+        context=Depends(get_context),
+    ) -> list[AnnotationSnapshotResponse]:
+        return runtime.list_snapshots(dataset_id=dataset_id, context=context)
+
+    @router.get(
+        "/api/datasets/{dataset_id}/snapshots/diff",
+        response_model=SnapshotDiffResponse,
+    )
+    async def get_snapshot_diff(
+        dataset_id: str,
+        left_snapshot_id: str = Query(..., min_length=1),
+        right_snapshot_id: str = Query(..., min_length=1),
+        runtime: FixtureRuntimeService = Depends(get_service),
+        context=Depends(get_context),
+    ) -> SnapshotDiffResponse:
+        return runtime.get_snapshot_diff(
+            dataset_id=dataset_id,
+            left_snapshot_id=left_snapshot_id,
+            right_snapshot_id=right_snapshot_id,
+            context=context,
+        )
+
+    @router.post(
+        "/api/datasets/{dataset_id}/snapshots/{snapshot_id}/rollback",
+        response_model=SnapshotRollbackResponse,
+    )
+    async def rollback_snapshot(
+        dataset_id: str,
+        snapshot_id: str,
+        runtime: FixtureRuntimeService = Depends(get_service),
+        context=Depends(get_context),
+    ) -> SnapshotRollbackResponse:
+        return runtime.rollback_snapshot(dataset_id=dataset_id, snapshot_id=snapshot_id, context=context)
 
     @router.get("/api/sample-pool", response_model=SamplePoolListResponse)
     async def list_sample_pool(

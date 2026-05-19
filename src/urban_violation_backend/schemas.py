@@ -157,6 +157,14 @@ class ExportJobStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class EvaluationRunStatus(str, Enum):
+    """Evaluation run lifecycle status."""
+
+    DRAFT = "draft"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 class StrictModel(BaseModel):
     """Base model that rejects unknown fields for safer contracts."""
 
@@ -546,6 +554,37 @@ class ExportJob(StrictModel):
     completed_at: datetime | None = None
     cancelled_at: datetime | None = None
     error_message: str | None = None
+
+
+class EvaluationMetrics(StrictModel):
+    """Top-level metrics used by model evaluation comparisons."""
+
+    mAP: float | None = Field(default=None, ge=0.0, le=1.0)
+    precision: float | None = Field(default=None, ge=0.0, le=1.0)
+    recall: float | None = Field(default=None, ge=0.0, le=1.0)
+    f1: float | None = Field(default=None, ge=0.0, le=1.0)
+    false_positive_rate: float | None = Field(default=None, ge=0.0, le=1.0)
+    hard_sample_hit_rate: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+class EvaluationRun(StrictModel):
+    """Persisted model evaluation record for one dataset batch."""
+
+    evaluation_id: str
+    dataset_id: str
+    dataset_type: str
+    model_version: str
+    baseline_model_version: str | None = None
+    source_export_id: str | None = None
+    metrics: EvaluationMetrics = Field(default_factory=EvaluationMetrics)
+    category_metrics: dict[str, EvaluationMetrics] = Field(default_factory=dict)
+    hard_sample_count: int = Field(default=0, ge=0)
+    changed_sample_ids: list[str] = Field(default_factory=list)
+    created_by: str
+    created_at: datetime
+    completed_at: datetime | None = None
+    status: EvaluationRunStatus = EvaluationRunStatus.COMPLETED
+    notes: str | None = None
 
 
 class AuditEvent(StrictModel):

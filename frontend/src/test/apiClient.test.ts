@@ -1188,4 +1188,181 @@ describe('HTTP API adapter', () => {
     expect(api.getTrainingExportDownloadUrl('export-1')).toBe('http://backend.test/api/exports/export-1/download');
     expect(cancelled.status).toBe('cancelled');
   });
+
+  it('uses evaluation and version-history API endpoints with normalized fields', async () => {
+    const evaluationPayload = {
+      evaluation_id: 'eval-2',
+      dataset_id: 'urban_violation__0508_fixture',
+      model_name: 'Qwen2.5-VL',
+      model_version: 'qwen2.5-vl-qc-v2',
+      status: 'completed',
+      sample_count: 780,
+      source_export_id: 'export-1',
+      source_snapshot_id: 'snap-model-2',
+      metrics: [{ key: 'mAP50', label: 'mAP50', value: 0.84, baseline_value: 0.81, delta: 0.03 }],
+      metric_deltas: [{ key: 'recall', label: '召回率', value: 0.8, baseline_value: 0.76, delta: 0.04 }],
+      category_metrics: [{ category: 'goods_blocking_road', label: '物品占道', precision: 0.9, recall: 0.82, f1_score: 0.86, sample_count: 120, delta: 0.02 }],
+      changed_sample_count: 12,
+      created_at: '2026-05-19T10:00:00Z',
+      completed_at: '2026-05-19T10:08:00Z',
+    };
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ evaluation: evaluationPayload }))
+      .mockResolvedValueOnce(jsonResponse({ evaluations: [evaluationPayload] }))
+      .mockResolvedValueOnce(jsonResponse({ run: evaluationPayload }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          left: {
+            evaluation_id: 'eval-1',
+            model_version: 'qwen2.5-vl-qc-v1',
+          },
+          right: {
+            evaluation_id: 'eval-2',
+            model_version: 'qwen2.5-vl-qc-v2',
+          },
+          metric_delta: {
+            mAP: 0.03,
+            precision: 0.02,
+            recall: 0.04,
+            f1: 0.03,
+            false_positive_rate: -0.01,
+            hard_sample_hit_rate: 0.05,
+          },
+          category_deltas: [
+            {
+              category: 'goods_blocking_road',
+              label: '物品占道',
+              metric_delta: {
+                precision: 0.01,
+                recall: 0.03,
+                f1: 0.02,
+              },
+            },
+          ],
+          changed_samples: {
+            left_only: ['sample-regressed'],
+            right_only: ['sample-improved-1', 'sample-improved-2'],
+            intersection: ['sample-overlap'],
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          samples: [
+            {
+              sample_id: 'sample-1',
+              category: 'goods_blocking_road',
+              change_type: 'improved',
+              before_snapshot_id: 'snap-before',
+              after_snapshot_id: 'snap-after',
+              metric_impacts: [{ key: 'confidence', label: '置信度', value: 0.9, baseline_value: 0.75, delta: 0.15 }],
+              reason: 'model improved',
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          snapshots: [
+            {
+              snapshot_id: 'snap-confirmed-1',
+              dataset_id: 'urban_violation__0508_fixture',
+              sample_id: 'sample-1',
+              snapshot_type: 'confirmed',
+              source_submission_id: 'submission-1',
+              label_config_version: 'urban_violation_labels_v1',
+              payload_hash: 'hash-1',
+              created_by: 'qc_lead_a',
+              created_at: '2026-05-19T09:00:00Z',
+              rollback_available: false,
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          dataset_id: 'urban_violation__0508_fixture',
+          left_snapshot_id: 'snap-baseline-1',
+          right_snapshot_id: 'snap-confirmed-1',
+          operation_count: 5,
+          changed_fields: ['candidate.C1.violation_category'],
+          changed_relations: ['R1.bbox'],
+          changed_candidates: ['C1.violation_category'],
+          rollback_available: false,
+        }),
+      );
+    const api = new HttpUrbanViolationApi(new HttpClient({ baseUrl: 'http://backend.test/api', fetcher }));
+
+    const created = await api.createDatasetBatchEvaluation('urban_violation__0508_fixture', {
+      modelVersion: 'qwen2.5-vl-qc-v2',
+      modelName: 'Qwen2.5-VL',
+      sourceExportId: 'export-1',
+      sourceSnapshotId: 'snap-model-2',
+      notes: 'phase4 smoke',
+    });
+    const evaluations = await api.listDatasetBatchEvaluations('urban_violation__0508_fixture');
+    const evaluation = await api.getDatasetBatchEvaluation('urban_violation__0508_fixture', 'eval-2');
+    const comparison = await api.compareModelEvaluations('eval-1', 'eval-2');
+    const deltaSamples = await api.listModelEvaluationDeltaSamples('eval-2');
+    const snapshots = await api.listDatasetBatchSnapshots('urban_violation__0508_fixture');
+    const diff = await api.diffDatasetBatchSnapshots('urban_violation__0508_fixture', 'snap-baseline-1', 'snap-confirmed-1');
+
+    expect(fetcher.mock.calls.map((call) => call[0])).toEqual([
+      'http://backend.test/api/datasets/urban_violation__0508_fixture/evaluations',
+      'http://backend.test/api/datasets/urban_violation__0508_fixture/evaluations',
+      'http://backend.test/api/datasets/urban_violation__0508_fixture/evaluations/eval-2',
+      'http://backend.test/api/evaluations/compare?left_id=eval-1&right_id=eval-2',
+      'http://backend.test/api/evaluations/eval-2/delta-samples',
+      'http://backend.test/api/datasets/urban_violation__0508_fixture/snapshots',
+      'http://backend.test/api/datasets/urban_violation__0508_fixture/snapshots/diff?left_snapshot_id=snap-baseline-1&right_snapshot_id=snap-confirmed-1',
+    ]);
+    expect(fetcher.mock.calls[0][1]?.body).toBe(
+      JSON.stringify({
+        model_version: 'qwen2.5-vl-qc-v2',
+        model_name: 'Qwen2.5-VL',
+        source_export_id: 'export-1',
+        source_snapshot_id: 'snap-model-2',
+        notes: 'phase4 smoke',
+      }),
+    );
+    expect(created).toMatchObject({ evaluationId: 'eval-2', modelVersion: 'qwen2.5-vl-qc-v2' });
+    expect(evaluations[0].categoryMetrics[0]).toMatchObject({ category: 'goods_blocking_road', f1: 0.86 });
+    expect(evaluation.metricDeltas[0]).toMatchObject({ key: 'recall', baselineValue: 0.76, delta: 0.04 });
+    expect(comparison).toMatchObject({
+      leftEvaluationId: 'eval-1',
+      rightEvaluationId: 'eval-2',
+      leftModelVersion: 'qwen2.5-vl-qc-v1',
+      rightModelVersion: 'qwen2.5-vl-qc-v2',
+      changedSampleCount: 4,
+      improvedCount: 2,
+      regressedCount: 1,
+    });
+    expect(comparison.metricDeltas).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'mAP', label: 'mAP', value: 0.03, delta: 0.03 }),
+        expect.objectContaining({ key: 'false_positive_rate', label: '误报率', value: -0.01, delta: -0.01 }),
+        expect.objectContaining({ key: 'hard_sample_hit_rate', label: '困难样本命中率', value: 0.05, delta: 0.05 }),
+      ]),
+    );
+    expect(comparison.categoryDeltas[0]).toMatchObject({
+      category: 'goods_blocking_road',
+      precision: 0.01,
+      recall: 0.03,
+      f1: 0.02,
+      delta: 0.02,
+    });
+    expect(deltaSamples[0]).toMatchObject({ sampleId: 'sample-1', beforeSnapshotId: 'snap-before' });
+    expect(snapshots[0]).toMatchObject({ snapshotId: 'snap-confirmed-1', snapshotType: 'confirmed', rollbackAvailable: false });
+    expect(diff).toMatchObject({
+      leftSnapshotId: 'snap-baseline-1',
+      rightSnapshotId: 'snap-confirmed-1',
+      changedRelationCount: 1,
+      changedCandidateCount: 1,
+      changedFieldCount: 1,
+      summary: '操作数 5',
+      relations: [expect.objectContaining({ field: 'R1.bbox' })],
+      candidates: [expect.objectContaining({ field: 'C1.violation_category' })],
+    });
+  });
 });

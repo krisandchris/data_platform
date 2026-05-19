@@ -4,12 +4,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AssetListItem,
   AssetSummary,
+  AnnotationSnapshot,
+  AnnotationSnapshotDiff,
   Dataset,
   DatasetSummary,
   ImportJobDetail,
   LabelConfig,
   LabelConfigSaveResult,
   LabelConfigValidationResult,
+  ModelEvaluationCompareResult,
+  ModelEvaluationDeltaSample,
+  ModelEvaluationRun,
   PreannotationSummary,
   QcModificationEventStats,
   QcQueueItem,
@@ -57,6 +62,18 @@ const mockApiClient = vi.hoisted(() => ({
   downloadTrainingExport: vi.fn(),
   getTrainingExportDownloadUrl: vi.fn(),
   cancelTrainingExport: vi.fn(),
+  createDatasetBatchEvaluation: vi.fn(),
+  createModelEvaluation: vi.fn(),
+  listDatasetBatchEvaluations: vi.fn(),
+  listModelEvaluations: vi.fn(),
+  getDatasetBatchEvaluation: vi.fn(),
+  getModelEvaluation: vi.fn(),
+  compareModelEvaluations: vi.fn(),
+  listModelEvaluationDeltaSamples: vi.fn(),
+  listDatasetBatchSnapshots: vi.fn(),
+  listSnapshots: vi.fn(),
+  diffDatasetBatchSnapshots: vi.fn(),
+  diffSnapshots: vi.fn(),
   getQcWorkspace: vi.fn(),
   generateQcQueue: vi.fn(),
   getQcProgress: vi.fn(),
@@ -324,6 +341,81 @@ const makeTrainingExportJob = (overrides: Partial<TrainingExportJob> = {}): Trai
   completedAt: '2026-05-19T10:02:00Z',
   downloadUrl: 'http://backend.test/api/exports/export-coco-1/download',
   ...overrides,
+});
+
+const makeModelEvaluation = (overrides: Partial<ModelEvaluationRun> = {}): ModelEvaluationRun => ({
+  evaluationId: 'eval-v2',
+  datasetId: 'ds-live',
+  modelName: 'Qwen2.5-VL',
+  modelVersion: 'qwen2.5-vl-qc-v2',
+  status: 'completed',
+  sampleCount: 780,
+  sourceExportId: 'export-coco-1',
+  sourceSnapshotId: 'snap-model-v2',
+  metrics: [
+    { key: 'mAP50', label: 'mAP50', value: 0.84, baselineValue: 0.81, delta: 0.03 },
+    { key: 'recall', label: '召回率', value: 0.8, baselineValue: 0.76, delta: 0.04 },
+  ],
+  metricDeltas: [{ key: 'mAP50', label: 'mAP50', value: 0.84, baselineValue: 0.81, delta: 0.03 }],
+  categoryMetrics: [
+    { category: 'goods_blocking_road', label: '物品占道', precision: 0.9, recall: 0.82, f1: 0.86, sampleCount: 120, delta: 0.02 },
+  ],
+  changedSampleCount: 12,
+  createdAt: '2026-05-19T10:00:00Z',
+  completedAt: '2026-05-19T10:08:00Z',
+  ...overrides,
+});
+
+const makeEvaluationCompare = (): ModelEvaluationCompareResult => ({
+  leftEvaluationId: 'eval-v1',
+  rightEvaluationId: 'eval-v2',
+  leftModelVersion: 'qwen2.5-vl-qc-v1',
+  rightModelVersion: 'qwen2.5-vl-qc-v2',
+  metricDeltas: [{ key: 'mAP50', label: 'mAP50', value: 0.84, baselineValue: 0.81, delta: 0.03 }],
+  categoryDeltas: [{ category: 'goods_blocking_road', label: '物品占道', precision: 0.9, recall: 0.82, f1: 0.86, sampleCount: 120, delta: 0.02 }],
+  changedSampleCount: 12,
+  improvedCount: 8,
+  regressedCount: 4,
+});
+
+const makeDeltaSamples = (): ModelEvaluationDeltaSample[] => [
+  {
+    sampleId: 'sample-1',
+    category: 'goods_blocking_road',
+    changeType: '指标提升',
+    beforeSnapshotId: 'snap-baseline-1',
+    afterSnapshotId: 'snap-model-v2-1',
+    metricImpacts: [{ key: 'confidence', label: '置信度', value: 0.9, baselineValue: 0.75, delta: 0.15 }],
+    reason: '修正样本被新模型正确召回',
+  },
+];
+
+const makeSnapshot = (overrides: Partial<AnnotationSnapshot> = {}): AnnotationSnapshot => ({
+  snapshotId: 'snap-confirmed-1',
+  datasetId: 'ds-live',
+  sampleId: 'sample-1',
+  snapshotType: 'confirmed',
+  labelConfigVersion: 'urban_violation_labels_v1',
+  sourceSubmissionId: 'submission-1',
+  payloadHash: 'hash-confirmed',
+  createdBy: 'qc_lead_a',
+  createdAt: '2026-05-19T09:20:00Z',
+  rollbackAvailable: false,
+  ...overrides,
+});
+
+const makeSnapshotDiff = (): AnnotationSnapshotDiff => ({
+  datasetId: 'ds-live',
+  leftSnapshotId: 'snap-baseline-1',
+  rightSnapshotId: 'snap-confirmed-1',
+  changedFieldCount: 3,
+  changedRelationCount: 1,
+  changedCandidateCount: 1,
+  changedFields: [{ field: 'candidate.C1.violation_category', label: '候选类别', changeType: 'replace', before: '摊贩占道', after: '物品占道' }],
+  relations: [{ relationIndex: 'R1', field: 'bbox', label: '关系框', changeType: 'replace', before: [1, 2, 3, 4], after: [2, 3, 4, 5] }],
+  candidates: [{ candidateIndex: 'C1', field: 'violation_category', label: '候选类别', changeType: 'replace', before: 'road_occupying_vendor', after: 'goods_blocking_road' }],
+  summary: '确认版本相对基线存在 3 项变更',
+  rollbackAvailable: false,
 });
 
 const makeAssetSummary = (batchId: string, total: number): AssetSummary => ({
@@ -790,6 +882,39 @@ beforeEach(() => {
   mockApiClient.cancelTrainingExport.mockImplementation((exportId: string) =>
     Promise.resolve(makeTrainingExportJob({ exportId, status: 'cancelled', completedAt: '2026-05-19T10:04:00Z' })),
   );
+  mockApiClient.createDatasetBatchEvaluation.mockResolvedValue(makeModelEvaluation({ evaluationId: 'eval-created' }));
+  mockApiClient.createModelEvaluation.mockResolvedValue(makeModelEvaluation({ evaluationId: 'eval-created' }));
+  mockApiClient.listDatasetBatchEvaluations.mockResolvedValue([
+    makeModelEvaluation(),
+    makeModelEvaluation({
+      evaluationId: 'eval-v1',
+      modelVersion: 'qwen2.5-vl-qc-v1',
+      metrics: [{ key: 'mAP50', label: 'mAP50', value: 0.81 }],
+      metricDeltas: [],
+      changedSampleCount: 18,
+      createdAt: '2026-05-18T10:00:00Z',
+      completedAt: '2026-05-18T10:08:00Z',
+    }),
+  ]);
+  mockApiClient.listModelEvaluations.mockResolvedValue([makeModelEvaluation()]);
+  mockApiClient.getDatasetBatchEvaluation.mockResolvedValue(makeModelEvaluation());
+  mockApiClient.getModelEvaluation.mockResolvedValue(makeModelEvaluation());
+  mockApiClient.compareModelEvaluations.mockResolvedValue(makeEvaluationCompare());
+  mockApiClient.listModelEvaluationDeltaSamples.mockResolvedValue(makeDeltaSamples());
+  mockApiClient.listDatasetBatchSnapshots.mockResolvedValue([
+    makeSnapshot(),
+    makeSnapshot({
+      snapshotId: 'snap-baseline-1',
+      snapshotType: 'baseline',
+      sourceSubmissionId: undefined,
+      payloadHash: 'hash-baseline',
+      createdBy: 'importer',
+      createdAt: '2026-05-18T09:00:00Z',
+    }),
+  ]);
+  mockApiClient.listSnapshots.mockResolvedValue([makeSnapshot()]);
+  mockApiClient.diffDatasetBatchSnapshots.mockResolvedValue(makeSnapshotDiff());
+  mockApiClient.diffSnapshots.mockResolvedValue(makeSnapshotDiff());
   mockApiClient.listDatasetBatchAssets.mockResolvedValue([makeAsset('ds-live', 'sample-1')]);
   mockApiClient.getDatasetBatchImportJob.mockResolvedValue(importJob);
   mockApiClient.getDatasetBatchPreannotationSummary.mockResolvedValue(makePreannotationSummary('ds-live', 2));
@@ -1708,6 +1833,73 @@ describe('route rendering and live route states', () => {
     expect(wrapper.find('[data-testid="qc-analysis-error"]').text()).toContain('质检分析暂不可用：接口未实现');
     expect(wrapper.text()).toContain('Batch A');
     expect(wrapper.text()).toContain('数据集概况');
+  });
+
+  it('renders model evaluation and version history on the batch overview', async () => {
+    const wrapper = mount(DatasetOverviewPage, {
+      props: {
+        id: 'urban_violation__0519_phase4',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+    await flushPromises();
+    await flushPromises();
+
+    expect(mockApiClient.listDatasetBatchEvaluations).toHaveBeenCalledWith('urban_violation__0519_phase4');
+    expect(mockApiClient.compareModelEvaluations).toHaveBeenCalledWith('eval-v1', 'eval-v2');
+    expect(mockApiClient.listDatasetBatchSnapshots).toHaveBeenCalledWith('urban_violation__0519_phase4');
+    expect(mockApiClient.diffDatasetBatchSnapshots).toHaveBeenCalledWith(
+      'urban_violation__0519_phase4',
+      'snap-baseline-1',
+      'snap-confirmed-1',
+    );
+    expect(wrapper.text()).toContain('模型评估');
+    expect(wrapper.text()).toContain('qwen2.5-vl-qc-v2');
+    expect(wrapper.text()).toContain('评估比较');
+    expect(wrapper.text()).toContain('mAP50');
+    expect(wrapper.text()).toContain('版本历史');
+    expect(wrapper.text()).toContain('确认标注');
+    expect(wrapper.text()).toContain('候选类别');
+    expect(wrapper.text()).toContain('回滚需通过精确恢复校验后启用');
+
+    const deltaButton = wrapper.findAll('button').find((button) => button.text().includes('变化样本'));
+    await deltaButton?.trigger('click');
+    await flushPromises();
+
+    expect(mockApiClient.listModelEvaluationDeltaSamples).toHaveBeenCalledWith('eval-v2');
+    expect(wrapper.find('[data-testid="model-evaluation-delta-table"]').text()).toContain('sample-1');
+    expect(wrapper.text()).toContain('修正样本被新模型正确召回');
+  });
+
+  it('shows comparison and snapshot diff empty states when records are insufficient', async () => {
+    mockApiClient.listDatasetBatchEvaluations.mockResolvedValueOnce([makeModelEvaluation({ evaluationId: 'eval-only' })]);
+    mockApiClient.listDatasetBatchSnapshots.mockResolvedValueOnce([
+      makeSnapshot({ snapshotId: 'snap-only', snapshotType: 'baseline' }),
+    ]);
+
+    const wrapper = mount(DatasetOverviewPage, {
+      props: {
+        id: 'urban_violation__phase4_empty',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+    await flushPromises();
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="model-evaluation-compare-empty"]').text()).toContain(
+      '至少需要两个评估记录才能比较',
+    );
+    expect(wrapper.find('[data-testid="snapshot-diff-empty"]').text()).toContain('至少需要两个版本快照才能对比');
+    expect(mockApiClient.compareModelEvaluations).not.toHaveBeenCalled();
+    expect(mockApiClient.diffDatasetBatchSnapshots).not.toHaveBeenCalled();
   });
 
   it('reloads assets and review links with the concrete batch id after batch route reuse', async () => {

@@ -6,7 +6,7 @@
         <p class="page-subtitle">
           批次ID: {{ id }}
           <span v-if="summary">| 类型: {{ summary.dataset.datasetType ?? summary.dataset.name }}</span>
-          <span v-if="summary">| batch_key: {{ summary.dataset.batchKey ?? '-' }}</span>
+          <span v-if="summary">| 批次键: {{ summary.dataset.batchKey ?? '-' }}</span>
         </p>
       </div>
       <div class="page-actions">
@@ -42,35 +42,35 @@
       {{ actionMessage }}
     </p>
 
-    <div v-if="loading" class="loading-state">Loading dashboard...</div>
+    <div v-if="loading" class="loading-state">正在加载数据集概览...</div>
     <div v-else-if="error" class="error-state">{{ error }}</div>
     <template v-else-if="summary">
       <section class="panel overview-grid">
         <div class="batch-context">
           <div>
-            <span class="context-label">Dataset Type</span>
+            <span class="context-label">数据集类型</span>
             <strong>{{ summary.dataset.displayName ?? summary.dataset.datasetType ?? summary.dataset.name }}</strong>
             <small>{{ summary.dataset.datasetType ?? summary.dataset.name }}</small>
           </div>
           <div>
-            <span class="context-label">Batch</span>
+            <span class="context-label">批次</span>
             <strong>{{ summary.dataset.batchName ?? summary.dataset.name }}</strong>
             <small>{{ summary.dataset.batchKey ?? id }}</small>
           </div>
           <div>
-            <span class="context-label">Lifecycle</span>
-            <StatusChip :value="lifecycleStatus" />
+            <span class="context-label">生命周期</span>
+            <StatusChip :value="lifecycleStatus" :label="lifecycleStatusLabel(lifecycleStatus)" />
             <small>{{ lifecycleHint }}</small>
           </div>
           <div>
-            <span class="context-label">Active label config</span>
+            <span class="context-label">当前标签配置</span>
             <strong>{{ summary.dataset.activeLabelConfigVersion ?? '未激活' }}</strong>
             <small>继承自数据集类型，批次内不可激活</small>
           </div>
           <div>
-            <span class="context-label">Latest import job</span>
+            <span class="context-label">最新导入任务</span>
             <strong>{{ summary.latestImportJob?.id ?? summary.dataset.activeImportJobId ?? '未创建' }}</strong>
-            <small>{{ summary.latestImportJob?.state ?? '-' }}</small>
+            <small>{{ importJobStateLabel(summary.latestImportJob?.state) }}</small>
           </div>
         </div>
       </section>
@@ -79,16 +79,20 @@
 
       <QcAnalysisPanel :dataset-id="id" />
 
+      <ModelEvaluationPanel :dataset-id="id" />
+
+      <VersionHistoryPanel :dataset-id="id" />
+
       <section class="grid grid--two overview-grid">
         <div class="panel">
           <div class="panel__header">
             <h2 class="panel__title">批次生命周期</h2>
-            <StatusChip :value="lifecycleStatus" />
+            <StatusChip :value="lifecycleStatus" :label="lifecycleStatusLabel(lifecycleStatus)" />
           </div>
           <div class="lifecycle-track">
             <article v-for="step in lifecycleSteps" :key="step.status" :class="{ active: step.status === lifecycleStatus }">
               <span>{{ step.label }}</span>
-              <small>{{ step.status }}</small>
+              <small>{{ lifecycleStatusLabel(step.status) }}</small>
             </article>
           </div>
         </div>
@@ -103,7 +107,7 @@
               <strong>{{ summary.assetSummary?.media.valid ?? summary.totals.rawAssets }}/{{ summary.assetSummary?.media.total ?? summary.totals.rawAssets }}</strong>
             </div>
             <div>
-              <span>STEP2 failure</span>
+              <span>STEP2 失败</span>
               <strong>{{ summary.assetSummary?.preannotation.stage2Failed ?? summary.totals.stage2Failures }}</strong>
             </div>
             <div>
@@ -127,18 +131,18 @@
             <table class="runs-table">
               <thead>
                 <tr>
-                  <th>run</th>
-                  <th>stage</th>
-                  <th>status</th>
-                  <th>input</th>
-                  <th>output</th>
+                  <th>运行</th>
+                  <th>阶段</th>
+                  <th>状态</th>
+                  <th>输入</th>
+                  <th>输出</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="run in summary.recentRuns" :key="run.runId">
                   <td>{{ run.name }}</td>
-                  <td>{{ run.stage }}</td>
-                  <td><StatusChip :value="run.status" /></td>
+                  <td>{{ runStageLabel(run.stage) }}</td>
+                  <td><StatusChip :value="run.status" :label="runStatusLabel(run.status)" /></td>
                   <td>{{ run.inputCount }}</td>
                   <td>{{ run.outputCount }}</td>
                 </tr>
@@ -194,7 +198,7 @@
         </dl>
       </section>
     </template>
-    <div v-else class="empty-state">No dataset overview returned by the backend.</div>
+    <div v-else class="empty-state">后端暂未返回数据集概览</div>
   </div>
 </template>
 
@@ -207,7 +211,9 @@ import StatusChip from '../../shared/components/StatusChip.vue';
 import { useAsyncState } from '../../shared/composables/useAsyncState';
 import DatasetDashboardCards from './components/DatasetDashboardCards.vue';
 import DistributionPanel from './components/DistributionPanel.vue';
+import ModelEvaluationPanel from './components/ModelEvaluationPanel.vue';
 import QcAnalysisPanel from './components/QcAnalysisPanel.vue';
+import VersionHistoryPanel from './components/VersionHistoryPanel.vue';
 
 const props = defineProps<{ id: string }>();
 const { data, loading, error, reload } = useAsyncState(() => apiClient.getDatasetBatchSummary(props.id), {
@@ -283,6 +289,65 @@ const lifecycleSteps = [
   { status: 'qc_ready', label: '质检' },
   { status: 'qc_completed', label: '完成' },
 ];
+
+function lifecycleStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    draft: '草稿',
+    registered: '已登记',
+    scanning: '扫描中',
+    validation_failed: '校验失败',
+    validated: '已校验',
+    importing: '导入中',
+    import_failed: '导入失败',
+    imported: '已入库',
+    preannotation_pending: '等待预标注',
+    preannotating: '预标注中',
+    preannotation_failed: '预标注失败',
+    preannotation_ready: '预标注就绪',
+    label_config_required: '等待标签配置',
+    qc_ready: '质检就绪',
+    qc_in_progress: '质检中',
+    qc_completed: '质检完成',
+    export_ready: '可导出',
+    active: '启用',
+    archived: '归档',
+  };
+  return labels[status] ?? status;
+}
+
+function importJobStateLabel(status?: string) {
+  if (!status) return '-';
+  const labels: Record<string, string> = {
+    Draft: '草稿',
+    Uploading: '上传中',
+    Uploaded: '已上传',
+    Scanning: '扫描中',
+    Validating: '校验中',
+    ValidationPassed: '校验通过',
+    PreviewReady: '预览就绪',
+    Importing: '导入中',
+    Imported: '已导入',
+    QCQueueGenerated: '质检队列已生成',
+    ValidationFailed: '校验失败',
+    ImportFailed: '导入失败',
+  };
+  return labels[status] ?? status;
+}
+
+function runStageLabel(stage: string) {
+  if (stage === 'stage1') return '阶段一';
+  if (stage === 'stage2') return '阶段二';
+  return stage;
+}
+
+function runStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    success: '成功',
+    running: '运行中',
+    failed: '失败',
+  };
+  return labels[status] ?? status;
+}
 </script>
 
 <style scoped>

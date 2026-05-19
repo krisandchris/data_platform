@@ -34,6 +34,14 @@ from urban_violation_backend.api_schemas import (
     DatasetTypeCreateRequest,
     DatasetTypeResponse,
     DatasetSummaryResponse,
+    EvaluationCategoryDelta,
+    EvaluationChangedSamplesDelta,
+    EvaluationCompareResponse,
+    EvaluationDeltaSampleRefResponse,
+    EvaluationDeltaSamplesResponse,
+    EvaluationMetricDelta,
+    EvaluationRunCreateRequest,
+    EvaluationRunResponse,
     ExportJobCreateRequest,
     ExportJobListResponse,
     ExportJobListFiltersResponse,
@@ -62,6 +70,8 @@ from urban_violation_backend.api_schemas import (
     QcProgressResponse,
     QcTaskResponse,
     ReviewSubmitRequest,
+    SnapshotDiffResponse,
+    SnapshotRollbackResponse,
     SampleLeaseResponse,
     SamplePoolDatasetCount,
     SamplePoolFiltersResponse,
@@ -120,6 +130,9 @@ from urban_violation_backend.schemas import (
     BatchQcAssignment,
     CorrectionSamplePoolItem,
     DatasetLifecycleStatus,
+    EvaluationMetrics,
+    EvaluationRun,
+    EvaluationRunStatus,
     ExportFormat,
     ExportJob,
     ExportJobStatus,
@@ -1791,6 +1804,315 @@ class FixtureRuntimeService:
             snapshot_type=snapshot_type,
         )
         return [AnnotationSnapshotResponse(**item.model_dump()) for item in snapshots]
+
+    @staticmethod
+    def _to_evaluation_run_response(run: EvaluationRun) -> EvaluationRunResponse:
+        return EvaluationRunResponse(**run.model_dump())
+
+    @staticmethod
+    def _metric_delta(left: EvaluationMetrics, right: EvaluationMetrics) -> EvaluationMetricDelta:
+        def subtract(left_value: float | None, right_value: float | None) -> float | None:
+            if left_value is None or right_value is None:
+                return None
+            return right_value - left_value
+
+        return EvaluationMetricDelta(
+            mAP=subtract(left.mAP, right.mAP),
+            precision=subtract(left.precision, right.precision),
+            recall=subtract(left.recall, right.recall),
+            f1=subtract(left.f1, right.f1),
+            false_positive_rate=subtract(left.false_positive_rate, right.false_positive_rate),
+            hard_sample_hit_rate=subtract(left.hard_sample_hit_rate, right.hard_sample_hit_rate),
+        )
+
+    def _seed_evaluation_metrics(
+        self,
+        *,
+        dataset_id: str,
+        model_version: str,
+        hard_sample_count: int,
+        changed_sample_count: int,
+    ) -> EvaluationMetrics:
+        raw = hashlib.sha256(f"{dataset_id}:{model_version}".encode("utf-8")).hexdigest()
+        base = int(raw[:8], 16)
+        precision = min(0.99, 0.68 + ((base % 200) / 1000.0))
+        recall = min(0.99, 0.62 + (((base // 7) % 220) / 1000.0))
+        f1 = 0.0 if (precision + recall) == 0 else (2.0 * precision * recall / (precision + recall))
+        m_ap = max(0.0, min(0.99, f1 - 0.04))
+        false_positive_rate = max(0.0, min(1.0, 1.0 - precision))
+        if hard_sample_count <= 0:
+            hard_sample_hit_rate = 0.0
+        else:
+            hard_sample_hit_rate = min(1.0, changed_sample_count / hard_sample_count)
+        return EvaluationMetrics(
+            mAP=round(m_ap, 4),
+            precision=round(precision, 4),
+            recall=round(recall, 4),
+            f1=round(f1, 4),
+            false_positive_rate=round(false_positive_rate, 4),
+            hard_sample_hit_rate=round(hard_sample_hit_rate, 4),
+        )
+
+    @staticmethod
+    def _normalized_changed_sample_ids(sample_ids: list[str]) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for sample_id in sample_ids:
+            stripped = sample_id.strip()
+            if not stripped or stripped in seen:
+                continue
+            seen.add(stripped)
+            normalized.append(stripped)
+        return normalized
+
+    def create_evaluation_run(
+        self,
+        dataset_id: str,
+        *,
+        context: AuthContext,
+        request: EvaluationRunCreateRequest,
+    ) -> EvaluationRunResponse:
+        self._require_dataset(dataset_id)
+        self._require_permission(context=context, action="batch_assignment:manage", dataset_id=dataset_id)
+        active_dataset_id = self._effective_batch_dataset_id(dataset_id)
+        now = self._state_store.now()
+        changed_sample_ids = self._normalized_changed_sample_ids(request.changed_sample_ids)
+        hard_sample_count = request.hard_sample_count
+        if hard_sample_count is None:
+            hard_sample_count = len(changed_sample_ids)
+        metrics = request.metrics or self._seed_evaluation_metrics(
+            dataset_id=active_dataset_id,
+            model_version=request.model_version,
+            hard_sample_count=hard_sample_count,
+            changed_sample_count=len(changed_sample_ids),
+        )
+        run = EvaluationRun(
+            evaluation_id=self._state_store.new_id("eval"),
+            dataset_id=active_dataset_id,
+            dataset_type=self._resolve_dataset_type(active_dataset_id),
+            model_version=request.model_version,
+            baseline_model_version=request.baseline_model_version,
+            source_export_id=request.source_export_id,
+            metrics=metrics,
+            category_metrics=request.category_metrics,
+            hard_sample_count=hard_sample_count,
+            changed_sample_ids=changed_sample_ids,
+            created_by=context.user_id,
+            created_at=now,
+            completed_at=(
+                request.completed_at
+                if request.completed_at is not None
+                else (now if request.status == EvaluationRunStatus.COMPLETED else None)
+            ),
+            status=request.status,
+            notes=request.notes,
+        )
+        stored = self._state_store.save_evaluation(run)
+        self._record_audit(
+            actor=context,
+            action="evaluation.create",
+            entity="evaluation_run",
+            dataset_id=active_dataset_id,
+            details={"evaluation_id": stored.evaluation_id, "model_version": stored.model_version},
+        )
+        return self._to_evaluation_run_response(stored)
+
+    def list_evaluation_runs(
+        self,
+        dataset_id: str,
+        *,
+        context: AuthContext,
+    ) -> list[EvaluationRunResponse]:
+        self._require_dataset(dataset_id)
+        self._require_permission(context=context, action="qc_queue:read", dataset_id=dataset_id)
+        active_dataset_id = self._effective_batch_dataset_id(dataset_id)
+        rows = self._state_store.list_evaluations(active_dataset_id)
+        return [self._to_evaluation_run_response(item) for item in rows]
+
+    def get_evaluation_run(
+        self,
+        dataset_id: str,
+        evaluation_id: str,
+        *,
+        context: AuthContext,
+    ) -> EvaluationRunResponse:
+        self._require_dataset(dataset_id)
+        self._require_permission(context=context, action="qc_queue:read", dataset_id=dataset_id)
+        active_dataset_id = self._effective_batch_dataset_id(dataset_id)
+        row = self._state_store.get_evaluation(active_dataset_id, evaluation_id)
+        if row is None:
+            raise ApiError(
+                status_code=404,
+                code="not_found",
+                message=f"Evaluation run not found: {evaluation_id}",
+            )
+        return self._to_evaluation_run_response(row)
+
+    def compare_evaluation_runs(
+        self,
+        *,
+        left_id: str,
+        right_id: str,
+        context: AuthContext,
+    ) -> EvaluationCompareResponse:
+        left = self._state_store.get_evaluation_by_id(left_id)
+        right = self._state_store.get_evaluation_by_id(right_id)
+        if left is None:
+            raise ApiError(status_code=404, code="not_found", message=f"Evaluation run not found: {left_id}")
+        if right is None:
+            raise ApiError(status_code=404, code="not_found", message=f"Evaluation run not found: {right_id}")
+        self._require_permission(context=context, action="qc_queue:read", dataset_id=left.dataset_id)
+        self._require_permission(context=context, action="qc_queue:read", dataset_id=right.dataset_id)
+        metric_delta = self._metric_delta(left.metrics, right.metrics)
+        categories = sorted(set(left.category_metrics.keys()) | set(right.category_metrics.keys()))
+        category_deltas = [
+            EvaluationCategoryDelta(
+                category=category,
+                metric_delta=self._metric_delta(
+                    left.category_metrics.get(category, EvaluationMetrics()),
+                    right.category_metrics.get(category, EvaluationMetrics()),
+                ),
+            )
+            for category in categories
+        ]
+        left_set = set(left.changed_sample_ids)
+        right_set = set(right.changed_sample_ids)
+        return EvaluationCompareResponse(
+            left=self._to_evaluation_run_response(left),
+            right=self._to_evaluation_run_response(right),
+            metric_delta=metric_delta,
+            category_deltas=category_deltas,
+            changed_samples=EvaluationChangedSamplesDelta(
+                left_only=sorted(left_set - right_set),
+                right_only=sorted(right_set - left_set),
+                intersection=sorted(left_set & right_set),
+            ),
+            generated_at=self._state_store.now(),
+        )
+
+    def get_evaluation_delta_samples(
+        self,
+        evaluation_id: str,
+        *,
+        context: AuthContext,
+    ) -> EvaluationDeltaSamplesResponse:
+        run = self._state_store.get_evaluation_by_id(evaluation_id)
+        if run is None:
+            raise ApiError(status_code=404, code="not_found", message=f"Evaluation run not found: {evaluation_id}")
+        self._require_permission(context=context, action="qc_queue:read", dataset_id=run.dataset_id)
+        changed_sample_ids = self._normalized_changed_sample_ids(run.changed_sample_ids)
+        sample_refs = [
+            EvaluationDeltaSampleRefResponse(
+                sample_id=sample_id,
+                dataset_id=run.dataset_id,
+                review_url=f"/samples/{sample_id}/review?dataset_id={run.dataset_id}",
+            )
+            for sample_id in changed_sample_ids
+        ]
+        return EvaluationDeltaSamplesResponse(
+            evaluation_id=run.evaluation_id,
+            dataset_id=run.dataset_id,
+            dataset_type=run.dataset_type,
+            model_version=run.model_version,
+            total=len(sample_refs),
+            samples=sample_refs,
+            generated_at=self._state_store.now(),
+        )
+
+    def list_snapshots(
+        self,
+        dataset_id: str,
+        *,
+        context: AuthContext,
+    ) -> list[AnnotationSnapshotResponse]:
+        return self.list_annotation_snapshots(dataset_id=dataset_id, context=context)
+
+    def get_snapshot_diff(
+        self,
+        dataset_id: str,
+        *,
+        left_snapshot_id: str,
+        right_snapshot_id: str,
+        context: AuthContext,
+    ) -> SnapshotDiffResponse:
+        self._require_dataset(dataset_id)
+        self._require_permission(context=context, action="qc_queue:read", dataset_id=dataset_id)
+        active_dataset_id = self._effective_batch_dataset_id(dataset_id)
+        snapshots = self._state_store.list_annotation_snapshots(active_dataset_id)
+        snapshot_by_id = {item.snapshot_id: item for item in snapshots}
+        left_snapshot = snapshot_by_id.get(left_snapshot_id)
+        right_snapshot = snapshot_by_id.get(right_snapshot_id)
+        if left_snapshot is None:
+            raise ApiError(
+                status_code=404,
+                code="not_found",
+                message=f"Snapshot not found: {left_snapshot_id}",
+            )
+        if right_snapshot is None:
+            raise ApiError(
+                status_code=404,
+                code="not_found",
+                message=f"Snapshot not found: {right_snapshot_id}",
+            )
+        diff_events = self._diff_snapshots_to_events(
+            baseline_payload=left_snapshot.payload or {},
+            confirmed_payload=right_snapshot.payload or {},
+            dataset_id=active_dataset_id,
+            sample_id=left_snapshot.sample_id,
+            reviewer_id="snapshot_diff",
+            lead_user_id=None,
+            submission_id=f"{left_snapshot.snapshot_id}:{right_snapshot.snapshot_id}",
+            created_at=self._state_store.now(),
+        )
+        changed_fields = sorted({f"{item.target_id}.{item.field}" for item in diff_events})
+        changed_relations = sorted(
+            {
+                item.target_id
+                for item in diff_events
+                if item.target_id.startswith("relation:") or item.target_id.startswith("verification:")
+            }
+        )
+        changed_candidates = sorted(
+            {
+                item.target_id
+                for item in diff_events
+                if item.target_id.startswith("candidate:")
+            }
+        )
+        return SnapshotDiffResponse(
+            dataset_id=active_dataset_id,
+            left_snapshot=AnnotationSnapshotResponse(**left_snapshot.model_dump()),
+            right_snapshot=AnnotationSnapshotResponse(**right_snapshot.model_dump()),
+            operation_count=len(diff_events),
+            changed_fields=changed_fields,
+            changed_relations=changed_relations,
+            changed_candidates=changed_candidates,
+            generated_at=self._state_store.now(),
+        )
+
+    def rollback_snapshot(
+        self,
+        dataset_id: str,
+        snapshot_id: str,
+        *,
+        context: AuthContext,
+    ) -> SnapshotRollbackResponse:
+        self._require_dataset(dataset_id)
+        self._require_permission(context=context, action="batch_assignment:manage", dataset_id=dataset_id)
+        active_dataset_id = self._effective_batch_dataset_id(dataset_id)
+        self._record_audit(
+            actor=context,
+            action="snapshot.rollback.disabled",
+            entity="annotation_snapshot",
+            dataset_id=active_dataset_id,
+            details={"snapshot_id": snapshot_id},
+        )
+        raise ApiError(
+            status_code=501,
+            code="rollback_disabled",
+            message="Snapshot rollback is disabled pending exact restore validation.",
+            details={"dataset_id": active_dataset_id, "snapshot_id": snapshot_id},
+        )
 
     def list_modification_events(
         self,

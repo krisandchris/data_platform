@@ -12,6 +12,8 @@ from urban_violation_backend.schemas import (
     AnnotationSnapshotType,
     BatchAssignmentStatus,
     DatasetLifecycleStatus,
+    EvaluationMetrics,
+    EvaluationRunStatus,
     ExportFormat,
     ExportJobStatus,
     ExportSourceFilters,
@@ -355,6 +357,120 @@ class AnnotationSnapshotResponse(StrictModel):
     created_at: datetime
     payload: dict[str, Any] | None = None
     payload_ref: str | None = None
+
+
+class EvaluationRunCreateRequest(StrictModel):
+    """Request body for creating one local evaluation run record."""
+
+    model_version: str = Field(min_length=1, max_length=160)
+    baseline_model_version: str | None = Field(default=None, min_length=1, max_length=160)
+    source_export_id: str | None = Field(default=None, min_length=1, max_length=160)
+    metrics: EvaluationMetrics | None = None
+    category_metrics: dict[str, EvaluationMetrics] = Field(default_factory=dict)
+    hard_sample_count: int | None = Field(default=None, ge=0)
+    changed_sample_ids: list[str] = Field(default_factory=list)
+    status: EvaluationRunStatus = EvaluationRunStatus.COMPLETED
+    completed_at: datetime | None = None
+    notes: str | None = Field(default=None, max_length=4000)
+
+
+class EvaluationRunResponse(StrictModel):
+    """Evaluation run projection."""
+
+    evaluation_id: str
+    dataset_id: str
+    dataset_type: str
+    model_version: str
+    baseline_model_version: str | None = None
+    source_export_id: str | None = None
+    metrics: EvaluationMetrics = Field(default_factory=EvaluationMetrics)
+    category_metrics: dict[str, EvaluationMetrics] = Field(default_factory=dict)
+    hard_sample_count: int = Field(default=0, ge=0)
+    changed_sample_ids: list[str] = Field(default_factory=list)
+    created_by: str
+    created_at: datetime
+    completed_at: datetime | None = None
+    status: EvaluationRunStatus
+    notes: str | None = None
+
+
+class EvaluationMetricDelta(StrictModel):
+    """Metric deltas between two evaluation runs (right - left)."""
+
+    mAP: float | None = None
+    precision: float | None = None
+    recall: float | None = None
+    f1: float | None = None
+    false_positive_rate: float | None = None
+    hard_sample_hit_rate: float | None = None
+
+
+class EvaluationCategoryDelta(StrictModel):
+    """One category-level metric delta row."""
+
+    category: str
+    metric_delta: EvaluationMetricDelta
+
+
+class EvaluationChangedSamplesDelta(StrictModel):
+    """Set-based sample delta between two runs."""
+
+    left_only: list[str] = Field(default_factory=list)
+    right_only: list[str] = Field(default_factory=list)
+    intersection: list[str] = Field(default_factory=list)
+
+
+class EvaluationCompareResponse(StrictModel):
+    """Comparison payload for two evaluation runs."""
+
+    left: EvaluationRunResponse
+    right: EvaluationRunResponse
+    metric_delta: EvaluationMetricDelta
+    category_deltas: list[EvaluationCategoryDelta] = Field(default_factory=list)
+    changed_samples: EvaluationChangedSamplesDelta
+    generated_at: datetime
+
+
+class EvaluationDeltaSampleRefResponse(StrictModel):
+    """Changed sample reference with direct review URL for UI jumps."""
+
+    sample_id: str
+    dataset_id: str
+    review_url: str
+
+
+class EvaluationDeltaSamplesResponse(StrictModel):
+    """Changed sample refs for one evaluation run."""
+
+    evaluation_id: str
+    dataset_id: str
+    dataset_type: str
+    model_version: str
+    total: int = Field(default=0, ge=0)
+    samples: list[EvaluationDeltaSampleRefResponse] = Field(default_factory=list)
+    generated_at: datetime
+
+
+class SnapshotDiffResponse(StrictModel):
+    """Diff summary between two annotation snapshots."""
+
+    dataset_id: str
+    left_snapshot: AnnotationSnapshotResponse
+    right_snapshot: AnnotationSnapshotResponse
+    operation_count: int = Field(default=0, ge=0)
+    changed_fields: list[str] = Field(default_factory=list)
+    changed_relations: list[str] = Field(default_factory=list)
+    changed_candidates: list[str] = Field(default_factory=list)
+    generated_at: datetime
+
+
+class SnapshotRollbackResponse(StrictModel):
+    """Rollback API response when rollback is intentionally disabled."""
+
+    rollback_enabled: Literal[False] = False
+    dataset_id: str
+    snapshot_id: str
+    message: str
 
 
 class ModificationEventResponse(StrictModel):

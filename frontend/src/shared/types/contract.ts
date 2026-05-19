@@ -441,6 +441,133 @@ export interface TrainingExportDownload {
   content?: unknown;
 }
 
+export type ModelEvaluationStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | string;
+
+export interface ModelEvaluationCreatePayload {
+  modelVersion: string;
+  modelName?: string;
+  sourceExportId?: string;
+  sourceSnapshotId?: string;
+  notes?: string;
+  parameters?: Record<string, unknown>;
+}
+
+export interface ModelEvaluationMetric {
+  key: string;
+  label: string;
+  value: number;
+  baselineValue?: number;
+  delta?: number;
+  unit?: string;
+}
+
+export interface ModelEvaluationCategoryMetric {
+  category: string;
+  label?: string;
+  precision?: number;
+  recall?: number;
+  f1?: number;
+  accuracy?: number;
+  sampleCount?: number;
+  delta?: number;
+}
+
+export interface ModelEvaluationRun {
+  evaluationId: string;
+  datasetId: DatasetId;
+  modelVersion: string;
+  modelName?: string;
+  status: ModelEvaluationStatus;
+  sampleCount?: number;
+  sourceExportId?: string;
+  sourceExportName?: string;
+  sourceSnapshotId?: string;
+  sourceSnapshotType?: string;
+  metrics: ModelEvaluationMetric[];
+  metricDeltas: ModelEvaluationMetric[];
+  categoryMetrics: ModelEvaluationCategoryMetric[];
+  changedSampleCount?: number;
+  createdBy?: string;
+  createdAt?: string;
+  completedAt?: string;
+  notes?: string;
+}
+
+export interface ModelEvaluationCompareResult {
+  leftEvaluationId: string;
+  rightEvaluationId: string;
+  leftModelVersion?: string;
+  rightModelVersion?: string;
+  metricDeltas: ModelEvaluationMetric[];
+  categoryDeltas: ModelEvaluationCategoryMetric[];
+  changedSampleCount?: number;
+  improvedCount?: number;
+  regressedCount?: number;
+  summary?: string;
+}
+
+export interface ModelEvaluationDeltaSample {
+  sampleId: SampleId;
+  category?: string;
+  changeType?: string;
+  beforeSnapshotId?: string;
+  afterSnapshotId?: string;
+  metricImpacts: ModelEvaluationMetric[];
+  reason?: string;
+}
+
+export type AnnotationSnapshotType = 'baseline' | 'confirmed' | 'model_preannotation' | 'export' | string;
+
+export interface AnnotationSnapshot {
+  snapshotId: string;
+  datasetId: DatasetId;
+  sampleId?: SampleId;
+  snapshotType: AnnotationSnapshotType;
+  labelConfigId?: string;
+  labelConfigVersion?: string;
+  sourceSubmissionId?: string;
+  sourceExportId?: string;
+  sourceModelVersion?: string;
+  sourceEvaluationId?: string;
+  payloadHash?: string;
+  payloadRef?: string;
+  createdBy?: string;
+  createdAt?: string;
+  rollbackAvailable?: boolean;
+}
+
+export interface AnnotationSnapshotFieldDiff {
+  field: string;
+  label?: string;
+  changeType?: string;
+  before?: unknown;
+  after?: unknown;
+}
+
+export interface AnnotationSnapshotRelationDiff extends AnnotationSnapshotFieldDiff {
+  relationId?: string;
+  relationIndex?: string;
+}
+
+export interface AnnotationSnapshotCandidateDiff extends AnnotationSnapshotFieldDiff {
+  candidateId?: string;
+  candidateIndex?: string;
+}
+
+export interface AnnotationSnapshotDiff {
+  datasetId?: DatasetId;
+  leftSnapshotId: string;
+  rightSnapshotId: string;
+  changedFieldCount: number;
+  changedRelationCount: number;
+  changedCandidateCount: number;
+  changedFields: AnnotationSnapshotFieldDiff[];
+  relations: AnnotationSnapshotRelationDiff[];
+  candidates: AnnotationSnapshotCandidateDiff[];
+  summary?: string;
+  rollbackAvailable?: boolean;
+}
+
 export interface Dataset {
   id: DatasetId;
   name: string;
