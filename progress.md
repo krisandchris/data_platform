@@ -249,9 +249,52 @@ This file now records only current project progress and recent verification cont
 ## Known Remaining Work
 
 - Complete frontend architecture P1/P2 packages recorded in `docs/frontend/README.md`.
-- Make label config save idempotent for identical content.
 - Move default label/config/runtime persistence away from raw `DATASET/` unless explicitly configured.
 - Harden manual batch import validation and source-path diagnostics.
+
+### Label Config Idempotency Dispatch
+
+- Started next development stage: `P1 - Label Config Persistence Idempotency`.
+- Current root cause confirmed from code:
+  - Backend `LabelConfigSaveRequest` only has `activate`.
+  - Repository `save()` always increments and writes a new `label-config-N`.
+  - Frontend `LabelConfigUploadPanel` only has a normal `保存配置` action and no explicit `另存为新版本` flow.
+- Development split:
+  - Backend agent owns request contract, repository idempotency, persistence behavior, and backend tests.
+  - Frontend agent owns upload panel action/copy, API payload flag, fixtures, and frontend tests.
+  - Integration/test agent starts only after both implementation agents finish and must run the agent stack smoke.
+- Backend implementation task dispatched to backend agent worktree.
+- Frontend implementation task dispatched to frontend agent worktree.
+- Backend agent completed implementation:
+  - Added `save_as_new_version: bool = False`.
+  - Default duplicate save now reuses existing content hash and config id.
+  - `activate=true` on duplicate activates the existing version.
+  - Explicit `save_as_new_version=true` creates a new config id.
+  - Reported focused label-config tests `13 passed, 35 deselected`, full backend `54 passed`, and `git diff --check` passing.
+- Frontend agent completed implementation:
+  - Default `保存配置` remains idempotent and does not send `save_as_new_version`.
+  - Added explicit `另存为新版本` action that sends `save_as_new_version: true`.
+  - Updated fixture API and frontend tests.
+  - Reported focused frontend tests `58 passed`, build passing, `git diff --check` passing, and protected review workbench files unchanged.
+- Integration/test agent validated the combined backend/frontend agent worktree outputs:
+  - Protected review workbench files remained unchanged.
+  - `质检闭环整改方案.pdf` was not tracked.
+  - Backend focused label-config tests passed: `13 passed, 35 deselected`.
+  - Backend full tests passed: `54 passed`.
+  - Frontend focused tests passed: `58 passed`.
+  - Frontend build passed.
+  - `scripts/integration-smoke.sh agent` passed.
+  - Live API idempotency check confirmed default duplicate save reuses `label-config-1`, explicit `save_as_new_version:true` creates `label-config-2`, and active reload does not increase the version count.
+  - Browser smoke found `另存为新版本`.
+  - Agent/main stack services were stopped and ports released.
+- Main workspace sync and verification passed:
+  - Accepted backend/frontend worktree diffs were applied to main.
+  - `PLATFORM_STATE_ROOT=/tmp/uvp-label-idempotency-main LABEL_CONFIG_STORE_ROOT=/tmp/uvp-label-idempotency-main-labels uv run pytest tests/test_api.py -k "label_config"`: `13 passed, 35 deselected`.
+  - `PLATFORM_STATE_ROOT=/tmp/uvp-label-idempotency-main-full LABEL_CONFIG_STORE_ROOT=/tmp/uvp-label-idempotency-main-labels-full uv run pytest`: `54 passed`.
+  - `cd frontend && npm run test -- apiClient routesAndPages`: `58 passed`.
+  - `cd frontend && npm run build`: passed.
+  - `SMOKE_RUNTIME_DIR=/tmp/uvp-label-idempotency-main-smoke scripts/integration-smoke.sh main`: passed.
+  - `scripts/dev-stack.sh stop`, `scripts/agent-dev-stack.sh stop`, and project port check confirmed no remaining tracked listeners.
 
 ### Integration Test Environment Dispatch
 
@@ -316,4 +359,4 @@ scripts/dev-stack.sh stop
 
 ## Service State
 
-At the time of this compaction, no new frontend/backend service was intentionally started. Any future live verification must end with both stack stop commands and a process/port check.
+After the latest main verification, both stack stop commands were run and checked project ports were released.

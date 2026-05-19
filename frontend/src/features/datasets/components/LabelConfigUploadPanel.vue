@@ -118,11 +118,21 @@
           class="button button--primary"
           type="button"
           :disabled="!canSave || saving"
-          @click="saveConfig"
+          @click="saveConfig()"
         >
-          <Loader2 v-if="saving" :size="16" class="spin" />
+          <Loader2 v-if="saving && !savingNewVersion" :size="16" class="spin" />
           <ShieldCheck v-else :size="16" />
           保存配置
+        </button>
+        <button
+          class="button"
+          type="button"
+          :disabled="!canSave || saving"
+          @click="saveConfig(true)"
+        >
+          <Loader2 v-if="saving && savingNewVersion" :size="16" class="spin" />
+          <FilePlus2 v-else :size="16" />
+          另存为新版本
         </button>
         <button
           v-if="saveResult && saveResult.status !== 'active'"
@@ -190,7 +200,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { CheckCircle2, FileJson, Loader2, RefreshCcw, ShieldCheck, TriangleAlert, Upload } from 'lucide-vue-next';
+import { CheckCircle2, FileJson, FilePlus2, Loader2, RefreshCcw, ShieldCheck, TriangleAlert, Upload } from 'lucide-vue-next';
 import { apiClient } from '../../../services/urbanViolationApi';
 import type {
   LabelConfig,
@@ -221,6 +231,7 @@ const activeConfig = ref<LabelConfig>();
 const activateImmediately = ref(true);
 const validating = ref(false);
 const saving = ref(false);
+const savingNewVersion = ref(false);
 const activating = ref(false);
 const loadingVersions = ref(false);
 const reloadingActive = ref(false);
@@ -284,22 +295,21 @@ async function validateConfig() {
   }
 }
 
-async function saveConfig() {
+async function saveConfig(saveAsNewVersion = false) {
   if (!parsedConfig.value || !fileName.value || !canSave.value) {
     return;
   }
   saving.value = true;
+  savingNewVersion.value = saveAsNewVersion;
   statusMessage.value = '';
   try {
     saveResult.value = await apiClient.saveLabelConfig(props.datasetId, {
       fileName: fileName.value,
       config: parsedConfig.value,
       activate: activateImmediately.value,
+      ...(saveAsNewVersion ? { saveAsNewVersion: true } : {}),
     });
-    statusMessage.value =
-      saveResult.value.status === 'active'
-        ? `已保存并激活 ${saveResult.value.version}`
-        : `已保存 ${saveResult.value.version}，可手动激活。`;
+    statusMessage.value = saveStatusMessage(saveResult.value, saveAsNewVersion);
     await loadActiveConfig();
     await loadVersions();
     emit('saved', saveResult.value);
@@ -307,7 +317,19 @@ async function saveConfig() {
     parseError.value = err instanceof Error ? err.message : '配置保存失败';
   } finally {
     saving.value = false;
+    savingNewVersion.value = false;
   }
+}
+
+function saveStatusMessage(result: LabelConfigSaveResult, saveAsNewVersion: boolean) {
+  if (saveAsNewVersion) {
+    return result.status === 'active'
+      ? `已另存为新版本并激活 ${result.version}`
+      : `已另存为新版本 ${result.version}，可手动激活。`;
+  }
+  return result.status === 'active'
+    ? `已保存或复用并激活 ${result.version}`
+    : `已保存或复用 ${result.version}，可手动激活。`;
 }
 
 async function activateSavedConfig() {

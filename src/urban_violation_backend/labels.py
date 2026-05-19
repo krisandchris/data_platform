@@ -221,8 +221,18 @@ class InMemoryLabelConfigRepository:
         report: LabelConfigValidationReport,
         config: DatasetLabelConfig,
         activate: bool,
+        save_as_new_version: bool = False,
     ) -> StoredLabelConfig:
         """Save one validated config and optionally activate it."""
+        dataset_store = self._configs_by_dataset.setdefault(dataset_id, {})
+        if not save_as_new_version:
+            for existing in dataset_store.values():
+                if existing.content_hash != report.content_hash:
+                    continue
+                if activate:
+                    return self.activate(dataset_id=dataset_id, config_id=existing.config_id)
+                return existing
+
         self._counter += 1
         config_id = f"label-config-{self._counter}"
         created_at = datetime.now(timezone.utc)
@@ -239,7 +249,6 @@ class InMemoryLabelConfigRepository:
             validation=report,
             config=config,
         )
-        dataset_store = self._configs_by_dataset.setdefault(dataset_id, {})
         dataset_store[config_id] = stored
 
         if activate:
@@ -316,14 +325,17 @@ class FileBackedLabelConfigRepository(InMemoryLabelConfigRepository):
         report: LabelConfigValidationReport,
         config: DatasetLabelConfig,
         activate: bool,
+        save_as_new_version: bool = False,
     ) -> StoredLabelConfig:
         """Save one config version and persist the version registry."""
+        self._load_dataset(dataset_id)
         stored = super().save(
             dataset_id=dataset_id,
             file_name=file_name,
             report=report,
             config=config,
             activate=activate,
+            save_as_new_version=save_as_new_version,
         )
         self._persist_dataset(dataset_id)
         return stored

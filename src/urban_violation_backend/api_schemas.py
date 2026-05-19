@@ -134,6 +134,7 @@ class LabelConfigSaveRequest(LabelConfigValidateRequest):
     """JSON request body for saving one uploaded label config version."""
 
     activate: bool = False
+    save_as_new_version: bool = False
 
 
 class DatasetTypeCreateRequest(StrictModel):

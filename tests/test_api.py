@@ -41,7 +41,11 @@ def _load_label_config_payload() -> dict[str, Any]:
     return json.loads(LABEL_CONFIG_PATH.read_text(encoding="utf-8"))
 
 
-def _save_label_config(client: TestClient, activate: bool = False) -> dict[str, Any]:
+def _save_label_config(
+    client: TestClient,
+    activate: bool = False,
+    save_as_new_version: bool = False,
+) -> dict[str, Any]:
     """Save one label config through the dataset-scoped API."""
     response = client.post(
         f"/api/datasets/{DATASET_ID}/label-configs",
@@ -49,6 +53,7 @@ def _save_label_config(client: TestClient, activate: bool = False) -> dict[str, 
             "file_name": LABEL_CONFIG_PATH.name,
             "config": _load_label_config_payload(),
             "activate": activate,
+            "save_as_new_version": save_as_new_version,
         },
     )
     assert response.status_code == 200
@@ -743,6 +748,62 @@ def test_save_with_activate_true_returns_active_version(client: TestClient) -> N
     assert reload_active.json()["config_id"] == saved["config_id"]
 
 
+def test_label_config_save_idempotent_by_default(client: TestClient) -> None:
+    first = _save_label_config(client, activate=False)
+    second = _save_label_config(client, activate=False)
+    assert second["config_id"] == first["config_id"]
+    assert second["content_hash"] == first["content_hash"]
+
+    versions = client.get(f"/api/dataset-types/{DATASET_ID}/label-configs")
+    assert versions.status_code == 200
+    assert len(versions.json()) == 1
+
+
+def test_label_config_save_duplicate_with_activate_reuses_existing_and_activates(client: TestClient) -> None:
+    first = _save_label_config(client, activate=False)
+    second = _save_label_config(client, activate=True)
+    assert second["config_id"] == first["config_id"]
+    assert second["status"] == "active"
+    assert second["activated_at"] is not None
+
+    active = client.get(f"/api/datasets/{DATASET_ID}/label-config/active")
+    assert active.status_code == 200
+    assert active.json()["config_id"] == first["config_id"]
+
+    versions = client.get(f"/api/dataset-types/{DATASET_ID}/label-configs")
+    assert versions.status_code == 200
+    assert len(versions.json()) == 1
+
+
+def test_reload_active_does_not_create_new_label_config_version(client: TestClient) -> None:
+    saved = _save_label_config(client, activate=True)
+    before = client.get(f"/api/dataset-types/{DATASET_ID}/label-configs")
+    assert before.status_code == 200
+    before_ids = [item["config_id"] for item in before.json()]
+    assert saved["config_id"] in before_ids
+
+    reloaded = client.post(f"/api/dataset-types/{DATASET_ID}/label-config/active/reload")
+    assert reloaded.status_code == 200
+    assert reloaded.json()["config_id"] == saved["config_id"]
+
+    after = client.get(f"/api/dataset-types/{DATASET_ID}/label-configs")
+    assert after.status_code == 200
+    after_ids = [item["config_id"] for item in after.json()]
+    assert after_ids == before_ids
+
+
+def test_label_config_save_as_new_version_creates_new_id(client: TestClient) -> None:
+    first = _save_label_config(client, activate=False)
+    second = _save_label_config(client, activate=False, save_as_new_version=True)
+    assert second["config_id"] != first["config_id"]
+    assert second["content_hash"] == first["content_hash"]
+
+    versions = client.get(f"/api/dataset-types/{DATASET_ID}/label-configs")
+    assert versions.status_code == 200
+    version_ids = {item["config_id"] for item in versions.json()}
+    assert version_ids == {first["config_id"], second["config_id"]}
+
+
 def test_active_label_config_persists_across_app_restart(tmp_path: Path) -> None:
     store_root = tmp_path / "DATASET"
     with TestClient(create_app(label_config_store_root=store_root)) as first_client:
@@ -780,6 +841,39 @@ def test_active_label_config_persists_across_app_restart(tmp_path: Path) -> None
         )
         assert reload_active.status_code == 200
         assert reload_active.json()["config_id"] == saved_payload["config_id"]
+
+
+def test_label_config_save_idempotent_after_app_restart(tmp_path: Path) -> None:
+    store_root = tmp_path / "DATASET"
+    with TestClient(create_app(label_config_store_root=store_root)) as first_client:
+        first = first_client.post(
+            f"/api/dataset-types/{DATASET_ID}/label-configs",
+            json={
+                "file_name": LABEL_CONFIG_PATH.name,
+                "config": _load_label_config_payload(),
+                "activate": True,
+            },
+        )
+        assert first.status_code == 200
+        first_payload = first.json()
+
+    with TestClient(create_app(label_config_store_root=store_root)) as second_client:
+        second = second_client.post(
+            f"/api/dataset-types/{DATASET_ID}/label-configs",
+            json={
+                "file_name": LABEL_CONFIG_PATH.name,
+                "config": _load_label_config_payload(),
+                "activate": False,
+            },
+        )
+        assert second.status_code == 200
+        second_payload = second.json()
+        assert second_payload["config_id"] == first_payload["config_id"]
+        assert second_payload["content_hash"] == first_payload["content_hash"]
+
+        versions = second_client.get(f"/api/dataset-types/{DATASET_ID}/label-configs")
+        assert versions.status_code == 200
+        assert len(versions.json()) == 1
 
 
 def test_invalid_config_rules_and_save_rejection(client: TestClient) -> None:

@@ -103,21 +103,57 @@ Acceptance:
 
 ### P1 - Label Config Persistence Idempotency
 
+Status: completed and accepted into main.
+
 Problem:
 
 - Restart/reload does not create new versions, but saving the same content repeatedly creates duplicate `label-config-N` versions because backend save is not content-hash idempotent.
 
 Required behavior:
 
-- Identical content save should reuse the existing version or require an explicit "save as new version" action.
+- Identical content save should reuse the existing version by default.
+- Explicit new-version creation must require a request flag and frontend action such as `另存为新版本`.
 - Manual `重新加载 active` must never create a version.
-- Runtime config root should not default to raw `DATASET/` if the dataset must remain strictly input-only.
+- Runtime config root should not default to raw `DATASET/` if the dataset must remain strictly input-only; this can be completed as the next hardening phase if it requires broader startup behavior changes.
+
+Backend tasks:
+
+- Add a save request flag, recommended name `save_as_new_version`, default `false`.
+- Make label config repositories lookup existing versions by `content_hash` for the dataset type.
+- When saving identical content with `save_as_new_version=false`, return the existing stored config; if `activate=true`, activate the existing config instead of creating a duplicate.
+- When `save_as_new_version=true`, create a new version even if the content hash matches an existing version.
+- Preserve reload behavior: active reload reads active pointer and never creates a version.
+- Update backend tests for duplicate save, activate-on-duplicate, reload after restart, and explicit new-version save.
+
+Frontend tasks:
+
+- Add a visible manual `另存为新版本` action or toggle in `LabelConfigUploadPanel`.
+- Default `保存配置` should be idempotent and not request a new version.
+- Send `saveAsNewVersion/save_as_new_version` only when the user explicitly chooses the new-version action.
+- Surface reused-version status in user-facing Chinese copy without implying a new version was created.
+- Update API client types, fixtures, and route/API tests.
+
+Integration/test tasks:
+
+- Run backend and frontend unit tests.
+- Run `scripts/integration-smoke.sh agent` after both implementation agents finish.
+- Add or run a focused live API smoke for repeated label config save count stability if not already covered by unit tests.
+
+Dispatch status:
+
+- Backend agent: completed implementation and backend tests in `../data_platform_backend_agent`.
+- Frontend agent: completed implementation and frontend tests in `../data_platform_frontend_agent`.
+- Integration/test agent: passed protected-file checks, backend/frontend tests, agent stack smoke, live API idempotency verification, browser smoke for `另存为新版本`, and service shutdown checks.
+- Main workspace: synchronized accepted code, passed backend/frontend tests, passed `scripts/integration-smoke.sh main`, and confirmed services/ports released.
+- Integration/test agent: assigned for combined agent-stack validation.
 
 Acceptance:
 
 - Repeated save of unchanged config does not append a duplicate version.
 - Reload active keeps the same active config id and content hash.
 - Tests cover restart, reload, duplicate save, and explicit new-version save.
+- Existing review workbench protected files remain unchanged.
+- `scripts/integration-smoke.sh agent` passes before main sync.
 
 ### P1 - Dataset Batch Product Hardening
 

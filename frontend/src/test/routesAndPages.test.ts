@@ -2181,6 +2181,21 @@ describe('import and review routes', () => {
       config: expect.objectContaining({ version: 'urban_violation_labels_v1' }),
       activate: true,
     });
+    expect(mockApiClient.saveLabelConfig.mock.calls[0]?.[1]).not.toHaveProperty('saveAsNewVersion');
+    expect(wrapper.text()).toContain('已保存或复用并激活');
+
+    const saveAsNewVersionButton = wrapper.findAll('button').find((button) => button.text().includes('另存为新版本'));
+    expect(saveAsNewVersionButton).toBeTruthy();
+    await saveAsNewVersionButton?.trigger('click');
+    await flushPromises();
+
+    expect(mockApiClient.saveLabelConfig).toHaveBeenNthCalledWith(2, 'urban_violation', {
+      fileName: 'label_config.json',
+      config: expect.objectContaining({ version: 'urban_violation_labels_v1' }),
+      activate: true,
+      saveAsNewVersion: true,
+    });
+    expect(wrapper.text()).toContain('已另存为新版本');
   });
 
   it('displays import job validation status from the API', async () => {

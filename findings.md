@@ -63,8 +63,11 @@ This file keeps durable project facts, constraints, and open risks. Historical n
 - Closed enum examples include category, relation, verification result, visibility level, and sample category.
 - Open controlled tags include `scene_elements` and `segmentation_targets`.
 - `scene_elements` and `segmentation_targets` must allow custom human entries, suggestion assistance, normalization, deduplication, and audit history.
-- Current duplicate-version issue is caused by save, not reload: backend save creates a new `label-config-N` even when content hash is identical.
-- Desired fix: idempotent save for identical content, or a distinct explicit "save as new version" flow.
+- Agent worktree implementation now fixes the duplicate-version issue by making normal saves content-hash idempotent.
+- The backend request contract adds `save_as_new_version`; default saves reuse an existing config, while explicit new-version saves still create a new `label-config-N`.
+- Duplicate saves with `activate=true` activate the existing config instead of creating a duplicate.
+- Active reload remains read-only for version history and does not create label config versions.
+- The frontend upload panel keeps normal `保存配置` idempotent and adds an explicit `另存为新版本` action.
 
 ## QC Review Facts
 
@@ -197,7 +200,6 @@ This file keeps durable project facts, constraints, and open risks. Historical n
 
 ## Open Risks
 
-- Label config duplicate-version behavior still needs an idempotency fix.
 - Default runtime/config state paths should be audited so smoke runs do not write into raw `DATASET/`.
 - Import validation persistence vs recalculation remains a product decision.
 - STEP2 failure remediation may need its own queue instead of normal QC queue inclusion.

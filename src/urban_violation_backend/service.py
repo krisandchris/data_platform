@@ -3466,6 +3466,7 @@ class FixtureRuntimeService:
             report=report,
             config=config,
             activate=request.activate,
+            save_as_new_version=request.save_as_new_version,
         )
         self._lifecycle_status = self._derive_lifecycle_status()
         return self._bind_label_config_to_dataset(stored=stored, dataset_id=dataset_id)

@@ -1535,7 +1535,10 @@ const labelConfigValidation = (config: LabelConfig = fixtureLabelConfig): LabelC
   normalizedConfig: config,
 });
 
-const labelConfigSaveResult = (activate = false): LabelConfigSaveResult => ({
+const labelConfigSaveResult = (
+  activate = false,
+  overrides: Partial<LabelConfigSaveResult> = {},
+): LabelConfigSaveResult => ({
   configId: fixtureLabelConfig.configId ?? 'label-config-fixture-1',
   datasetId: dataset.id,
   schemaVersion: fixtureLabelConfig.schemaVersion,
@@ -1546,11 +1549,53 @@ const labelConfigSaveResult = (activate = false): LabelConfigSaveResult => ({
   activatedAt: activate ? new Date().toISOString() : undefined,
   validation: labelConfigValidation(),
   config: fixtureLabelConfig,
+  ...overrides,
 });
 
-const labelConfigVersions = (): LabelConfigSaveResult[] => [
-  labelConfigSaveResult(true),
-];
+let labelConfigVersionCounter = 1;
+const savedLabelConfigVersions: LabelConfigSaveResult[] = [labelConfigSaveResult(true)];
+
+const labelConfigVersions = (): LabelConfigSaveResult[] => savedLabelConfigVersions;
+
+const labelConfigVersionResult = (versionIndex: number, activate: boolean): LabelConfigSaveResult => {
+  const now = new Date().toISOString();
+  const configId = `label-config-fixture-${versionIndex}`;
+  const version = `${fixtureLabelConfig.version}_manual_${versionIndex}`;
+  const status = activate ? 'active' : 'saved';
+  const config: LabelConfig = {
+    ...fixtureLabelConfig,
+    configId,
+    version,
+    status,
+    createdAt: now,
+    activatedAt: activate ? now : undefined,
+  };
+  return labelConfigSaveResult(activate, {
+    configId,
+    version,
+    status,
+    createdAt: now,
+    activatedAt: activate ? now : undefined,
+    validation: labelConfigValidation(config),
+    config,
+  });
+};
+
+const markSavedLabelConfigActive = (configId: string) => {
+  savedLabelConfigVersions.forEach((version) => {
+    if (version.configId === configId) {
+      version.status = 'active';
+      version.activatedAt = new Date().toISOString();
+      version.config = version.config ? { ...version.config, status: 'active', activatedAt: version.activatedAt } : version.config;
+      return;
+    }
+    if (version.status === 'active') {
+      version.status = 'saved';
+      version.config = version.config ? { ...version.config, status: 'saved', activatedAt: undefined } : version.config;
+      version.activatedAt = undefined;
+    }
+  });
+};
 
 const suggestionsFor = (fieldName: string, query = ''): LabelSuggestion[] => {
   const normalizedQuery = query.trim().toLowerCase();
@@ -2291,7 +2336,21 @@ export const fixtureApiClient: UrbanViolationApi = {
   },
   async saveLabelConfig(_datasetId, payload) {
     await delay();
-    return clone(labelConfigSaveResult(Boolean(payload.activate)));
+    if (payload.saveAsNewVersion) {
+      labelConfigVersionCounter += 1;
+      const result = labelConfigVersionResult(labelConfigVersionCounter, Boolean(payload.activate));
+      if (payload.activate) {
+        markSavedLabelConfigActive(result.configId);
+      }
+      savedLabelConfigVersions.unshift(result);
+      return clone(result);
+    }
+    const result = savedLabelConfigVersions[0] ?? labelConfigSaveResult(Boolean(payload.activate));
+    if (payload.activate) {
+      markSavedLabelConfigActive(result.configId);
+      return clone(savedLabelConfigVersions.find((version) => version.configId === result.configId) ?? result);
+    }
+    return clone(result);
   },
   async saveDatasetTypeLabelConfig(datasetTypeId, payload) {
     return this.saveLabelConfig(datasetTypeId, payload);
@@ -2305,14 +2364,16 @@ export const fixtureApiClient: UrbanViolationApi = {
   },
   async activateLabelConfig() {
     await delay();
-    return clone(labelConfigSaveResult(true));
+    const result = savedLabelConfigVersions[0] ?? labelConfigSaveResult(true);
+    markSavedLabelConfigActive(result.configId);
+    return clone(savedLabelConfigVersions.find((version) => version.configId === result.configId) ?? result);
   },
   async activateDatasetTypeLabelConfig(datasetTypeId, configId) {
     return this.activateLabelConfig(datasetTypeId, configId);
   },
   async reloadActiveLabelConfig() {
     await delay();
-    return clone(labelConfigSaveResult(true));
+    return clone(savedLabelConfigVersions.find((version) => version.status === 'active') ?? labelConfigSaveResult(true));
   },
   async reloadActiveDatasetTypeLabelConfig(datasetTypeId) {
     return this.reloadActiveLabelConfig(datasetTypeId);

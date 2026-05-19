@@ -119,6 +119,7 @@ export interface LabelConfigUploadPayload {
   fileName: string;
   config: unknown;
   activate?: boolean;
+  saveAsNewVersion?: boolean;
 }
 
 export class LabelEditValidationError extends Error {
@@ -761,13 +762,17 @@ export class HttpUrbanViolationApi implements UrbanViolationApi {
   }
 
   async saveDatasetTypeLabelConfig(datasetTypeId: DatasetTypeId, payload: LabelConfigUploadPayload): Promise<LabelConfigSaveResult> {
+    const requestBody: Record<string, unknown> = {
+      file_name: payload.fileName,
+      config: payload.config,
+      activate: Boolean(payload.activate),
+    };
+    if (payload.saveAsNewVersion === true) {
+      requestBody.save_as_new_version = true;
+    }
     const response = await this.http.post<unknown>(
       `/dataset-types/${encodeURIComponent(datasetTypeId)}/label-configs`,
-      {
-        file_name: payload.fileName,
-        config: payload.config,
-        activate: Boolean(payload.activate),
-      },
+      requestBody,
     );
     return normalizeLabelConfigSaveResult(response, datasetTypeId);
   }

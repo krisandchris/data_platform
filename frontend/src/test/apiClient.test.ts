@@ -734,6 +734,16 @@ describe('HTTP API adapter', () => {
         }),
       )
       .mockResolvedValueOnce(
+        jsonResponse({
+          config_id: 'label-config-2',
+          dataset_id: 'ds-live',
+          schema_version: 'label_config_v1',
+          version: 'urban_violation_labels_v2',
+          status: 'saved',
+          validation: { valid: true, summary: { field_count: 2 }, errors: [], warnings: [] },
+        }),
+      )
+      .mockResolvedValueOnce(
         jsonResponse([
           {
             config_id: 'label-config-1',
@@ -768,6 +778,12 @@ describe('HTTP API adapter', () => {
       config: labelConfig,
       activate: true,
     });
+    const savedAsNewVersion = await api.saveLabelConfig('ds-live', {
+      fileName: 'label_config.json',
+      config: labelConfig,
+      activate: false,
+      saveAsNewVersion: true,
+    });
     const versions = await api.listLabelConfigs('ds-live');
     const active = await api.getActiveLabelConfig('ds-live');
     const reloaded = await api.reloadActiveLabelConfig('ds-live');
@@ -776,17 +792,26 @@ describe('HTTP API adapter', () => {
     expect(fetcher.mock.calls[0][0]).toBe('http://backend.test/api/dataset-types/ds-live/label-configs/validate');
     expect(fetcher.mock.calls[0][1]?.body).toBe(JSON.stringify({ file_name: 'label_config.json', config: labelConfig }));
     expect(fetcher.mock.calls[1][0]).toBe('http://backend.test/api/dataset-types/ds-live/label-configs');
-    expect(fetcher.mock.calls[1][1]?.body).toBe(
-      JSON.stringify({ file_name: 'label_config.json', config: labelConfig, activate: true }),
-    );
+    const defaultSaveBody = JSON.parse(String(fetcher.mock.calls[1][1]?.body));
+    expect(defaultSaveBody).toEqual({ file_name: 'label_config.json', config: labelConfig, activate: true });
+    expect(defaultSaveBody).not.toHaveProperty('save_as_new_version');
     expect(fetcher.mock.calls[2][0]).toBe('http://backend.test/api/dataset-types/ds-live/label-configs');
-    expect(fetcher.mock.calls[3][0]).toBe('http://backend.test/api/dataset-types/ds-live/label-config/active');
-    expect(fetcher.mock.calls[4][0]).toBe('http://backend.test/api/dataset-types/ds-live/label-config/active/reload');
-    expect(fetcher.mock.calls[5][0]).toBe(
+    const saveAsNewVersionBody = JSON.parse(String(fetcher.mock.calls[2][1]?.body));
+    expect(saveAsNewVersionBody).toEqual({
+      file_name: 'label_config.json',
+      config: labelConfig,
+      activate: false,
+      save_as_new_version: true,
+    });
+    expect(fetcher.mock.calls[3][0]).toBe('http://backend.test/api/dataset-types/ds-live/label-configs');
+    expect(fetcher.mock.calls[4][0]).toBe('http://backend.test/api/dataset-types/ds-live/label-config/active');
+    expect(fetcher.mock.calls[5][0]).toBe('http://backend.test/api/dataset-types/ds-live/label-config/active/reload');
+    expect(fetcher.mock.calls[6][0]).toBe(
       'http://backend.test/api/datasets/ds-live/label-suggestions?field=scene_elements&q=side',
     );
     expect(validation.summary).toMatchObject({ fieldCount: 2, closedEnumCount: 1, openTagsCount: 1 });
     expect(saved).toMatchObject({ configId: 'label-config-1', status: 'active' });
+    expect(savedAsNewVersion).toMatchObject({ configId: 'label-config-2', status: 'saved' });
     expect(versions[0]).toMatchObject({ configId: 'label-config-1', status: 'active' });
     expect(active.fields[0]).toMatchObject({ field: 'violation_category', options: [{ code: 'goods_blocking_road' }] });
     expect(reloaded).toMatchObject({ configId: 'label-config-1', status: 'active' });
