@@ -81,6 +81,15 @@ PLATFORM_STATE_ROOT=/tmp/uvp-check uv run pytest
 
 Runtime state includes users, sessions, role bindings, batch assignments, leases, drafts, submissions, audit events, registered batches, and label config persistence.
 
+Live integration smoke uses fresh isolated state roots:
+
+```bash
+scripts/integration-smoke.sh main
+scripts/integration-smoke.sh agent
+```
+
+The runner sets both `PLATFORM_STATE_ROOT` and `LABEL_CONFIG_STORE_ROOT`, then verifies live backend contracts for assignment, leases, label-edit confirmation, sample pool, export, evaluation, snapshot diff, rollback-disabled response, and audit actions.
+
 Known hardening item:
 
 - Audit default config/state roots so smoke runs do not write into raw `DATASET/` when `PLATFORM_STATE_ROOT` is omitted.

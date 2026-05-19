@@ -180,6 +180,12 @@ This file keeps durable project facts, constraints, and open risks. Historical n
 - Browser verification may use system Chrome/headless fallback when Chrome DevTools MCP or repo-local Playwright is unavailable.
 - Service checks should use the current command conventions and stop all local services after verification.
 - Local proxy quirks can affect localhost checks; direct port and process checks are required after stack shutdown.
+- Live-stack smoke should run against a fresh `PLATFORM_STATE_ROOT` to avoid stale assignment, lease, or label-config state from previous manual checks.
+- Live-stack smoke must also isolate `LABEL_CONFIG_STORE_ROOT`; otherwise active label config can be read from the default persistent root even when `PLATFORM_STATE_ROOT` is fresh.
+- Current dev stack ports are `8000/5173`; current agent stack ports are `18031/15195`.
+- Current test auth headers are `X-User-Id` and `X-User-Role`; this is suitable for local dev smoke unless `PLATFORM_AUTH_MODE=session` is explicitly enabled.
+- Closed-loop API smoke should assert the actual audit action strings currently emitted by the backend, including `batch_assignment.assign`, `sample_lease.acquire`, `label_edit.submit`, `label_edit.confirm`, `evaluation.create`, and `snapshot.rollback.disabled`.
+- `npx playwright` is available in the current environment and reports version `1.60.0`; the smoke runner should pin that CLI version or fail with an install hint.
 
 ## Agent Workflow Facts
 

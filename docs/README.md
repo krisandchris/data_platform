@@ -34,7 +34,25 @@ These three files are intentionally compact. Use git history for detailed phase-
 - Main workspace rules: `AGENTS.md`
 - Main accepted-code stack: `scripts/dev-stack.sh`
 - Agent worktree stack: `scripts/agent-dev-stack.sh`
+- Integration smoke runner: `scripts/integration-smoke.sh`
+- Live API smoke contract: `scripts/integration-api-smoke.py`
 - Historical remaining-task backlog: `REMAINING_TASKS.md`
+
+## Integration Smoke
+
+Run the accepted main workspace stack:
+
+```bash
+scripts/integration-smoke.sh main
+```
+
+Run the frontend/backend agent worktrees together:
+
+```bash
+scripts/integration-smoke.sh agent
+```
+
+The smoke runner starts a fresh runtime state, verifies the closed-loop API contract, captures headless browser screenshots for `模型评估`, `版本历史`, and `导出管理`, then stops services and checks project ports.
 
 ## Documentation Maintenance Rules
 

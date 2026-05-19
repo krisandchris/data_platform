@@ -252,7 +252,34 @@ This file now records only current project progress and recent verification cont
 - Make label config save idempotent for identical content.
 - Move default label/config/runtime persistence away from raw `DATASET/` unless explicitly configured.
 - Harden manual batch import validation and source-path diagnostics.
-- Add a reproducible browser smoke setup or document the system-Chrome fallback as the standard local path.
+
+### Integration Test Environment Dispatch
+
+- Started next stage: `P2 - Integration Test Environment`.
+- Confirmed this stage is allowed in the main workspace because it adds orchestration and verification scripts, not product frontend/backend implementation.
+- Read `planning-with-files` and `webapp-testing` skill guidance.
+- Discovery findings:
+  - The AGENTS skill path points to the old `~/.codex/skills/...` location; actual available skill path is `/home/hy/.agents/skills/planning-with-files/SKILL.md`.
+  - Current accepted main stack uses backend `8000` and frontend `5173`.
+  - Current agent stack uses backend `18031` and frontend `15195`.
+  - `npx playwright --version` reports `1.60.0` in the current environment.
+  - Live smoke should use a fresh `PLATFORM_STATE_ROOT` to avoid stale assignment/lease conflicts.
+- First `scripts/integration-smoke.sh main` attempt failed at active label config inheritance because only `PLATFORM_STATE_ROOT` was isolated; backend label-config store still used the default persistent root.
+- Fix applied: smoke runner now also sets a fresh `LABEL_CONFIG_STORE_ROOT`, and API smoke explicitly activates the saved config id before continuing.
+- Added `scripts/integration-api-smoke.py` for live backend route-contract validation.
+- Added `scripts/integration-smoke.sh` for main/agent stack orchestration, API smoke, Playwright screenshot smoke, service stop, and port checks.
+- Documented the integration smoke workflow in `docs/README.md`, `docs/architecture/README.md`, `docs/frontend/README.md`, and `docs/backend/README.md`.
+- Verification passed:
+  - `bash -n scripts/integration-smoke.sh`
+  - `uv run python -m py_compile scripts/integration-api-smoke.py`
+  - `git diff --check`
+  - `scripts/integration-smoke.sh main`
+  - `scripts/integration-smoke.sh agent`
+  - `PLATFORM_STATE_ROOT=/tmp/uvp-integration-env-main LABEL_CONFIG_STORE_ROOT=/tmp/uvp-integration-env-labels uv run pytest`: 49 passed.
+  - `cd frontend && npm run test`: 74 passed.
+  - `cd frontend && npm run build`: passed.
+- Smoke artifacts were produced under `.runtime/integration-smoke-main/artifacts` and `.runtime/integration-smoke-agent/artifacts`.
+- Services were stopped and checked ports were released after both smoke runs.
 
 ## Current Verification Discipline
 

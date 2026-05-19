@@ -248,7 +248,34 @@ Acceptance flow:
 | Dataset import change | Real `DATASET/` scan/import tests and batch-id scoping checks |
 | Multi-user change | Two-user assignment/lease/submission/lead-confirm smoke |
 | QC closed-loop change | Baseline snapshot, confirm diff, event attribution, pool insertion, and export/evaluation contract tests |
-| Live stack check | Stop stack and verify no tracked listener remains |
+| Live stack check | `scripts/integration-smoke.sh main` for accepted code or `scripts/integration-smoke.sh agent` for agent worktrees; stop stack and verify no tracked listener remains |
+
+## Integration Smoke Contract
+
+The main workspace owns the reusable integration smoke environment:
+
+```bash
+scripts/integration-smoke.sh main
+scripts/integration-smoke.sh agent
+```
+
+The runner creates fresh isolated runtime roots under `.runtime/integration-smoke-*`:
+
+- `PLATFORM_STATE_ROOT` for users, role bindings, assignments, leases, drafts, submissions, snapshots, sample pool, exports, evaluations, and audit events.
+- `LABEL_CONFIG_STORE_ROOT` for dataset type and label-config state.
+- `artifacts/` for JSON summaries and browser screenshots.
+
+The API smoke asserts live route contracts for:
+
+- label config activation and batch inheritance.
+- user/role creation, batch assignment, sample lease, label edit submit, and qc_lead confirmation.
+- sample-pool insertion and stats.
+- COCO training export creation, detail, and download.
+- model evaluation create/list/compare/delta-samples.
+- snapshot list/diff and rollback-disabled response.
+- audit action strings including `batch_assignment.assign`, `sample_lease.acquire`, `label_edit.submit`, `label_edit.confirm`, `evaluation.create`, and `snapshot.rollback.disabled`.
+
+Browser smoke uses pinned `npx playwright@1.60.0` CLI screenshots and checks `模型评估`, `版本历史`, and `导出管理`.
 
 ## Open Architecture Work
 
@@ -256,6 +283,5 @@ Acceptance flow:
 - Runtime/config state root hardening.
 - Persistent import validation history.
 - STEP2 failure remediation queue design.
-- QC closed-loop snapshot, diff, attribution, sample-pool, export, evaluation, and version-governance implementation.
+- QC closed-loop product hardening after snapshot, diff, attribution, sample-pool, export, evaluation, and version-governance implementation.
 - Frontend API adapter split.
-- Reproducible browser smoke environment.

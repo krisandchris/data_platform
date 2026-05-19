@@ -852,4 +852,13 @@ scripts/agent-dev-stack.sh status
 scripts/agent-dev-stack.sh stop
 ```
 
+End-to-end browser smoke should use the integration runner:
+
+```bash
+scripts/integration-smoke.sh main
+scripts/integration-smoke.sh agent
+```
+
+The runner captures headless screenshots for the batch overview `模型评估` / `版本历史` sections and the sample-pool `导出管理` section.
+
 Always stop frontend/backend services after live verification.

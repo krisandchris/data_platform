@@ -283,9 +283,29 @@ Acceptance:
 
 ### P2 - Integration Test Environment
 
-- Add a reproducible browser smoke setup if Playwright remains absent from the repo environment.
-- Keep headless Chrome fallback documented for local checks.
-- Add integration scripts that assert actual backend action strings and current route contracts.
+Status: complete.
+
+Scope:
+
+- This is main-workspace verification infrastructure, not product frontend/backend implementation.
+- Keep product UI and backend behavior unchanged unless a smoke script exposes a real blocking defect.
+
+Tasks:
+
+- Add a black-box API smoke script that runs against a live backend URL and verifies the current closed-loop route contracts.
+- Add a stack-level smoke runner that can target either accepted main code or frontend/backend agent worktrees.
+- Include browser smoke checks for batch overview `模型评估` / `版本历史` and sample-pool `导出管理`.
+- Pin or document the Playwright CLI path used by local browser smoke checks.
+- Ensure every smoke run stops services and verifies project ports are released.
+- Document the new commands in the current docs entry points.
+
+Acceptance:
+
+- `scripts/integration-smoke.sh main` passes against accepted main code.
+- The same runner passes with `agent` to validate frontend/backend agent worktrees.
+- API smoke asserts concrete route contracts for label edit confirmation, sample pool, training export, evaluation comparison, snapshot diff, rollback-disabled response, and audit action names.
+- Browser smoke runs headless and captures evidence artifacts under `.runtime/`.
+- Service shutdown gate reports no listeners on project ports after the run.
 
 ## Validation Commands
 
