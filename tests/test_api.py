@@ -16,6 +16,7 @@ DATASET_ID = "urban_violation"
 BATCH_DATASET_ID = "urban_violation__0508_fixture"
 SUCCESS_SAMPLE_ID = "000142_0_1762483003246"
 FAILURE_SAMPLE_ID = "001710_0_1763108687181"
+MULTI_CANDIDATE_SAMPLE_ID = "000122_0_1760525212732"
 IMPORT_JOB_ID = "fixture-import-urban-violation"
 LABEL_CONFIG_PATH = Path(
     "/mnt/lc/LC/ares_xtws/0_train_data/data_platform/DATASET/urban_violation/label_config.json"
@@ -134,18 +135,23 @@ def _create_user(client: TestClient, user_id: str, role: str = "annotator") -> N
     assert binding.status_code == 201
 
 
-def _assign_batch(client: TestClient, assignee_user_id: str) -> None:
+def _assign_batch(client: TestClient, assignee_user_id: str, dataset_id: str = DATASET_ID) -> None:
     response = client.post(
-        f"/api/datasets/{DATASET_ID}/qc/assignment",
+        f"/api/datasets/{dataset_id}/qc/assignment",
         json={"assignee_user_id": assignee_user_id},
         headers=_admin_headers(),
     )
     assert response.status_code == 200
 
 
-def _acquire_lease(client: TestClient, user_id: str, sample_id: str = SUCCESS_SAMPLE_ID) -> str:
+def _acquire_lease(
+    client: TestClient,
+    user_id: str,
+    sample_id: str = SUCCESS_SAMPLE_ID,
+    dataset_id: str = DATASET_ID,
+) -> str:
     response = client.post(
-        f"/api/datasets/{DATASET_ID}/samples/{sample_id}/lease",
+        f"/api/datasets/{dataset_id}/samples/{sample_id}/lease",
         headers=_user_headers(user_id, "annotator"),
     )
     assert response.status_code == 200
@@ -1315,3 +1321,226 @@ def test_private_draft_confirm_return_audit_progress(client: TestClient) -> None
     )
     assert progress.status_code == 200
     assert progress.json()["dataset_id"] == BATCH_DATASET_ID
+
+
+def test_qc_closed_loop_phase1_snapshots_events_and_stats_are_idempotent(tmp_path: Path) -> None:
+    state_root = tmp_path / "PLATFORM_STATE"
+    with TestClient(
+        create_app(
+            label_config_store_root=tmp_path / "LABEL_CONFIG_STATE",
+            platform_state_root=state_root,
+        )
+    ) as client:
+        _activate_label_config(client)
+        _create_user(client, "annotator_a", role="annotator")
+        _create_user(client, "qc_lead_a", role="qc_lead")
+        _assign_batch(client, "annotator_a", dataset_id=BATCH_DATASET_ID)
+        lease_id = _acquire_lease(
+            client,
+            "annotator_a",
+            sample_id=MULTI_CANDIDATE_SAMPLE_ID,
+            dataset_id=BATCH_DATASET_ID,
+        )
+
+        detail_response = client.get(
+            f"/api/datasets/{BATCH_DATASET_ID}/samples/{MULTI_CANDIDATE_SAMPLE_ID}/review",
+            headers=_admin_headers(),
+        )
+        assert detail_response.status_code == 200
+        detail = detail_response.json()
+        assert detail["stage2"] is not None
+        assert len(detail["stage1"]["key_relations"]) >= 1
+        assert len(detail["stage2"]["fact_verifications"]) >= 1
+        assert len(detail["stage2"]["candidates"]) >= 2
+
+        relation_before = detail["stage1"]["key_relations"][0]
+        verification_before = detail["stage2"]["fact_verifications"][0]
+        candidate_one = detail["stage2"]["candidates"][0]
+        candidate_two = detail["stage2"]["candidates"][1]
+
+        active_config = client.get(
+            f"/api/datasets/{BATCH_DATASET_ID}/label-config/active",
+            headers=_admin_headers(),
+        )
+        assert active_config.status_code == 200
+        fields = active_config.json()["config"]["fields"]
+        violation_field = next(field for field in fields if field["field"] == "violation_category")
+        allowed_categories = [item["code"] for item in violation_field.get("options", [])]
+        base_category = candidate_one["violation_category"][0]
+        replacement_category = next(
+            (item for item in allowed_categories if item != base_category),
+            base_category,
+        )
+        visibility_choices = ["clear", "partial", "tiny", "blurry", "occluded"]
+        replacement_visibility = next(
+            (item for item in visibility_choices if item != verification_before["visibility_level"]),
+            verification_before["visibility_level"],
+        )
+
+        bbox_before = relation_before["bbox"]
+        shifted_bbox = [bbox_before[0], bbox_before[1], min(1000, bbox_before[2] + 1), bbox_before[3]]
+        if shifted_bbox[2] <= shifted_bbox[0]:
+            shifted_bbox[0] = max(0, shifted_bbox[0] - 1)
+            shifted_bbox[2] = shifted_bbox[0] + 1
+
+        submit_payload = {
+            "task_mode": "label_edit",
+            "submit_action": "submit_changes",
+            "task_status": "annotation_submitted",
+            "lease_id": lease_id,
+            "base_revision": 0,
+            "operations": [
+                {
+                    "scope": "relation:R1",
+                    "field": "description",
+                    "op": "replace",
+                    "before": relation_before["description"],
+                    "after": f"{relation_before['description']}#qc",
+                },
+                {
+                    "scope": "relation:R1",
+                    "field": "bbox",
+                    "op": "replace",
+                    "before": bbox_before,
+                    "after": shifted_bbox,
+                },
+                {
+                    "scope": "verification:R1",
+                    "field": "visibility_level",
+                    "op": "replace",
+                    "before": verification_before["visibility_level"],
+                    "after": replacement_visibility,
+                },
+                {
+                    "scope": "verification:R1",
+                    "field": "bbox_observation",
+                    "op": "replace",
+                    "before": verification_before["bbox_observation"],
+                    "after": f"{verification_before['bbox_observation']}#edit",
+                },
+                {
+                    "scope": "candidate:C1",
+                    "field": "violation_category",
+                    "op": "replace",
+                    "before": candidate_one["violation_category"],
+                    "after": [replacement_category],
+                },
+                {
+                    "scope": "candidate:C1",
+                    "field": "segmentation_targets",
+                    "op": "replace",
+                    "before": candidate_one["segmentation_targets"],
+                    "after": [*candidate_one["segmentation_targets"], "新增目标"],
+                },
+                {
+                    "scope": "candidate:C2",
+                    "field": "candidate",
+                    "op": "delete_candidate",
+                    "before": candidate_two,
+                    "after": None,
+                },
+                {
+                    "scope": "candidate:C99",
+                    "field": "candidate",
+                    "op": "add_candidate",
+                    "before": None,
+                    "after": {
+                        "violation_category": [replacement_category],
+                        "evidence_relation_indices": candidate_two["evidence_relation_indices"],
+                        "evidence_reasoning": f"{candidate_two['evidence_reasoning']}#new",
+                        "relation_hint": candidate_two["relation_hint"],
+                        "segmentation_targets": candidate_two["segmentation_targets"],
+                        "confidence": candidate_two["confidence"],
+                        "sample_category": candidate_two["sample_category"],
+                    },
+                },
+            ],
+        }
+
+        submit = client.post(
+            f"/api/datasets/{BATCH_DATASET_ID}/samples/{MULTI_CANDIDATE_SAMPLE_ID}/label-edits",
+            json=submit_payload,
+            headers=_user_headers("annotator_a", "annotator"),
+        )
+        assert submit.status_code == 200
+
+        history = client.get(
+            f"/api/datasets/{BATCH_DATASET_ID}/samples/{MULTI_CANDIDATE_SAMPLE_ID}/label-edits/history",
+            headers=_user_headers("qc_lead_a", "qc_lead"),
+        )
+        assert history.status_code == 200
+        submission_id = history.json()[-1]["submission_id"]
+
+        confirmed = client.post(
+            f"/api/datasets/{BATCH_DATASET_ID}/samples/{MULTI_CANDIDATE_SAMPLE_ID}/label-edits/{submission_id}/confirm",
+            headers=_user_headers("qc_lead_a", "qc_lead"),
+        )
+        assert confirmed.status_code == 200
+
+        snapshots = client.get(
+            f"/api/datasets/{BATCH_DATASET_ID}/qc/annotation-snapshots",
+            params={"sample_id": MULTI_CANDIDATE_SAMPLE_ID},
+            headers=_admin_headers(),
+        )
+        assert snapshots.status_code == 200
+        snapshot_payload = snapshots.json()
+        assert {item["snapshot_type"] for item in snapshot_payload} >= {"baseline", "confirmed"}
+        assert any(item["source_submission_id"] == submission_id for item in snapshot_payload)
+
+        events = client.get(
+            f"/api/datasets/{BATCH_DATASET_ID}/qc/modification-events",
+            params={"sample_id": MULTI_CANDIDATE_SAMPLE_ID},
+            headers=_admin_headers(),
+        )
+        assert events.status_code == 200
+        event_payload = events.json()
+        assert len(event_payload) > 0
+        assert {item["dataset_id"] for item in event_payload} == {BATCH_DATASET_ID}
+        event_types = {item["event_type"] for item in event_payload}
+        assert {
+            "relation_modify",
+            "relation_bbox_adjust",
+            "candidate_category_change",
+            "candidate_delete",
+            "candidate_add",
+            "candidate_evidence_edit",
+        }.issubset(event_types)
+
+        stats_first = client.get(
+            f"/api/datasets/{BATCH_DATASET_ID}/qc/modification-events/stats",
+            headers=_admin_headers(),
+        )
+        assert stats_first.status_code == 200
+        stats_payload = stats_first.json()
+        assert stats_payload["dataset_id"] == BATCH_DATASET_ID
+        assert stats_payload["total_events"] == len(event_payload)
+        assert stats_payload["changed_sample_count"] >= 1
+        assert any(item["sample_id"] == MULTI_CANDIDATE_SAMPLE_ID for item in stats_payload["changed_samples"])
+
+        stats_second = client.get(
+            f"/api/datasets/{BATCH_DATASET_ID}/qc/modification-events/stats",
+            headers=_admin_headers(),
+        )
+        assert stats_second.status_code == 200
+        assert stats_second.json()["total_events"] == stats_payload["total_events"]
+
+        reconfirm = client.post(
+            f"/api/datasets/{BATCH_DATASET_ID}/samples/{MULTI_CANDIDATE_SAMPLE_ID}/label-edits/{submission_id}/confirm",
+            headers=_user_headers("qc_lead_a", "qc_lead"),
+        )
+        assert reconfirm.status_code == 409
+        assert reconfirm.json()["code"] == "submission_not_submitted"
+
+        events_after = client.get(
+            f"/api/datasets/{BATCH_DATASET_ID}/qc/modification-events",
+            params={"sample_id": MULTI_CANDIDATE_SAMPLE_ID},
+            headers=_admin_headers(),
+        )
+        assert events_after.status_code == 200
+        assert len(events_after.json()) == len(event_payload)
+
+        batch_state_dir = state_root / "qc" / BATCH_DATASET_ID
+        legacy_state_dir = state_root / "qc" / DATASET_ID
+        assert (batch_state_dir / "modification_events.jsonl").is_file()
+        assert (batch_state_dir / "annotation_snapshots.jsonl").is_file()
+        assert not (legacy_state_dir / "modification_events.jsonl").exists()

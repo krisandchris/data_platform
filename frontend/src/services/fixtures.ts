@@ -24,6 +24,8 @@ import type {
   LabelSuggestion,
   LoginPayload,
   PreannotationSummary,
+  QcModificationEvent,
+  QcModificationEventStats,
   QcProgress,
   QcQueueItem,
   QcTask,
@@ -76,6 +78,75 @@ const datasetTypes: DatasetType[] = [
     status: 'active',
     batchCount: 1,
     batches: [dataset],
+  },
+];
+
+const qcModificationEventStats: QcModificationEventStats = {
+  datasetId: dataset.id,
+  totalEvents: 4,
+  changedSampleCount: 2,
+  byEventType: [
+    { eventType: 'bbox_adjusted', label: '框位置调整', count: 2 },
+    { eventType: 'candidate_category_changed', label: '候选类别修正', count: 1 },
+    { eventType: 'relation_visibility_changed', label: '关系可见性修正', count: 1 },
+  ],
+  byAttribution: [
+    { code: 'model_bbox_offset', label: '模型框偏移', count: 2, weightSum: 1.4 },
+    { code: 'category_boundary', label: '类别边界判断', count: 1, weightSum: 0.8 },
+    { code: 'visibility_miss', label: '可见性漏判', count: 1, weightSum: 0.6 },
+  ],
+  bboxOffsetBands: {
+    micro: 1,
+    medium: 1,
+    large: 0,
+  },
+  changedSamples: [
+    {
+      sampleId: 'sample-0001',
+      eventCount: 3,
+      eventTypes: ['bbox_adjusted', 'candidate_category_changed'],
+      attributionCodes: ['model_bbox_offset', 'category_boundary'],
+      reviewerId: 'qc_lead_a',
+      confirmedAt: '2026-05-19T09:20:00+08:00',
+    },
+    {
+      sampleId: 'sample-0002',
+      eventCount: 1,
+      eventTypes: ['relation_visibility_changed'],
+      attributionCodes: ['visibility_miss'],
+      reviewerId: 'qc_lead_a',
+      confirmedAt: '2026-05-19T09:26:00+08:00',
+    },
+  ],
+  generatedAt: '2026-05-19T09:30:00+08:00',
+};
+
+const qcModificationEvents: QcModificationEvent[] = [
+  {
+    eventId: 'mod-event-1',
+    datasetId: dataset.id,
+    sampleId: 'sample-0001',
+    eventType: 'bbox_adjusted',
+    label: '框位置调整',
+    attributionCode: 'model_bbox_offset',
+    attributionLabel: '模型框偏移',
+    weight: 0.7,
+    reviewerId: 'qc_lead_a',
+    confirmedAt: '2026-05-19T09:20:00+08:00',
+    createdAt: '2026-05-19T09:20:00+08:00',
+  },
+  {
+    eventId: 'mod-event-2',
+    datasetId: dataset.id,
+    sampleId: 'sample-0001',
+    eventType: 'candidate_category_changed',
+    label: '候选类别修正',
+    attributionCode: 'category_boundary',
+    attributionLabel: '类别边界判断',
+    weight: 0.8,
+    reviewerId: 'qc_lead_a',
+    confirmedAt: '2026-05-19T09:20:00+08:00',
+    createdAt: '2026-05-19T09:20:00+08:00',
   },
 ];
 
@@ -1462,6 +1533,20 @@ export const fixtureApiClient: UrbanViolationApi = {
   },
   async getDatasetBatchQcProgress(batchId) {
     return this.getQcProgress(batchId);
+  },
+  async getQcModificationEventStats() {
+    await delay();
+    return clone(qcModificationEventStats);
+  },
+  async getDatasetBatchQcModificationEventStats(batchId) {
+    return this.getQcModificationEventStats(batchId);
+  },
+  async listQcModificationEvents() {
+    await delay();
+    return clone(qcModificationEvents);
+  },
+  async listDatasetBatchQcModificationEvents(batchId) {
+    return this.listQcModificationEvents(batchId);
   },
   async getBatchAssignment() {
     await delay();

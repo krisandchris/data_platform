@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
 
 from urban_violation_backend.api_schemas import (
+    AnnotationSnapshotResponse,
     AuditEventResponse,
     AssetDetailResponse,
     AssetListResponse,
@@ -34,6 +35,8 @@ from urban_violation_backend.api_schemas import (
     LeaseAcquireResponse,
     LoginRequest,
     LoginResponse,
+    ModificationEventResponse,
+    ModificationEventStatsResponse,
     LogoutResponse,
     QCQueueResponse,
     QcProgressResponse,
@@ -52,7 +55,7 @@ from urban_violation_backend.labels import (
     LabelSuggestionResponse,
     StoredLabelConfig,
 )
-from urban_violation_backend.schemas import HumanReview, RoleBinding
+from urban_violation_backend.schemas import AnnotationSnapshotType, HumanReview, RoleBinding
 from urban_violation_backend.service import (
     ActiveLabelConfigAccessError,
     DatasetNotFoundError,
@@ -947,6 +950,53 @@ def build_router(service: FixtureRuntimeService) -> APIRouter:
         context=Depends(get_context),
     ) -> QcProgressResponse:
         return runtime.get_qc_progress(dataset_id=dataset_id, context=context)
+
+    @router.get(
+        "/api/datasets/{dataset_id}/qc/modification-events",
+        response_model=list[ModificationEventResponse],
+    )
+    async def qc_modification_events(
+        dataset_id: str,
+        sample_id: str | None = Query(default=None),
+        submission_id: str | None = Query(default=None),
+        runtime: FixtureRuntimeService = Depends(get_service),
+        context=Depends(get_context),
+    ) -> list[ModificationEventResponse]:
+        return runtime.list_modification_events(
+            dataset_id=dataset_id,
+            context=context,
+            sample_id=sample_id,
+            submission_id=submission_id,
+        )
+
+    @router.get(
+        "/api/datasets/{dataset_id}/qc/modification-events/stats",
+        response_model=ModificationEventStatsResponse,
+    )
+    async def qc_modification_event_stats(
+        dataset_id: str,
+        runtime: FixtureRuntimeService = Depends(get_service),
+        context=Depends(get_context),
+    ) -> ModificationEventStatsResponse:
+        return runtime.get_modification_event_stats(dataset_id=dataset_id, context=context)
+
+    @router.get(
+        "/api/datasets/{dataset_id}/qc/annotation-snapshots",
+        response_model=list[AnnotationSnapshotResponse],
+    )
+    async def qc_annotation_snapshots(
+        dataset_id: str,
+        sample_id: str | None = Query(default=None),
+        snapshot_type: AnnotationSnapshotType | None = Query(default=None),
+        runtime: FixtureRuntimeService = Depends(get_service),
+        context=Depends(get_context),
+    ) -> list[AnnotationSnapshotResponse]:
+        return runtime.list_annotation_snapshots(
+            dataset_id=dataset_id,
+            context=context,
+            sample_id=sample_id,
+            snapshot_type=snapshot_type,
+        )
 
     @router.get("/api/datasets/{dataset_id}/search", response_model=SearchResponse)
     async def search(

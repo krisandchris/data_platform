@@ -110,6 +110,24 @@ class LeaseStatus(str, Enum):
     REVOKED = "revoked"
 
 
+class AnnotationSnapshotType(str, Enum):
+    """Snapshot lifecycle type for QC closed-loop attribution."""
+
+    BASELINE = "baseline"
+    CONFIRMED = "confirmed"
+
+
+class ModificationEventType(str, Enum):
+    """Derived modification event type from baseline-vs-confirmed diff."""
+
+    RELATION_MODIFY = "relation_modify"
+    RELATION_BBOX_ADJUST = "relation_bbox_adjust"
+    CANDIDATE_CATEGORY_CHANGE = "candidate_category_change"
+    CANDIDATE_DELETE = "candidate_delete"
+    CANDIDATE_ADD = "candidate_add"
+    CANDIDATE_EVIDENCE_EDIT = "candidate_evidence_edit"
+
+
 class StrictModel(BaseModel):
     """Base model that rejects unknown fields for safer contracts."""
 
@@ -401,6 +419,44 @@ class LabelEditSubmission(StrictModel):
     label_config_id: str | None = None
     label_config_version: str | None = None
     operations: list[dict[str, Any]] = Field(default_factory=list)
+    created_at: datetime
+
+
+class AnnotationSnapshot(StrictModel):
+    """Stored annotation snapshot for baseline and confirmed states."""
+
+    snapshot_id: str
+    dataset_id: str
+    sample_id: str
+    snapshot_type: AnnotationSnapshotType
+    source_submission_id: str | None = None
+    label_config_id: str | None = None
+    label_config_version: str | None = None
+    payload_hash: str
+    created_by: str
+    created_at: datetime
+    payload: dict[str, Any] | None = None
+    payload_ref: str | None = None
+
+
+class ModificationEvent(StrictModel):
+    """One normalized modification event for QC attribution and statistics."""
+
+    event_id: str
+    event_key: str
+    dataset_id: str
+    sample_id: str
+    reviewer_id: str
+    lead_user_id: str | None = None
+    submission_id: str
+    event_type: ModificationEventType
+    target_id: str
+    field: str
+    before: Any | None = None
+    after: Any | None = None
+    attribution_code: str
+    attribution_label: str
+    attribution_weight: float
     created_at: datetime
 
 

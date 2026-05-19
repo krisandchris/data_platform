@@ -9,11 +9,14 @@ from typing import Any
 from uuid import uuid4
 
 from urban_violation_backend.schemas import (
+    AnnotationSnapshot,
+    AnnotationSnapshotType,
     AuditEvent,
     AuthSession,
     BatchQcAssignment,
     LabelEditDraft,
     LabelEditSubmission,
+    ModificationEvent,
     QcTask,
     RoleBinding,
     SampleLease,
@@ -72,6 +75,12 @@ class PlatformStateStore:
     def _submissions_dir(self, dataset_id: str) -> Path:
         return self._qc_dir(dataset_id) / "submissions"
 
+    def _snapshots_path(self, dataset_id: str) -> Path:
+        return self._qc_dir(dataset_id) / "annotation_snapshots.jsonl"
+
+    def _modification_events_path(self, dataset_id: str) -> Path:
+        return self._qc_dir(dataset_id) / "modification_events.jsonl"
+
     def list_users(self) -> list[UserAccount]:
         payload = self._read_json(self.users_path, default=[])
         return [UserAccount.model_validate(item) for item in payload]
@@ -107,6 +116,11 @@ class PlatformStateStore:
         with self.audit_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(event.model_dump(mode="json"), ensure_ascii=False) + "\n")
 
+    def _append_jsonl(self, path: Path, payload: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
     def list_audit_events(self) -> list[AuditEvent]:
         if not self.audit_path.is_file():
             return []
@@ -117,6 +131,91 @@ class PlatformStateStore:
                 continue
             events.append(AuditEvent.model_validate(json.loads(stripped)))
         return events
+
+    def list_annotation_snapshots(
+        self,
+        dataset_id: str,
+        *,
+        sample_id: str | None = None,
+        snapshot_type: AnnotationSnapshotType | None = None,
+    ) -> list[AnnotationSnapshot]:
+        path = self._snapshots_path(dataset_id)
+        if not path.is_file():
+            return []
+        items: list[AnnotationSnapshot] = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            snapshot = AnnotationSnapshot.model_validate(json.loads(stripped))
+            if sample_id and snapshot.sample_id != sample_id:
+                continue
+            if snapshot_type and snapshot.snapshot_type != snapshot_type:
+                continue
+            items.append(snapshot)
+        items.sort(key=lambda item: item.created_at)
+        return items
+
+    def save_annotation_snapshot(self, snapshot: AnnotationSnapshot) -> AnnotationSnapshot:
+        existing = self.list_annotation_snapshots(
+            snapshot.dataset_id,
+            sample_id=snapshot.sample_id,
+            snapshot_type=snapshot.snapshot_type,
+        )
+        for item in existing:
+            if (
+                item.payload_hash == snapshot.payload_hash
+                and item.source_submission_id == snapshot.source_submission_id
+                and item.label_config_id == snapshot.label_config_id
+                and item.label_config_version == snapshot.label_config_version
+            ):
+                return item
+        self._append_jsonl(
+            self._snapshots_path(snapshot.dataset_id),
+            snapshot.model_dump(mode="json"),
+        )
+        return snapshot
+
+    def list_modification_events(
+        self,
+        dataset_id: str,
+        *,
+        sample_id: str | None = None,
+        submission_id: str | None = None,
+    ) -> list[ModificationEvent]:
+        path = self._modification_events_path(dataset_id)
+        if not path.is_file():
+            return []
+        items: list[ModificationEvent] = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            event = ModificationEvent.model_validate(json.loads(stripped))
+            if sample_id and event.sample_id != sample_id:
+                continue
+            if submission_id and event.submission_id != submission_id:
+                continue
+            items.append(event)
+        items.sort(key=lambda item: item.created_at)
+        return items
+
+    def save_modification_events(self, dataset_id: str, events: list[ModificationEvent]) -> list[ModificationEvent]:
+        if not events:
+            return []
+        existing = self.list_modification_events(dataset_id)
+        existing_keys = {item.event_key for item in existing}
+        inserted: list[ModificationEvent] = []
+        for event in events:
+            if event.event_key in existing_keys:
+                continue
+            self._append_jsonl(
+                self._modification_events_path(dataset_id),
+                event.model_dump(mode="json"),
+            )
+            existing_keys.add(event.event_key)
+            inserted.append(event)
+        return inserted
 
     def get_assignment(self, dataset_id: str) -> BatchQcAssignment | None:
         payload = self._read_json(self._assignment_path(dataset_id), default=None)

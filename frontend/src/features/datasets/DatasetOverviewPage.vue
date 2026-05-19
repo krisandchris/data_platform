@@ -77,6 +77,8 @@
 
       <DatasetDashboardCards :summary="summary" />
 
+      <QcAnalysisPanel :dataset-id="id" />
+
       <section class="grid grid--two overview-grid">
         <div class="panel">
           <div class="panel__header">
@@ -205,6 +207,7 @@ import StatusChip from '../../shared/components/StatusChip.vue';
 import { useAsyncState } from '../../shared/composables/useAsyncState';
 import DatasetDashboardCards from './components/DatasetDashboardCards.vue';
 import DistributionPanel from './components/DistributionPanel.vue';
+import QcAnalysisPanel from './components/QcAnalysisPanel.vue';
 
 const props = defineProps<{ id: string }>();
 const { data, loading, error, reload } = useAsyncState(() => apiClient.getDatasetBatchSummary(props.id), {

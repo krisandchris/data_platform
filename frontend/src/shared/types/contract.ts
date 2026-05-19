@@ -279,6 +279,60 @@ export interface QcWorkspace {
   progress?: QcProgress;
 }
 
+export interface QcModificationEventTypeCount {
+  eventType: string;
+  label: string;
+  count: number;
+}
+
+export interface QcModificationAttributionCount {
+  code: string;
+  label: string;
+  count: number;
+  weightSum?: number;
+}
+
+export interface QcModificationBboxOffsetBands {
+  micro: number;
+  medium: number;
+  large: number;
+}
+
+export interface QcChangedSampleSummary {
+  sampleId: SampleId;
+  eventCount: number;
+  eventTypes: string[];
+  attributionCodes: string[];
+  reviewerId?: string;
+  confirmedAt?: string;
+}
+
+export interface QcModificationEventStats {
+  datasetId: DatasetId;
+  totalEvents: number;
+  changedSampleCount: number;
+  byEventType: QcModificationEventTypeCount[];
+  byAttribution: QcModificationAttributionCount[];
+  bboxOffsetBands: QcModificationBboxOffsetBands;
+  changedSamples: QcChangedSampleSummary[];
+  generatedAt?: string;
+}
+
+export interface QcModificationEvent {
+  eventId: string;
+  datasetId: DatasetId;
+  sampleId: SampleId;
+  eventType: string;
+  label: string;
+  attributionCode?: string;
+  attributionLabel?: string;
+  weight?: number;
+  reviewerId?: string;
+  confirmedAt?: string;
+  createdAt?: string;
+  details?: Record<string, unknown>;
+}
+
 export interface Dataset {
   id: DatasetId;
   name: string;

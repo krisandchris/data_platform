@@ -52,6 +52,7 @@ After human review and verification, accepted changes are synchronized into the 
 | Multi-user collaboration | Complete baseline | Internal accounts, sessions, RBAC, batch assignment, leases, private drafts, submissions, qc_lead confirmation, and audit are implemented. |
 | User center | Complete baseline | `/account`, `/account/permissions`, `/account/audit`, topbar entry, permission guards, and legacy redirects are implemented. |
 | Frontend architecture repair | P0 complete | Route reuse refresh, batch-switch cache cleanup, dataset type/batch semantic aliases, and focused tests are integrated. P1/P2 remain. |
+| QC closed loop | Planned | The PDF方案 is adapted as a backend-derived snapshot/diff pipeline, not frontend-only event capture. |
 | Main-workspace governance | Complete | `AGENTS.md` and `scripts/agent-dev-stack.sh` added. |
 
 ## Protected Review Workbench Rules
@@ -124,6 +125,121 @@ Acceptance:
 - Make manual batch source-path warnings clearer when backend cannot read `source_uri`.
 - Keep batch QC queue generation explicit and label-config gated.
 - Keep batch-scoped state keyed by concrete batch id.
+
+### P1 - QC Closed Loop Phase 1: Snapshots, Diff, Attribution
+
+Design source: `质检闭环整改方案.pdf`, adapted in `docs/architecture/README.md`.
+
+Dispatch status:
+
+- Backend agent: completed Phase 1 backend implementation in `../data_platform_backend_agent`.
+- Frontend agent: completed Phase 1 frontend implementation in `../data_platform_frontend_agent`.
+- Integration/test agent: completed combined validation after both implementation agents completed.
+
+Backend agent tasks:
+
+- Add annotation snapshot models and file-backed persistence under `PLATFORM_STATE_ROOT`.
+- Create baseline snapshots for batch samples after preannotation readiness or QC queue generation.
+- During `confirm_submission`, materialize confirmed annotation payloads from accepted label-edit operations and create confirmed snapshots.
+- Add deterministic baseline-vs-confirmed diff generation.
+- Derive modification events from diff results, with event classes `relation_modify`, `relation_bbox_adjust`, `candidate_category_change`, `candidate_delete`, `candidate_add`, and `candidate_evidence_edit`.
+- Add attribution summary APIs scoped by concrete batch id.
+- Keep implementation inside `../data_platform_backend_agent`.
+- Do not modify protected review-workbench frontend files.
+
+Frontend agent tasks:
+
+- Add readonly `质检分析` tab to the batch overview page.
+- Display event counts, attribution distribution, bbox offset bands, changed samples, and reviewer/time filters.
+- Do not change the protected sample review workbench layout or bbox behavior.
+- Keep implementation inside `../data_platform_frontend_agent`.
+- Update frontend API client/types/tests for the new backend contract, but do not implement backend behavior in the frontend worktree.
+
+Integration agent tasks:
+
+- Run a real edit -> submit -> qc_lead confirm flow.
+- Assert baseline snapshot, confirmed snapshot, derived events, and attribution stats are generated for the concrete batch id.
+- Verify the frontend `质检分析` tab reads the backend-derived stats.
+- Start only after frontend/backend implementation agents finish.
+- Use `../data_platform_integration_agent` for validation, or run `scripts/agent-dev-stack.sh` from main with explicit worktree overrides if needed.
+
+Acceptance:
+
+- Frontend operation telemetry is not required for authoritative attribution.
+- A confirmed edit produces deterministic diff-derived events after qc_lead confirmation.
+- Re-running stats does not duplicate snapshots or modification events.
+- Existing label edit, assignment, lease, and review workbench tests remain passing.
+- Integration validation passed on agent worktree outputs; main sync is pending human review/approval.
+
+### P1 - QC Closed Loop Phase 2: Correction Sample Pool
+
+Backend agent tasks:
+
+- Add correction sample pool item models and persistence under `PLATFORM_STATE_ROOT`.
+- Auto-create or update a pool item when a confirmed sample contains meaningful diff events.
+- Provide pool list/detail/stats APIs with filters for dataset type, batch, category, attribution tag, reviewer, and time.
+
+Frontend agent tasks:
+
+- Add a global `修正样本池` navigation entry and page.
+- Show pool filters, changed-field summary, attribution tags, source batch, and before/after review entry.
+
+Integration agent tasks:
+
+- Confirm a changed sample and assert it appears in the sample pool without manual import.
+- Verify unchanged confirmed samples do not pollute the pool unless explicitly selected.
+
+Acceptance:
+
+- Confirmed changed samples appear in the pool using concrete batch id and confirmed snapshot id.
+- Pool APIs do not read or mutate raw `DATASET/`.
+- UI remains Chinese and uses the current tech-minimal management style.
+
+### P2 - QC Closed Loop Phase 3: Training Export
+
+Backend agent tasks:
+
+- Add export job models, retention metadata, and generated artifact paths under `PLATFORM_STATE_ROOT`.
+- Implement COCO JSON export from correction pool filters first.
+- Add VOC XML and custom JSON only after COCO passes validation.
+
+Frontend agent tasks:
+
+- Add export creation and export task management surfaces under sample-pool workflow.
+- Show status, source filter, format, item count, error, and download action.
+
+Integration agent tasks:
+
+- Create a pool-filtered COCO export and validate that the generated JSON can be parsed and contains expected images/annotations/categories.
+
+Acceptance:
+
+- Export output is generated from confirmed snapshots, not from unconfirmed drafts.
+- Export jobs can be listed, inspected, downloaded, and failed/cancelled without breaking existing export routes.
+
+### P2 - QC Closed Loop Phase 4: Evaluation And Version Governance
+
+Backend agent tasks:
+
+- Add evaluation run records, metric summaries, comparison APIs, and changed sample references.
+- Add snapshot list and snapshot diff APIs.
+- Implement rollback only after exact restore semantics and permission checks are specified and tested.
+
+Frontend agent tasks:
+
+- Add `模型评估` and `版本历史` tabs to batch overview.
+- Display metric deltas, category-level metrics, snapshot timeline, and diff summaries.
+
+Integration agent tasks:
+
+- Seed or create evaluation records and verify comparison output.
+- Verify snapshot list/diff permissions and exact payload restoration before enabling rollback controls.
+
+Acceptance:
+
+- Evaluation comparison shows metric deltas and related changed samples.
+- Version history shows import baseline, confirmed annotation snapshots, and model-preannotation snapshots.
+- Rollback is gated behind tests and management permissions.
 
 ### P2 - Integration Test Environment
 
@@ -199,3 +315,5 @@ Then verify no project `uvicorn`, Vite, or tracked backend/frontend listener rem
 - Whether category/code dictionaries should be displayed only as Chinese labels or preserve machine codes in advanced views.
 - Whether future batch keys should be date-only, scene-only, or a combined convention such as `{date}_{scene}`.
 - Whether import validation history should become persistent audit data in the first production hardening pass.
+- Whether frontend operation telemetry should be added after backend-derived attribution is stable, and which privacy/storage limits it should use.
+- Whether rollback should be enabled in the first version-history release or kept as an admin-only recovery operation.

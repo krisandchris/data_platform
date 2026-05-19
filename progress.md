@@ -15,6 +15,40 @@ This file now records only current project progress and recent verification cont
 
 ## Latest Completed Work
 
+### QC Closed Loop Plan Adaptation
+
+- Analyzed `质检闭环整改方案.pdf` against the current dataset/QC architecture.
+- Reframed modification behavior capture as backend-derived snapshot diff after qc_lead confirmation, with frontend operation telemetry kept as optional auxiliary context.
+- Added the closed-loop development plan to `docs/architecture/README.md`.
+- Added P1/P2 closed-loop implementation phases to `task_plan.md`.
+- Recorded durable closed-loop findings and risks in `findings.md`.
+
+### QC Closed Loop Task Dispatch
+
+- Confirmed `质检闭环整改方案.pdf` is not a tracked project file and added it to local git exclude.
+- Backed up stale dirty states in the three agent worktrees with stash entries:
+  - `stash@{2}` frontend implementation backup before QC closed-loop task assignment.
+  - `stash@{1}` backend implementation backup before QC closed-loop task assignment.
+  - `stash@{0}` integration testing backup before QC closed-loop task assignment.
+- Fast-forwarded frontend, backend, and integration agent worktrees to main commit `de83ee5`.
+- Prepared Phase 1 task dispatch: backend implements snapshot/diff/attribution APIs; frontend implements readonly `质检分析` tab and API client/types; integration waits until both implementation agents finish.
+- Frontend implementation agent completed: added readonly `质检分析` overview area, API client/types, fixtures, and Vitest coverage; reported `npm run test` and `npm run build` passing.
+- Backend implementation agent completed: added snapshot/diff/modification-event/stats APIs and backend tests; reported full `PLATFORM_STATE_ROOT=/tmp/uvp-qc-loop-be uv run pytest` passing with 44 tests.
+- Integration/test agent is now ready to validate the combined frontend/backend worktree products.
+- Integration/test agent completed validation successfully:
+  - Backend full test suite passed: 44 tests.
+  - Backend closed-loop targeted test passed.
+  - Backend full suite was rerun 5 times without failures.
+  - Frontend test suite passed: 61 tests.
+  - Frontend build passed.
+  - Agent stack launched backend `18031` and frontend `15195`.
+  - Health endpoint and the three new QC closed-loop APIs returned 200.
+  - Browser screenshot smoke confirmed the batch overview renders the `质检分析` area.
+  - Protected review workbench files were not modified.
+  - `质检闭环整改方案.pdf` is not tracked.
+  - Services were stopped and project ports were released.
+- Known validation note: `scripts/agent-dev-stack.sh stop` may occasionally need a second stop/process cleanup pass before ports are released; the final validation state was clean.
+
 ### Documentation Compaction
 
 - Replaced long historical `task_plan.md`, `progress.md`, and `findings.md` with compact current-state versions.

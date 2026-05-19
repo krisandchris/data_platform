@@ -100,6 +100,21 @@ This file keeps durable project facts, constraints, and open risks. Historical n
 - Candidate deletion should be represented as structured `delete_candidate` label-edit operation.
 - Empty `segmentation_targets` is allowed.
 
+## QC Closed Loop Findings
+
+- `质检闭环整改方案.pdf` identifies six missing post-QC capabilities: modification behavior capture, error attribution, correction sample pool, training export, model evaluation feedback, and annotation version governance.
+- The PDF's frontend event-capture proposal should be adapted for this project: authoritative modification behavior should be derived after qc_lead confirmation by diffing the pre-QC baseline snapshot against the confirmed annotation snapshot.
+- Frontend operation telemetry can still be useful as auxiliary context, such as elapsed time, zoom level, and active panel, but it should not be the canonical source for model-error attribution.
+- Current backend already stores `LabelEditOperation` entries with `scope`, `field`, `op`, `before`, `after`, and optional `tag_payload`, and qc_lead confirmation currently happens through `confirm_submission`.
+- Closed-loop implementation should hook into `confirm_submission`: verify the submitted patch, materialize a confirmed annotation payload, create a confirmed snapshot, derive diff events, then update attribution summaries and correction sample pool entries.
+- Baseline snapshots should be created from imported STEP1/STEP2 preannotation outputs once a batch reaches preannotation readiness or when the QC queue is generated.
+- Derived modification event classes should include `relation_modify`, `relation_bbox_adjust`, `candidate_category_change`, `candidate_delete`, `candidate_add`, and `candidate_evidence_edit`.
+- Bbox offset statistics should operate in the stored 0-1000 quantized coordinate system; rendered image pixels are frontend-only display state.
+- The correction sample pool should include confirmed changed samples and reference batch id, sample id, confirmed snapshot id, attribution tags, changed field count, reviewer, lead, and timestamps.
+- Export should use confirmed snapshots or correction-pool filters, not drafts or raw STEP files.
+- Evaluation and version-governance surfaces belong on batch overview tabs first; the sample review workbench should not be reshaped for this work.
+- Rollback is a higher-risk capability and should be implemented only after snapshot list/diff and exact restore tests are in place.
+
 ## Multi-User Facts
 
 - Authentication uses internal custom platform accounts, not LDAP/SSO or gateway identity injection.
@@ -181,3 +196,4 @@ This file keeps durable project facts, constraints, and open risks. Historical n
 - Import validation persistence vs recalculation remains a product decision.
 - STEP2 failure remediation may need its own queue instead of normal QC queue inclusion.
 - Category/code dictionaries may need clearer Chinese label mapping while preserving machine-readable codes.
+- QC closed-loop event generation must be idempotent; repeated confirmation/stat refresh must not duplicate snapshots, events, or pool items.

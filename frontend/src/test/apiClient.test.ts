@@ -913,4 +913,80 @@ describe('HTTP API adapter', () => {
       expect.objectContaining({ method: 'POST' }),
     );
   });
+
+  it('reads batch QC modification event stats and events from concrete batch endpoints', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          dataset_id: 'urban_violation__0518_imported',
+          total_events: 3,
+          changed_sample_count: 2,
+          by_event_type: [
+            { event_type: 'bbox_adjusted', label: '框位置调整', count: 2 },
+            { event_type: 'category_changed', label: '类别修正', count: 1 },
+          ],
+          by_attribution: [
+            { code: 'model_bbox_offset', label: '模型框偏移', count: 2, weight_sum: 1.2 },
+          ],
+          bbox_offset_bands: { micro: 1, medium: 1, large: 0 },
+          changed_samples: [
+            {
+              sample_id: 'sample-1',
+              event_count: 2,
+              event_types: ['bbox_adjusted'],
+              attribution_codes: ['model_bbox_offset'],
+              reviewer_id: 'qc_lead_a',
+              confirmed_at: '2026-05-19T09:00:00Z',
+            },
+          ],
+          generated_at: '2026-05-19T10:00:00Z',
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          events: [
+            {
+              event_id: 'event-1',
+              dataset_id: 'urban_violation__0518_imported',
+              sample_id: 'sample-1',
+              event_type: 'bbox_adjusted',
+              label: '框位置调整',
+              attribution_code: 'model_bbox_offset',
+              attribution_label: '模型框偏移',
+              weight: 0.8,
+              reviewer_id: 'qc_lead_a',
+              confirmed_at: '2026-05-19T09:00:00Z',
+              created_at: '2026-05-19T09:00:00Z',
+              details: { field: 'bbox' },
+            },
+          ],
+        }),
+      );
+    const api = new HttpUrbanViolationApi(new HttpClient({ baseUrl: 'http://backend.test/api', fetcher }));
+
+    const stats = await api.getDatasetBatchQcModificationEventStats('urban_violation__0518_imported');
+    const events = await api.listDatasetBatchQcModificationEvents('urban_violation__0518_imported');
+
+    expect(stats).toMatchObject({
+      datasetId: 'urban_violation__0518_imported',
+      totalEvents: 3,
+      changedSampleCount: 2,
+      bboxOffsetBands: { micro: 1, medium: 1, large: 0 },
+    });
+    expect(stats.byEventType[0]).toMatchObject({ eventType: 'bbox_adjusted', label: '框位置调整', count: 2 });
+    expect(stats.byAttribution[0]).toMatchObject({ code: 'model_bbox_offset', weightSum: 1.2 });
+    expect(stats.changedSamples[0]).toMatchObject({ sampleId: 'sample-1', eventTypes: ['bbox_adjusted'] });
+    expect(events[0]).toMatchObject({
+      eventId: 'event-1',
+      sampleId: 'sample-1',
+      eventType: 'bbox_adjusted',
+      attributionCode: 'model_bbox_offset',
+      details: { field: 'bbox' },
+    });
+    expect(fetcher.mock.calls.map((call) => call[0])).toEqual([
+      'http://backend.test/api/datasets/urban_violation__0518_imported/qc/modification-events/stats',
+      'http://backend.test/api/datasets/urban_violation__0518_imported/qc/modification-events',
+    ]);
+  });
 });

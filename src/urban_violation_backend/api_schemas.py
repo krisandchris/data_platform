@@ -9,10 +9,12 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from urban_violation_backend.schemas import (
+    AnnotationSnapshotType,
     BatchAssignmentStatus,
     DatasetLifecycleStatus,
     HumanReview,
     LeaseStatus,
+    ModificationEventType,
     QcTaskStatus,
     RoleBinding,
     RoleScopeType,
@@ -331,6 +333,91 @@ class AuditEventResponse(StrictModel):
     before: dict[str, Any] | None = None
     after: dict[str, Any] | None = None
     created_at: datetime
+
+
+class AnnotationSnapshotResponse(StrictModel):
+    """Annotation snapshot projection for QC closed-loop traceability."""
+
+    snapshot_id: str
+    dataset_id: str
+    sample_id: str
+    snapshot_type: AnnotationSnapshotType
+    source_submission_id: str | None = None
+    label_config_id: str | None = None
+    label_config_version: str | None = None
+    payload_hash: str
+    created_by: str
+    created_at: datetime
+    payload: dict[str, Any] | None = None
+    payload_ref: str | None = None
+
+
+class ModificationEventResponse(StrictModel):
+    """Derived modification event projection."""
+
+    event_id: str
+    event_key: str
+    dataset_id: str
+    sample_id: str
+    reviewer_id: str
+    lead_user_id: str | None = None
+    submission_id: str
+    event_type: ModificationEventType
+    target_id: str
+    field: str
+    before: Any | None = None
+    after: Any | None = None
+    attribution_code: str
+    attribution_label: str
+    attribution_weight: float
+    created_at: datetime
+
+
+class ModificationEventTypeCount(StrictModel):
+    """Event-type aggregate row."""
+
+    event_type: ModificationEventType
+    count: int = Field(ge=0)
+
+
+class ModificationAttributionCount(StrictModel):
+    """Attribution aggregate row."""
+
+    attribution_code: str
+    attribution_label: str
+    count: int = Field(ge=0)
+    weight_sum: float = Field(ge=0.0)
+
+
+class BboxOffsetBandCount(StrictModel):
+    """BBox offset aggregate row."""
+
+    band: Literal["micro", "medium", "large"]
+    count: int = Field(ge=0)
+
+
+class ChangedSampleSummary(StrictModel):
+    """Per-sample modification event aggregation."""
+
+    sample_id: str
+    event_count: int = Field(ge=0)
+    event_types: list[ModificationEventType] = Field(default_factory=list)
+    attribution_codes: list[str] = Field(default_factory=list)
+    reviewer_id: str
+    confirmed_at: datetime | None = None
+
+
+class ModificationEventStatsResponse(StrictModel):
+    """QC modification event aggregate response."""
+
+    dataset_id: str
+    total_events: int = Field(ge=0)
+    changed_sample_count: int = Field(ge=0)
+    by_event_type: list[ModificationEventTypeCount] = Field(default_factory=list)
+    by_attribution: list[ModificationAttributionCount] = Field(default_factory=list)
+    bbox_offset_bands: list[BboxOffsetBandCount] = Field(default_factory=list)
+    changed_samples: list[ChangedSampleSummary] = Field(default_factory=list)
+    generated_at: datetime
 
 
 class QcProgressByStatus(StrictModel):

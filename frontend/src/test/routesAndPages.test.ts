@@ -11,6 +11,7 @@ import type {
   LabelConfigSaveResult,
   LabelConfigValidationResult,
   PreannotationSummary,
+  QcModificationEventStats,
   QcQueueItem,
   ReviewSampleDetail,
 } from '../shared/types/contract';
@@ -40,6 +41,10 @@ const mockApiClient = vi.hoisted(() => ({
   listDatasetBatchQcQueue: vi.fn(),
   getDatasetBatchQcWorkspace: vi.fn(),
   getDatasetBatchQcProgress: vi.fn(),
+  getDatasetBatchQcModificationEventStats: vi.fn(),
+  getQcModificationEventStats: vi.fn(),
+  listDatasetBatchQcModificationEvents: vi.fn(),
+  listQcModificationEvents: vi.fn(),
   getQcWorkspace: vi.fn(),
   generateQcQueue: vi.fn(),
   getQcProgress: vi.fn(),
@@ -208,6 +213,48 @@ const makeDatasetSummary = (batchId: string, name: string, rawAssets: number): D
     imageResolution: '1280x720',
     fileFormats: ['jpg'],
   },
+});
+
+const makeQcModificationStats = (batchId: string, totalEvents = 3): QcModificationEventStats => ({
+  datasetId: batchId,
+  totalEvents,
+  changedSampleCount: totalEvents > 0 ? 2 : 0,
+  byEventType: totalEvents > 0
+    ? [
+        { eventType: 'bbox_adjusted', label: '框位置调整', count: 2 },
+        { eventType: 'category_changed', label: '类别修正', count: 1 },
+      ]
+    : [],
+  byAttribution: totalEvents > 0
+    ? [
+        { code: 'model_bbox_offset', label: '模型框偏移', count: 2, weightSum: 1.2 },
+        { code: 'category_boundary', label: '类别边界判断', count: 1 },
+      ]
+    : [],
+  bboxOffsetBands: totalEvents > 0
+    ? { micro: 1, medium: 1, large: 0 }
+    : { micro: 0, medium: 0, large: 0 },
+  changedSamples: totalEvents > 0
+    ? [
+        {
+          sampleId: 'sample-1',
+          eventCount: 2,
+          eventTypes: ['bbox_adjusted'],
+          attributionCodes: ['model_bbox_offset'],
+          reviewerId: 'qc_lead_a',
+          confirmedAt: '2026-05-19T09:00:00Z',
+        },
+        {
+          sampleId: 'sample-2',
+          eventCount: 1,
+          eventTypes: ['category_changed'],
+          attributionCodes: ['category_boundary'],
+          reviewerId: 'qc_lead_b',
+          confirmedAt: '2026-05-19T09:10:00Z',
+        },
+      ]
+    : [],
+  generatedAt: '2026-05-19T10:00:00Z',
 });
 
 const makeAssetSummary = (batchId: string, total: number): AssetSummary => ({
@@ -637,6 +684,10 @@ beforeEach(() => {
   mockApiClient.logout.mockResolvedValue(undefined);
   mockApiClient.getDatasetBatchSummary.mockResolvedValue(makeDatasetSummary('ds-live', 'Batch A', 2));
   mockApiClient.getDatasetBatchAssetSummary.mockResolvedValue(makeAssetSummary('ds-live', 2));
+  mockApiClient.getDatasetBatchQcModificationEventStats.mockResolvedValue(makeQcModificationStats('ds-live'));
+  mockApiClient.getQcModificationEventStats.mockResolvedValue(makeQcModificationStats('ds-live'));
+  mockApiClient.listDatasetBatchQcModificationEvents.mockResolvedValue([]);
+  mockApiClient.listQcModificationEvents.mockResolvedValue([]);
   mockApiClient.listDatasetBatchAssets.mockResolvedValue([makeAsset('ds-live', 'sample-1')]);
   mockApiClient.getDatasetBatchImportJob.mockResolvedValue(importJob);
   mockApiClient.getDatasetBatchPreannotationSummary.mockResolvedValue(makePreannotationSummary('ds-live', 2));
@@ -1213,6 +1264,74 @@ describe('route rendering and live route states', () => {
     expect(mockApiClient.getDatasetBatchSummary).toHaveBeenLastCalledWith('urban_violation__batch_b');
     expect(wrapper.text()).toContain('Batch B');
     expect(wrapper.text()).not.toContain('Batch A');
+  });
+
+  it('renders readonly QC analysis stats on the batch overview with the concrete batch id', async () => {
+    mockApiClient.getDatasetBatchQcModificationEventStats.mockResolvedValueOnce(
+      makeQcModificationStats('urban_violation__0518_imported'),
+    );
+
+    const wrapper = mount(DatasetOverviewPage, {
+      props: {
+        id: 'urban_violation__0518_imported',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    expect(mockApiClient.getDatasetBatchQcModificationEventStats).toHaveBeenCalledWith(
+      'urban_violation__0518_imported',
+    );
+    expect(wrapper.text()).toContain('质检分析');
+    expect(wrapper.text()).toContain('修改事件总数');
+    expect(wrapper.text()).toContain('模型框偏移 2');
+    expect(wrapper.text()).toContain('框位置调整');
+    expect(wrapper.text()).toContain('sample-1');
+  });
+
+  it('shows an empty QC analysis state when no modification events exist', async () => {
+    mockApiClient.getDatasetBatchQcModificationEventStats.mockResolvedValueOnce(
+      makeQcModificationStats('urban_violation__empty_batch', 0),
+    );
+
+    const wrapper = mount(DatasetOverviewPage, {
+      props: {
+        id: 'urban_violation__empty_batch',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="qc-analysis-empty"]').text()).toContain('暂无质检修改事件');
+    expect(wrapper.text()).toContain('Batch A');
+  });
+
+  it('keeps the batch overview visible when QC analysis stats are unavailable', async () => {
+    mockApiClient.getDatasetBatchQcModificationEventStats.mockRejectedValueOnce(new Error('接口未实现'));
+
+    const wrapper = mount(DatasetOverviewPage, {
+      props: {
+        id: 'urban_violation__error_batch',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="qc-analysis-error"]').text()).toContain('质检分析暂不可用：接口未实现');
+    expect(wrapper.text()).toContain('Batch A');
+    expect(wrapper.text()).toContain('数据集概况');
   });
 
   it('reloads assets and review links with the concrete batch id after batch route reuse', async () => {

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,7 @@ from fastapi import Request
 
 from urban_violation_backend.auth import AuthContext, AuthService
 from urban_violation_backend.api_schemas import (
+    AnnotationSnapshotResponse,
     AuditEventResponse,
     AssetDetailResponse,
     AssetListItem,
@@ -24,6 +26,8 @@ from urban_violation_backend.api_schemas import (
     BatchAssignmentActionRequest,
     BatchAssignmentRequest,
     BatchQcAssignmentResponse,
+    BboxOffsetBandCount,
+    ChangedSampleSummary,
     CountDistributionItem,
     CurrentUserResponse,
     DatasetTypeCreateRequest,
@@ -61,6 +65,10 @@ from urban_violation_backend.api_schemas import (
     UserAccountResponse,
     LoginRequest,
     LoginResponse,
+    ModificationAttributionCount,
+    ModificationEventResponse,
+    ModificationEventStatsResponse,
+    ModificationEventTypeCount,
     LogoutResponse,
     RoleBindingCreateRequest,
 )
@@ -92,6 +100,8 @@ from urban_violation_backend.labels import (
 )
 from urban_violation_backend.permissions import PermissionEvaluator
 from urban_violation_backend.schemas import (
+    AnnotationSnapshot,
+    AnnotationSnapshotType,
     AuditEvent,
     BatchAssignmentStatus,
     BatchQcAssignment,
@@ -102,6 +112,8 @@ from urban_violation_backend.schemas import (
     LabelEditDraft,
     LabelEditSubmission,
     LeaseStatus,
+    ModificationEvent,
+    ModificationEventType,
     QcTask,
     QcTaskStatus,
     RawAsset,
@@ -221,6 +233,23 @@ SUPPORTED_LABEL_EDIT_OPS = {
     "soft_delete_relation",
     "add_relation",
     "delete_candidate",
+    "add_candidate",
+}
+
+CANDIDATE_CATEGORY_FIELDS = {"category", "violation_category"}
+CANDIDATE_EVIDENCE_FIELDS = {
+    "confidence",
+    "evidence_relations",
+    "evidence_relation_indices",
+    "evidence_reasoning",
+    "relation_hint",
+    "segmentation_targets",
+    "sample_category",
+}
+FIELD_ALIASES = {
+    "visibility": "visibility_level",
+    "information_loss": "information_loss_type",
+    "category": "violation_category",
 }
 
 
@@ -1045,6 +1074,663 @@ class FixtureRuntimeService:
             created_at=submission.created_at,
         )
 
+    @staticmethod
+    def _normalize_field_name(field: str) -> str:
+        return FIELD_ALIASES.get(field, field)
+
+    @staticmethod
+    def _hash_payload(payload: dict[str, Any]) -> str:
+        digest = hashlib.sha256(
+            json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        return f"sha256:{digest}"
+
+    @staticmethod
+    def _snapshot_payload_from_sample(sample: FixtureSample) -> dict[str, Any]:
+        relations = []
+        for index, relation in enumerate(sample.stage1.key_relations, start=1):
+            relation_payload = relation.model_dump(mode="json")
+            relation_payload["id"] = f"R{index}"
+            relations.append(relation_payload)
+
+        fact_verifications: list[dict[str, Any]] = []
+        candidates: list[dict[str, Any]] = []
+        if sample.stage2 is not None:
+            for index, verification in enumerate(sample.stage2.fact_verifications, start=1):
+                verification_payload = verification.model_dump(mode="json")
+                verification_payload["id"] = f"R{index}"
+                fact_verifications.append(verification_payload)
+            for index, candidate in enumerate(sample.stage2.candidates, start=1):
+                candidate_payload = candidate.model_dump(mode="json")
+                candidate_payload["id"] = f"C{index}"
+                candidates.append(candidate_payload)
+
+        return {
+            "sample_id": sample.sample_id,
+            "stage1": {
+                "environment_analysis": sample.stage1.environment_analysis,
+                "scene_elements": list(sample.stage1.scene_elements),
+                "key_anchors": list(sample.stage1.key_anchors),
+                "key_relations": relations,
+            },
+            "stage2": {
+                "fact_verifications": fact_verifications,
+                "candidates": candidates,
+            },
+        }
+
+    @staticmethod
+    def _record_by_id(records: list[dict[str, Any]], record_id: str) -> dict[str, Any] | None:
+        for record in records:
+            if record.get("id") == record_id:
+                return record
+        return None
+
+    @staticmethod
+    def _normalize_candidate_aliases(candidate: dict[str, Any]) -> dict[str, Any]:
+        if "category" in candidate and "violation_category" not in candidate:
+            candidate["violation_category"] = candidate["category"]
+        return candidate
+
+    def _apply_label_edit_operations_to_payload(
+        self,
+        baseline_payload: dict[str, Any],
+        operations: list[LabelEditOperation],
+    ) -> dict[str, Any]:
+        payload = json.loads(json.dumps(baseline_payload, ensure_ascii=False))
+        stage1_payload = payload.get("stage1", {})
+        stage2_payload = payload.get("stage2", {})
+        relations = stage1_payload.get("key_relations", [])
+        verifications = stage2_payload.get("fact_verifications", [])
+        candidates = stage2_payload.get("candidates", [])
+
+        for operation in operations:
+            scope = operation.scope
+            field = self._normalize_field_name(operation.field)
+            op = operation.op
+
+            if scope == "stage1":
+                if op == "replace":
+                    stage1_payload[field] = operation.after
+                elif op == "add_tag":
+                    current = list(stage1_payload.get(field, []))
+                    if operation.after not in current:
+                        current.append(operation.after)
+                    stage1_payload[field] = current
+                elif op == "remove_tag":
+                    current = list(stage1_payload.get(field, []))
+                    stage1_payload[field] = [item for item in current if item != operation.before]
+                continue
+
+            scope_type, _, scope_id = scope.partition(":")
+            if not scope_id:
+                continue
+
+            if scope_type == "relation":
+                relation = self._record_by_id(relations, scope_id)
+                if relation is None:
+                    continue
+                if op == "replace":
+                    relation[field] = operation.after
+                elif op == "add_tag":
+                    current = list(relation.get(field, []))
+                    if operation.after not in current:
+                        current.append(operation.after)
+                    relation[field] = current
+                elif op == "remove_tag":
+                    current = list(relation.get(field, []))
+                    relation[field] = [item for item in current if item != operation.before]
+                continue
+
+            if scope_type == "verification":
+                verification = self._record_by_id(verifications, scope_id)
+                if verification is None:
+                    continue
+                if op == "replace":
+                    verification[field] = operation.after
+                elif op == "add_tag":
+                    current = list(verification.get(field, []))
+                    if operation.after not in current:
+                        current.append(operation.after)
+                    verification[field] = current
+                elif op == "remove_tag":
+                    current = list(verification.get(field, []))
+                    verification[field] = [item for item in current if item != operation.before]
+                continue
+
+            if scope_type == "candidate":
+                candidate = self._record_by_id(candidates, scope_id)
+                if op == "delete_candidate" and field == "candidate":
+                    candidates[:] = [item for item in candidates if item.get("id") != scope_id]
+                    continue
+                if candidate is None and field == "candidate" and isinstance(operation.after, dict):
+                    created = {"id": scope_id, **operation.after}
+                    candidates.append(self._normalize_candidate_aliases(created))
+                    continue
+                if candidate is None:
+                    continue
+                if op == "replace":
+                    if field == "candidate" and isinstance(operation.after, dict):
+                        candidate.clear()
+                        candidate.update({"id": scope_id, **operation.after})
+                    else:
+                        candidate[field] = operation.after
+                elif op == "add_tag":
+                    current = list(candidate.get(field, []))
+                    if operation.after not in current:
+                        current.append(operation.after)
+                    candidate[field] = current
+                elif op == "remove_tag":
+                    current = list(candidate.get(field, []))
+                    candidate[field] = [item for item in current if item != operation.before]
+                self._normalize_candidate_aliases(candidate)
+                continue
+
+        return payload
+
+    @staticmethod
+    def _event_key_payload(
+        *,
+        dataset_id: str,
+        sample_id: str,
+        reviewer_id: str,
+        lead_user_id: str | None,
+        submission_id: str,
+        event_type: ModificationEventType,
+        target_id: str,
+        field: str,
+        before: Any,
+        after: Any,
+        attribution_code: str,
+    ) -> str:
+        digest = hashlib.sha256(
+            json.dumps(
+                {
+                    "dataset_id": dataset_id,
+                    "sample_id": sample_id,
+                    "reviewer_id": reviewer_id,
+                    "lead_user_id": lead_user_id,
+                    "submission_id": submission_id,
+                    "event_type": event_type.value,
+                    "target_id": target_id,
+                    "field": field,
+                    "before": before,
+                    "after": after,
+                    "attribution_code": attribution_code,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        return f"mev:{digest}"
+
+    @staticmethod
+    def _resolve_attribution(
+        *,
+        event_type: ModificationEventType,
+        target_id: str,
+        field: str,
+    ) -> tuple[str, str, float]:
+        if event_type == ModificationEventType.RELATION_BBOX_ADJUST:
+            return ("bbox_adjust", "BBox 调整", 0.6)
+        if event_type == ModificationEventType.CANDIDATE_CATEGORY_CHANGE:
+            return ("candidate_category_change", "候选类别变更", 1.2)
+        if event_type == ModificationEventType.CANDIDATE_DELETE:
+            return ("candidate_delete", "候选删除", 1.0)
+        if event_type == ModificationEventType.CANDIDATE_ADD:
+            return ("candidate_add", "候选新增", 1.0)
+        if event_type == ModificationEventType.CANDIDATE_EVIDENCE_EDIT:
+            return ("candidate_evidence_edit", "候选证据编辑", 0.8)
+        if target_id.startswith("verification:"):
+            return ("verification_modify", "验证信息修改", 0.9)
+        if field in {"subject", "relation", "object", "description"}:
+            return ("relation_semantic_modify", "关系语义修改", 1.0)
+        return ("relation_modify", "关系信息修改", 0.9)
+
+    @staticmethod
+    def _coerce_bbox(value: Any) -> list[int] | None:
+        if not isinstance(value, list) or len(value) != 4:
+            return None
+        coerced: list[int] = []
+        for item in value:
+            if not isinstance(item, (int, float)):
+                return None
+            coerced.append(int(item))
+        return coerced
+
+    @staticmethod
+    def _bbox_offset(before: Any, after: Any) -> int | None:
+        bbox_before = FixtureRuntimeService._coerce_bbox(before)
+        bbox_after = FixtureRuntimeService._coerce_bbox(after)
+        if bbox_before is None or bbox_after is None:
+            return None
+        return max(abs(a - b) for a, b in zip(bbox_before, bbox_after))
+
+    def _make_modification_event(
+        self,
+        *,
+        dataset_id: str,
+        sample_id: str,
+        reviewer_id: str,
+        lead_user_id: str | None,
+        submission_id: str,
+        event_type: ModificationEventType,
+        target_id: str,
+        field: str,
+        before: Any,
+        after: Any,
+        created_at: datetime,
+    ) -> ModificationEvent:
+        attribution_code, attribution_label, attribution_weight = self._resolve_attribution(
+            event_type=event_type,
+            target_id=target_id,
+            field=field,
+        )
+        event_key = self._event_key_payload(
+            dataset_id=dataset_id,
+            sample_id=sample_id,
+            reviewer_id=reviewer_id,
+            lead_user_id=lead_user_id,
+            submission_id=submission_id,
+            event_type=event_type,
+            target_id=target_id,
+            field=field,
+            before=before,
+            after=after,
+            attribution_code=attribution_code,
+        )
+        return ModificationEvent(
+            event_id=self._state_store.new_id("mev"),
+            event_key=event_key,
+            dataset_id=dataset_id,
+            sample_id=sample_id,
+            reviewer_id=reviewer_id,
+            lead_user_id=lead_user_id,
+            submission_id=submission_id,
+            event_type=event_type,
+            target_id=target_id,
+            field=field,
+            before=before,
+            after=after,
+            attribution_code=attribution_code,
+            attribution_label=attribution_label,
+            attribution_weight=attribution_weight,
+            created_at=created_at,
+        )
+
+    def _diff_snapshots_to_events(
+        self,
+        *,
+        baseline_payload: dict[str, Any],
+        confirmed_payload: dict[str, Any],
+        dataset_id: str,
+        sample_id: str,
+        reviewer_id: str,
+        lead_user_id: str | None,
+        submission_id: str,
+        created_at: datetime,
+    ) -> list[ModificationEvent]:
+        events: list[ModificationEvent] = []
+        baseline_stage1 = baseline_payload.get("stage1", {})
+        confirmed_stage1 = confirmed_payload.get("stage1", {})
+        baseline_stage2 = baseline_payload.get("stage2", {})
+        confirmed_stage2 = confirmed_payload.get("stage2", {})
+
+        baseline_relations = {
+            str(item.get("id")): item for item in baseline_stage1.get("key_relations", []) if item.get("id")
+        }
+        confirmed_relations = {
+            str(item.get("id")): item for item in confirmed_stage1.get("key_relations", []) if item.get("id")
+        }
+        baseline_verifications = {
+            str(item.get("id")): item for item in baseline_stage2.get("fact_verifications", []) if item.get("id")
+        }
+        confirmed_verifications = {
+            str(item.get("id")): item for item in confirmed_stage2.get("fact_verifications", []) if item.get("id")
+        }
+        baseline_candidates = {
+            str(item.get("id")): item for item in baseline_stage2.get("candidates", []) if item.get("id")
+        }
+        confirmed_candidates = {
+            str(item.get("id")): item for item in confirmed_stage2.get("candidates", []) if item.get("id")
+        }
+
+        for relation_id in sorted(set(baseline_relations) | set(confirmed_relations)):
+            before_relation = baseline_relations.get(relation_id)
+            after_relation = confirmed_relations.get(relation_id)
+            if before_relation is None or after_relation is None:
+                continue
+            for field in sorted(RELATION_FIELDS):
+                before_value = before_relation.get(field)
+                after_value = after_relation.get(field)
+                if before_value == after_value:
+                    continue
+                event_type = (
+                    ModificationEventType.RELATION_BBOX_ADJUST
+                    if field == "bbox"
+                    else ModificationEventType.RELATION_MODIFY
+                )
+                events.append(
+                    self._make_modification_event(
+                        dataset_id=dataset_id,
+                        sample_id=sample_id,
+                        reviewer_id=reviewer_id,
+                        lead_user_id=lead_user_id,
+                        submission_id=submission_id,
+                        event_type=event_type,
+                        target_id=f"relation:{relation_id}",
+                        field=field,
+                        before=before_value,
+                        after=after_value,
+                        created_at=created_at,
+                    )
+                )
+
+        verification_fields = {
+            "subject",
+            "relation",
+            "object",
+            "bbox",
+            "visibility_level",
+            "information_loss_type",
+            "bbox_observation",
+            "global_context_observation",
+            "verification_result",
+            "verification_confidence",
+        }
+        for relation_id in sorted(set(baseline_verifications) | set(confirmed_verifications)):
+            before_verification = baseline_verifications.get(relation_id)
+            after_verification = confirmed_verifications.get(relation_id)
+            if before_verification is None or after_verification is None:
+                continue
+            for field in sorted(verification_fields):
+                before_value = before_verification.get(field)
+                after_value = after_verification.get(field)
+                if before_value == after_value:
+                    continue
+                event_type = (
+                    ModificationEventType.RELATION_BBOX_ADJUST
+                    if field == "bbox"
+                    else ModificationEventType.RELATION_MODIFY
+                )
+                events.append(
+                    self._make_modification_event(
+                        dataset_id=dataset_id,
+                        sample_id=sample_id,
+                        reviewer_id=reviewer_id,
+                        lead_user_id=lead_user_id,
+                        submission_id=submission_id,
+                        event_type=event_type,
+                        target_id=f"verification:{relation_id}",
+                        field=field,
+                        before=before_value,
+                        after=after_value,
+                        created_at=created_at,
+                    )
+                )
+
+        candidate_ids = sorted(set(baseline_candidates) | set(confirmed_candidates))
+        for candidate_id in candidate_ids:
+            before_candidate = self._normalize_candidate_aliases(dict(baseline_candidates.get(candidate_id, {})))
+            after_candidate = self._normalize_candidate_aliases(dict(confirmed_candidates.get(candidate_id, {})))
+            if before_candidate and not after_candidate:
+                events.append(
+                    self._make_modification_event(
+                        dataset_id=dataset_id,
+                        sample_id=sample_id,
+                        reviewer_id=reviewer_id,
+                        lead_user_id=lead_user_id,
+                        submission_id=submission_id,
+                        event_type=ModificationEventType.CANDIDATE_DELETE,
+                        target_id=f"candidate:{candidate_id}",
+                        field="candidate",
+                        before=before_candidate,
+                        after=None,
+                        created_at=created_at,
+                    )
+                )
+                continue
+            if after_candidate and not before_candidate:
+                events.append(
+                    self._make_modification_event(
+                        dataset_id=dataset_id,
+                        sample_id=sample_id,
+                        reviewer_id=reviewer_id,
+                        lead_user_id=lead_user_id,
+                        submission_id=submission_id,
+                        event_type=ModificationEventType.CANDIDATE_ADD,
+                        target_id=f"candidate:{candidate_id}",
+                        field="candidate",
+                        before=None,
+                        after=after_candidate,
+                        created_at=created_at,
+                    )
+                )
+                continue
+            if not before_candidate or not after_candidate:
+                continue
+
+            candidate_compare_fields = {"violation_category", *CANDIDATE_EVIDENCE_FIELDS}
+            for canonical_field in sorted(candidate_compare_fields):
+                before_value = before_candidate.get(canonical_field)
+                after_value = after_candidate.get(canonical_field)
+                if before_value == after_value:
+                    continue
+                event_type = (
+                    ModificationEventType.CANDIDATE_CATEGORY_CHANGE
+                    if canonical_field in {"category", "violation_category"}
+                    else ModificationEventType.CANDIDATE_EVIDENCE_EDIT
+                )
+                events.append(
+                    self._make_modification_event(
+                        dataset_id=dataset_id,
+                        sample_id=sample_id,
+                        reviewer_id=reviewer_id,
+                        lead_user_id=lead_user_id,
+                        submission_id=submission_id,
+                        event_type=event_type,
+                        target_id=f"candidate:{candidate_id}",
+                        field=canonical_field,
+                        before=before_value,
+                        after=after_value,
+                        created_at=created_at,
+                    )
+                )
+
+        return events
+
+    def _persist_submission_snapshots_and_events(
+        self,
+        *,
+        dataset_id: str,
+        sample: FixtureSample,
+        task: QcTask,
+        submission: LabelEditSubmission,
+        lead_user_id: str,
+        created_at: datetime,
+    ) -> tuple[AnnotationSnapshot, AnnotationSnapshot, list[ModificationEvent]]:
+        baseline_payload = self._snapshot_payload_from_sample(sample)
+        baseline_hash = self._hash_payload(baseline_payload)
+        baseline_snapshot = self._state_store.save_annotation_snapshot(
+            AnnotationSnapshot(
+                snapshot_id=self._state_store.new_id("snap"),
+                dataset_id=dataset_id,
+                sample_id=sample.sample_id,
+                snapshot_type=AnnotationSnapshotType.BASELINE,
+                source_submission_id=None,
+                label_config_id=task.label_config_id or submission.label_config_id,
+                label_config_version=task.label_config_version or submission.label_config_version,
+                payload_hash=baseline_hash,
+                created_by=submission.user_id,
+                created_at=created_at,
+                payload=baseline_payload,
+                payload_ref=None,
+            )
+        )
+
+        operations = [LabelEditOperation.model_validate(item) for item in submission.operations]
+        confirmed_payload = self._apply_label_edit_operations_to_payload(
+            baseline_payload=baseline_snapshot.payload or baseline_payload,
+            operations=operations,
+        )
+        confirmed_hash = self._hash_payload(confirmed_payload)
+        confirmed_snapshot = self._state_store.save_annotation_snapshot(
+            AnnotationSnapshot(
+                snapshot_id=self._state_store.new_id("snap"),
+                dataset_id=dataset_id,
+                sample_id=sample.sample_id,
+                snapshot_type=AnnotationSnapshotType.CONFIRMED,
+                source_submission_id=submission.submission_id,
+                label_config_id=task.label_config_id or submission.label_config_id,
+                label_config_version=task.label_config_version or submission.label_config_version,
+                payload_hash=confirmed_hash,
+                created_by=lead_user_id,
+                created_at=created_at,
+                payload=confirmed_payload,
+                payload_ref=None,
+            )
+        )
+
+        events = self._diff_snapshots_to_events(
+            baseline_payload=baseline_snapshot.payload or baseline_payload,
+            confirmed_payload=confirmed_snapshot.payload or confirmed_payload,
+            dataset_id=dataset_id,
+            sample_id=sample.sample_id,
+            reviewer_id=submission.user_id,
+            lead_user_id=lead_user_id,
+            submission_id=submission.submission_id,
+            created_at=created_at,
+        )
+        inserted = self._state_store.save_modification_events(dataset_id=dataset_id, events=events)
+        return baseline_snapshot, confirmed_snapshot, inserted
+
+    def list_annotation_snapshots(
+        self,
+        dataset_id: str,
+        *,
+        context: AuthContext,
+        sample_id: str | None = None,
+        snapshot_type: AnnotationSnapshotType | None = None,
+    ) -> list[AnnotationSnapshotResponse]:
+        self._require_dataset(dataset_id)
+        self._require_permission(context=context, action="qc_queue:read", dataset_id=dataset_id)
+        active_dataset_id = self._effective_batch_dataset_id(dataset_id)
+        snapshots = self._state_store.list_annotation_snapshots(
+            active_dataset_id,
+            sample_id=sample_id,
+            snapshot_type=snapshot_type,
+        )
+        return [AnnotationSnapshotResponse(**item.model_dump()) for item in snapshots]
+
+    def list_modification_events(
+        self,
+        dataset_id: str,
+        *,
+        context: AuthContext,
+        sample_id: str | None = None,
+        submission_id: str | None = None,
+    ) -> list[ModificationEventResponse]:
+        self._require_dataset(dataset_id)
+        self._require_permission(context=context, action="qc_queue:read", dataset_id=dataset_id)
+        active_dataset_id = self._effective_batch_dataset_id(dataset_id)
+        events = self._state_store.list_modification_events(
+            active_dataset_id,
+            sample_id=sample_id,
+            submission_id=submission_id,
+        )
+        return [ModificationEventResponse(**item.model_dump()) for item in events]
+
+    def get_modification_event_stats(
+        self,
+        dataset_id: str,
+        *,
+        context: AuthContext,
+    ) -> ModificationEventStatsResponse:
+        self._require_dataset(dataset_id)
+        self._require_permission(context=context, action="qc_queue:read", dataset_id=dataset_id)
+        active_dataset_id = self._effective_batch_dataset_id(dataset_id)
+        events = self._state_store.list_modification_events(active_dataset_id)
+        tasks_by_sample = {
+            task.sample_id: task for task in self._state_store.list_tasks(active_dataset_id)
+        }
+
+        by_event_type_counter: Counter[ModificationEventType] = Counter()
+        by_attribution_counter: Counter[tuple[str, str]] = Counter()
+        by_attribution_weight_sum: dict[tuple[str, str], float] = {}
+        bbox_bands: Counter[str] = Counter({"micro": 0, "medium": 0, "large": 0})
+        events_by_sample: dict[str, list[ModificationEvent]] = {}
+        for event in events:
+            by_event_type_counter[event.event_type] += 1
+            attr_key = (event.attribution_code, event.attribution_label)
+            by_attribution_counter[attr_key] += 1
+            by_attribution_weight_sum[attr_key] = (
+                by_attribution_weight_sum.get(attr_key, 0.0) + event.attribution_weight
+            )
+            events_by_sample.setdefault(event.sample_id, []).append(event)
+            if event.event_type == ModificationEventType.RELATION_BBOX_ADJUST:
+                offset = self._bbox_offset(event.before, event.after)
+                if offset is None:
+                    continue
+                if offset < 20:
+                    bbox_bands["micro"] += 1
+                elif offset <= 50:
+                    bbox_bands["medium"] += 1
+                else:
+                    bbox_bands["large"] += 1
+
+        changed_samples: list[ChangedSampleSummary] = []
+        for sample_id, sample_events in sorted(events_by_sample.items(), key=lambda item: item[0]):
+            task = tasks_by_sample.get(sample_id)
+            changed_samples.append(
+                ChangedSampleSummary(
+                    sample_id=sample_id,
+                    event_count=len(sample_events),
+                    event_types=sorted(
+                        {event.event_type for event in sample_events},
+                        key=lambda item: item.value,
+                    ),
+                    attribution_codes=sorted({event.attribution_code for event in sample_events}),
+                    reviewer_id=sample_events[-1].reviewer_id,
+                    confirmed_at=(task.confirmed_at if task is not None else None),
+                )
+            )
+
+        by_event_type = [
+            ModificationEventTypeCount(event_type=event_type, count=count)
+            for event_type, count in sorted(
+                by_event_type_counter.items(),
+                key=lambda item: (-item[1], item[0].value),
+            )
+        ]
+        by_attribution = [
+            ModificationAttributionCount(
+                attribution_code=key[0],
+                attribution_label=key[1],
+                count=by_attribution_counter[key],
+                weight_sum=by_attribution_weight_sum.get(key, 0.0),
+            )
+            for key in sorted(
+                by_attribution_counter.keys(),
+                key=lambda item: (-by_attribution_counter[item], item[0]),
+            )
+        ]
+        bbox_offset_bands = [
+            BboxOffsetBandCount(band="micro", count=bbox_bands.get("micro", 0)),
+            BboxOffsetBandCount(band="medium", count=bbox_bands.get("medium", 0)),
+            BboxOffsetBandCount(band="large", count=bbox_bands.get("large", 0)),
+        ]
+        return ModificationEventStatsResponse(
+            dataset_id=active_dataset_id,
+            total_events=len(events),
+            changed_sample_count=len(events_by_sample),
+            by_event_type=by_event_type,
+            by_attribution=by_attribution,
+            bbox_offset_bands=bbox_offset_bands,
+            changed_samples=changed_samples,
+            generated_at=self._state_store.now(),
+        )
+
     def _active_lease_for_sample(self, dataset_id: str, sample_id: str) -> SampleLease | None:
         now = self._state_store.now()
         leases = self._state_store.list_leases(dataset_id)
@@ -1801,7 +2487,7 @@ class FixtureRuntimeService:
 
         for index, operation in enumerate(request.operations):
             scope = operation.scope
-            field = operation.field
+            field = self._normalize_field_name(operation.field)
             op = operation.op
 
             if op not in SUPPORTED_LABEL_EDIT_OPS:
@@ -1829,14 +2515,14 @@ class FixtureRuntimeService:
                 )
                 continue
 
-            if field == "candidate" and op != "delete_candidate":
+            if field == "candidate" and op not in {"delete_candidate", "add_candidate"}:
                 errors.append(
                     LabelEditValidationIssue(
                         operation_index=index,
                         scope=scope,
                         field=field,
                         code="invalid_operation",
-                        message="candidate field only supports delete_candidate",
+                        message="candidate field only supports delete_candidate/add_candidate",
                     )
                 )
                 continue
@@ -1850,6 +2536,30 @@ class FixtureRuntimeService:
                             field=field,
                             code="invalid_scope_or_field",
                             message="delete_candidate must use scope candidate:C* and field candidate",
+                        )
+                    )
+                continue
+
+            if op == "add_candidate":
+                if not scope.startswith("candidate:") or field != "candidate":
+                    errors.append(
+                        LabelEditValidationIssue(
+                            operation_index=index,
+                            scope=scope,
+                            field=field,
+                            code="invalid_scope_or_field",
+                            message="add_candidate must use scope candidate:C* and field candidate",
+                        )
+                    )
+                    continue
+                if not isinstance(operation.after, dict):
+                    errors.append(
+                        LabelEditValidationIssue(
+                            operation_index=index,
+                            scope=scope,
+                            field=field,
+                            code="invalid_value",
+                            message="add_candidate requires dict payload in after",
                         )
                     )
                 continue
@@ -2543,6 +3253,15 @@ class FixtureRuntimeService:
                 task_status=task.status.value,
             )
         now = self._state_store.now()
+        sample = self._require_sample(dataset_id, sample_id)
+        self._persist_submission_snapshots_and_events(
+            dataset_id=active_dataset_id,
+            sample=sample,
+            task=task,
+            submission=submission,
+            lead_user_id=context.user_id,
+            created_at=now,
+        )
         updated_task = task.model_copy(
             update={
                 "status": QcTaskStatus.COMPLETED,

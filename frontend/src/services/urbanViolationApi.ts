@@ -63,6 +63,8 @@ import type {
   PreannotationSummary,
   PreAnnotationStep1,
   PreAnnotationStep2,
+  QcModificationEvent,
+  QcModificationEventStats,
   QcProgress,
   QcStatus,
   QcQueueItem,
@@ -149,6 +151,10 @@ export interface UrbanViolationApi {
   getDatasetBatchQcProgress(batchId: DatasetBatchId): Promise<QcProgress>;
   generateQcQueue(datasetId: DatasetId): Promise<QcWorkspace>;
   getQcProgress(datasetId: DatasetId): Promise<QcProgress>;
+  getDatasetBatchQcModificationEventStats(batchId: DatasetBatchId): Promise<QcModificationEventStats>;
+  getQcModificationEventStats(datasetId: DatasetId): Promise<QcModificationEventStats>;
+  listDatasetBatchQcModificationEvents(batchId: DatasetBatchId): Promise<QcModificationEvent[]>;
+  listQcModificationEvents(datasetId: DatasetId): Promise<QcModificationEvent[]>;
   getBatchAssignment(datasetId: DatasetId): Promise<BatchQcAssignment | undefined>;
   assignBatch(datasetId: DatasetId, payload: BatchAssignmentPayload): Promise<BatchQcAssignment>;
   reassignBatch(datasetId: DatasetId, payload: BatchAssignmentPayload): Promise<BatchQcAssignment>;
@@ -454,6 +460,28 @@ export class HttpUrbanViolationApi implements UrbanViolationApi {
 
   async getDatasetBatchQcProgress(batchId: DatasetBatchId): Promise<QcProgress> {
     return this.getQcProgress(batchId);
+  }
+
+  async getDatasetBatchQcModificationEventStats(batchId: DatasetBatchId): Promise<QcModificationEventStats> {
+    return this.getQcModificationEventStats(batchId);
+  }
+
+  async getQcModificationEventStats(datasetId: DatasetId): Promise<QcModificationEventStats> {
+    const payload = await this.http.get<unknown>(
+      `/datasets/${encodeURIComponent(datasetId)}/qc/modification-events/stats`,
+    );
+    return normalizeQcModificationEventStats(payload, datasetId);
+  }
+
+  async listDatasetBatchQcModificationEvents(batchId: DatasetBatchId): Promise<QcModificationEvent[]> {
+    return this.listQcModificationEvents(batchId);
+  }
+
+  async listQcModificationEvents(datasetId: DatasetId): Promise<QcModificationEvent[]> {
+    const payload = await this.http.get<unknown>(
+      `/datasets/${encodeURIComponent(datasetId)}/qc/modification-events`,
+    );
+    return listPayload(payload, 'events').map((item) => normalizeQcModificationEvent(item, datasetId));
   }
 
   async getBatchAssignment(datasetId: DatasetId): Promise<BatchQcAssignment | undefined> {
@@ -1006,6 +1034,78 @@ const normalizeQcSummary = (value: unknown): DatasetSummary['qc'] => {
     passed: numberValue(record.passed),
     rejected: numberValue(record.rejected),
     needsHumanReview: numberValue(record.needsHumanReview ?? record.needs_human_review),
+  };
+};
+
+const normalizeQcModificationEventStats = (
+  payload: unknown,
+  datasetId: DatasetId,
+): QcModificationEventStats => {
+  const record = isRecord(payload) ? payload : {};
+  const bboxOffsetBands = isRecord(record.bboxOffsetBands ?? record.bbox_offset_bands)
+    ? (record.bboxOffsetBands ?? record.bbox_offset_bands) as Record<string, unknown>
+    : {};
+
+  return {
+    datasetId: stringValue(record.datasetId ?? record.dataset_id, datasetId),
+    totalEvents: numberValue(record.totalEvents ?? record.total_events),
+    changedSampleCount: numberValue(record.changedSampleCount ?? record.changed_sample_count),
+    byEventType: arrayValue<unknown>(record.byEventType ?? record.by_event_type).map((item) => {
+      const itemRecord = isRecord(item) ? item : {};
+      const eventType = stringValue(itemRecord.eventType ?? itemRecord.event_type, 'unknown');
+      return {
+        eventType,
+        label: stringValue(itemRecord.label, eventType),
+        count: numberValue(itemRecord.count),
+      };
+    }),
+    byAttribution: arrayValue<unknown>(record.byAttribution ?? record.by_attribution).map((item) => {
+      const itemRecord = isRecord(item) ? item : {};
+      const code = stringValue(itemRecord.code, 'unknown');
+      return {
+        code,
+        label: stringValue(itemRecord.label, code),
+        count: numberValue(itemRecord.count),
+        weightSum: maybeNumber(itemRecord.weightSum ?? itemRecord.weight_sum),
+      };
+    }),
+    bboxOffsetBands: {
+      micro: numberValue(bboxOffsetBands.micro),
+      medium: numberValue(bboxOffsetBands.medium),
+      large: numberValue(bboxOffsetBands.large),
+    },
+    changedSamples: arrayValue<unknown>(record.changedSamples ?? record.changed_samples).map((item) => {
+      const itemRecord = isRecord(item) ? item : {};
+      return {
+        sampleId: stringValue(itemRecord.sampleId ?? itemRecord.sample_id),
+        eventCount: numberValue(itemRecord.eventCount ?? itemRecord.event_count),
+        eventTypes: normalizeStringList(itemRecord.eventTypes ?? itemRecord.event_types),
+        attributionCodes: normalizeStringList(itemRecord.attributionCodes ?? itemRecord.attribution_codes),
+        reviewerId: optionalString(itemRecord.reviewerId ?? itemRecord.reviewer_id),
+        confirmedAt: optionalString(itemRecord.confirmedAt ?? itemRecord.confirmed_at),
+      };
+    }),
+    generatedAt: optionalString(record.generatedAt ?? record.generated_at),
+  };
+};
+
+const normalizeQcModificationEvent = (value: unknown, datasetId: DatasetId): QcModificationEvent => {
+  const record = isRecord(value) ? value : {};
+  const eventType = stringValue(record.eventType ?? record.event_type, 'unknown');
+  const sampleId = stringValue(record.sampleId ?? record.sample_id);
+  return {
+    eventId: stringValue(record.eventId ?? record.event_id, `${datasetId}-${sampleId}-${eventType}`),
+    datasetId: stringValue(record.datasetId ?? record.dataset_id, datasetId),
+    sampleId,
+    eventType,
+    label: stringValue(record.label, eventType),
+    attributionCode: optionalString(record.attributionCode ?? record.attribution_code),
+    attributionLabel: optionalString(record.attributionLabel ?? record.attribution_label),
+    weight: maybeNumber(record.weight),
+    reviewerId: optionalString(record.reviewerId ?? record.reviewer_id),
+    confirmedAt: optionalString(record.confirmedAt ?? record.confirmed_at),
+    createdAt: optionalString(record.createdAt ?? record.created_at),
+    details: isRecord(record.details) ? record.details : undefined,
   };
 };
 
