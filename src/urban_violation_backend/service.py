@@ -3122,43 +3122,51 @@ class FixtureRuntimeService:
             *sorted(registered, key=lambda item: item.dataset_id),
         ]
 
+    def _build_dataset_type_response(self, dataset_type: str) -> DatasetTypeResponse:
+        """Build one dataset-type response row with its grouped batches."""
+        if dataset_type not in self._dataset_type_display_names:
+            raise DatasetNotFoundError(f"Dataset type not found: {dataset_type}")
+        batches = []
+        if dataset_type == self._dataset_type:
+            batches.append(self.get_dataset_summary(self._dataset_id))
+        batches.extend(
+            sorted(
+                (
+                    self._build_registered_dataset_summary(summary, runtime)
+                    if (runtime := self._registered_batch_runtimes.get(summary.dataset_id)) is not None
+                    else summary.model_copy(
+                        update={
+                            "active_label_config_version": self._current_active_label_config_version(
+                                summary.dataset_type
+                            )
+                        }
+                    )
+                    for summary in self._registered_batches.values()
+                    if summary.dataset_type == dataset_type
+                ),
+                key=lambda item: item.dataset_id,
+            )
+        )
+        return DatasetTypeResponse(
+            dataset_type=dataset_type,
+            display_name=self._dataset_type_display_names[dataset_type],
+            field_schema_version=self._dataset_type_schema_versions.get(dataset_type, "draft"),
+            active_label_config_version=self._current_active_label_config_version(dataset_type),
+            status="active",
+            batch_count=len(batches),
+            batches=batches,
+        )
+
     def list_dataset_types(self) -> list[DatasetTypeResponse]:
         """Return registered dataset types and their concrete batches."""
-        responses: list[DatasetTypeResponse] = []
-        for dataset_type in sorted(self._dataset_type_display_names):
-            batches = []
-            if dataset_type == self._dataset_type:
-                batches.append(self.get_dataset_summary(self._dataset_id))
-            batches.extend(
-                sorted(
-                    (
-                        self._build_registered_dataset_summary(summary, runtime)
-                        if (runtime := self._registered_batch_runtimes.get(summary.dataset_id)) is not None
-                        else summary.model_copy(
-                            update={
-                                "active_label_config_version": self._current_active_label_config_version(
-                                    summary.dataset_type
-                                )
-                            }
-                        )
-                        for summary in self._registered_batches.values()
-                        if summary.dataset_type == dataset_type
-                    ),
-                    key=lambda item: item.dataset_id,
-                )
-            )
-            responses.append(
-                DatasetTypeResponse(
-                    dataset_type=dataset_type,
-                    display_name=self._dataset_type_display_names[dataset_type],
-                    field_schema_version=self._dataset_type_schema_versions.get(dataset_type, "draft"),
-                    active_label_config_version=self._current_active_label_config_version(dataset_type),
-                    status="active",
-                    batch_count=len(batches),
-                    batches=batches,
-                )
-            )
-        return responses
+        return [
+            self._build_dataset_type_response(dataset_type)
+            for dataset_type in sorted(self._dataset_type_display_names)
+        ]
+
+    def get_dataset_type(self, dataset_type: str) -> DatasetTypeResponse:
+        """Return one dataset type with its grouped batches."""
+        return self._build_dataset_type_response(dataset_type)
 
     def create_dataset_type(self, request: DatasetTypeCreateRequest) -> DatasetTypeResponse:
         """Register an empty dataset type; batches are created under the type later."""

@@ -92,6 +92,14 @@ const datasetTypes: DatasetType[] = [
     batchCount: 1,
     batches: [dataset],
   },
+  {
+    datasetType: 'ares_detection',
+    displayName: 'Ares Detection',
+    fieldSchemaVersion: 'draft',
+    status: 'active',
+    batchCount: 0,
+    batches: [],
+  },
 ];
 
 const qcModificationEventStats: QcModificationEventStats = {
@@ -1707,6 +1715,21 @@ export const fixtureApiClient: UrbanViolationApi = {
   async listDatasetTypes() {
     await delay();
     return clone(datasetTypes);
+  },
+  async getDatasetType(datasetType) {
+    await delay();
+    const group = datasetTypes.find((item) => item.datasetType === datasetType);
+    if (group) {
+      return clone(group);
+    }
+    return clone({
+      datasetType,
+      displayName: datasetType,
+      fieldSchemaVersion: 'draft',
+      status: 'active',
+      batchCount: 0,
+      batches: [],
+    });
   },
   async createDatasetType(payload: DatasetTypeCreatePayload) {
     await delay();

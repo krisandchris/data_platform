@@ -360,3 +360,79 @@ scripts/dev-stack.sh stop
 ## Service State
 
 After the latest main verification, both stack stop commands were run and checked project ports were released.
+
+## Dataset Center Design Audit
+
+- Checked current dataset center routing and implementation:
+  - `/datasets` renders `DatasetsPage.vue`.
+  - `/datasets/:id/overview`, `/assets`, `/import-jobs/:jobId`, `/preannotations`, `/qc`, and sample review are batch-scoped routes.
+  - There is no dedicated dataset-type detail/config route yet.
+- Verified current UI by opening `/datasets` in the running main stack and capturing `/tmp/uvp-dataset-home-design.png`.
+- Observed that the homepage embeds `LabelConfigUploadPanel` directly under each dataset type group.
+- Conclusion recorded: this is acceptable only as a short-term single/few-type implementation. For multi-type management, label config should be an entry inside each dataset type card and open a dataset-type child management page.
+- Stopped both dev and agent stacks and confirmed tracked project ports were released.
+
+## Dataset Type Detail Dispatch
+
+- Started implementation stage: `P1 - Dataset Type Detail Navigation And Label Config Relocation`.
+- Development split:
+  - Backend agent owns dataset-type detail API and backend tests.
+  - Frontend agent owns route/page refactor, homepage card behavior, child label-config page, and frontend tests.
+  - Integration/test agent starts only after both implementation agents finish and must validate the combined agent worktree outputs.
+- Main workspace remains orchestration-only for this product change.
+- Backend task dispatched to `../data_platform_backend_agent`.
+- Frontend task dispatched to `../data_platform_frontend_agent`.
+- Backend agent completed implementation:
+  - Added `GET /api/dataset-types/{dataset_type}`.
+  - Reused dataset-type response construction for list/detail.
+  - Unknown type returns 404.
+  - Reported `17 passed, 34 deselected` for focused `dataset_type or label_config` tests, full backend `57 passed`, and `git diff --check` passing.
+- Frontend agent completed implementation:
+  - Added `/datasets/types/:datasetType` and `/datasets/types/:datasetType/label-config`.
+  - `/datasets` now renders dataset-type cards and no longer expands the full label config editor by default.
+  - Added `DatasetTypePage` and reusable batch panel.
+  - Moved full label config workflow into the type child route.
+  - Updated batch overview type-config link to the child route.
+  - Added `getDatasetType(datasetType)` with temporary fallback to list filtering for unsupported detail endpoints.
+  - Reported focused frontend tests `61 passed`, build passing, `git diff --check` passing, and protected review workbench files unchanged.
+- Integration validation checklist prepared:
+  - Protected QC review files must have no diff.
+  - Backend focused and full pytest must pass.
+  - Frontend focused tests and build must pass.
+  - Agent stack smoke must pass with fresh `PLATFORM_STATE_ROOT` and `LABEL_CONFIG_STORE_ROOT`.
+  - Browser must verify `/datasets` shows dataset type cards without the full label config editor.
+  - Browser must verify `/datasets/types/urban_violation/label-config` shows the label config workflow.
+  - Browser must verify batch overview links to the dataset-type label-config route.
+  - All services must be stopped and checked ports released.
+- Integration/test agent dispatched to validate the combined backend/frontend agent worktree outputs.
+- Integration/test agent validated the combined backend/frontend agent worktree outputs:
+  - Protected review workbench files remained unchanged.
+  - `质检闭环整改方案.pdf` was not tracked.
+  - Backend focused tests passed: `17 passed, 34 deselected`.
+  - Backend full tests passed: `57 passed`.
+  - Frontend focused tests passed: `61 passed`.
+  - Frontend build passed.
+  - `scripts/integration-smoke.sh agent` passed.
+  - Live API confirmed `GET /api/dataset-types/urban_violation` 200 with batches, created `ares_detection` detail 200 with zero batches, and unknown type 404.
+  - Browser confirmed `/datasets` shows type cards and does not show `标签配置上传` by default.
+  - Browser confirmed `/datasets/types/urban_violation/label-config` shows the full label config workflow.
+  - Browser confirmed `/datasets/types/urban_violation?create=batch` opens batch creation.
+  - Browser confirmed batch overview links `管理类型配置` to `/datasets/types/urban_violation/label-config`.
+  - Agent/main stack services were stopped and ports released.
+- Main workspace sync and verification passed:
+  - Accepted backend/frontend worktree diffs were applied to main.
+  - `PLATFORM_STATE_ROOT=/tmp/uvp-type-detail-main-be LABEL_CONFIG_STORE_ROOT=/tmp/uvp-type-detail-main-labels uv run pytest tests/test_api.py -k "dataset_type or label_config"`: `17 passed, 34 deselected`.
+  - `PLATFORM_STATE_ROOT=/tmp/uvp-type-detail-main-be-full LABEL_CONFIG_STORE_ROOT=/tmp/uvp-type-detail-main-labels-full uv run pytest`: `57 passed`.
+  - `cd frontend && npm run test -- apiClient routesAndPages`: `61 passed`.
+  - `cd frontend && npm run build`: passed.
+  - `SMOKE_RUNTIME_DIR=/tmp/uvp-type-detail-main-smoke scripts/integration-smoke.sh main`: passed.
+  - Extra live API check on main passed for `urban_violation`, newly created `ares_detection`, and unknown type 404.
+  - Extra browser evidence captured:
+    - `/tmp/uvp-type-detail-main-datasets.png`
+    - `/tmp/uvp-type-detail-main-label-config.png`
+    - `/tmp/uvp-type-detail-main-create-batch.png`
+  - `scripts/dev-stack.sh stop`, `scripts/agent-dev-stack.sh stop`, and project port check confirmed no remaining tracked listeners.
+- Verification tool note:
+  - Attempting a temporary Node script with `import { chromium } from 'playwright'` failed because the project does not install the Playwright package as an importable dependency.
+  - Attempting `npx playwright test` against a temporary spec failed because `@playwright/test` was not resolvable for that temp runner path.
+  - The verification path was changed to the already working `npx playwright screenshot` CLI with route selectors and full-page screenshots.

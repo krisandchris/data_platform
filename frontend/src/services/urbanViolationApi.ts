@@ -145,6 +145,7 @@ export interface UrbanViolationApi {
   deleteRoleBinding(bindingId: string): Promise<void>;
   listDatasets(): Promise<Dataset[]>;
   listDatasetTypes(): Promise<DatasetType[]>;
+  getDatasetType(datasetType: DatasetTypeId): Promise<DatasetType>;
   createDatasetType(payload: DatasetTypeCreatePayload): Promise<DatasetType>;
   getDatasetBatchSummary(batchId: DatasetBatchId): Promise<DatasetSummary>;
   getDatasetSummary(datasetId: DatasetId): Promise<DatasetSummary>;
@@ -343,6 +344,22 @@ export class HttpUrbanViolationApi implements UrbanViolationApi {
   async listDatasetTypes(): Promise<DatasetType[]> {
     const payload = await this.http.get<unknown>('/dataset-types');
     return listPayload(payload, 'dataset_types').map((item) => normalizeDatasetType(item));
+  }
+
+  async getDatasetType(datasetType: DatasetTypeId): Promise<DatasetType> {
+    try {
+      const payload = await this.http.get<unknown>(`/dataset-types/${encodeURIComponent(datasetType)}`);
+      return normalizeDatasetType(payload);
+    } catch (err) {
+      if (err instanceof ApiClientError && [404, 405, 501].includes(err.status)) {
+        const types = await this.listDatasetTypes();
+        const match = types.find((item) => item.datasetType === datasetType);
+        if (match) {
+          return match;
+        }
+      }
+      throw err;
+    }
   }
 
   async createDatasetType(payload: DatasetTypeCreatePayload): Promise<DatasetType> {

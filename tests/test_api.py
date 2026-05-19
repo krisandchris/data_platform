@@ -320,6 +320,44 @@ def test_dataset_type_registry_can_add_ares_detection(client: TestClient) -> Non
     assert duplicate.status_code == 409
 
 
+def test_dataset_type_detail_urban_violation_includes_batches_and_active_label_config(
+    client: TestClient,
+) -> None:
+    _activate_label_config(client)
+    response = client.get(f"/api/dataset-types/{DATASET_ID}")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["dataset_type"] == DATASET_ID
+    assert payload["batch_count"] >= 1
+    assert payload["batches"]
+    assert any(item["dataset_id"] == BATCH_DATASET_ID for item in payload["batches"])
+    assert "active_label_config_version" in payload
+
+
+def test_dataset_type_detail_for_created_empty_type_returns_zero_batches(client: TestClient) -> None:
+    created = client.post(
+        "/api/dataset-types",
+        json={
+            "dataset_type": "ares_detection",
+            "display_name": "Ares Detection",
+            "field_schema_version": "draft",
+        },
+    )
+    assert created.status_code == 201
+
+    detail = client.get("/api/dataset-types/ares_detection")
+    assert detail.status_code == 200
+    payload = detail.json()
+    assert payload["dataset_type"] == "ares_detection"
+    assert payload["batch_count"] == 0
+    assert payload["batches"] == []
+
+
+def test_dataset_type_detail_unknown_returns_404(client: TestClient) -> None:
+    response = client.get("/api/dataset-types/not_exist")
+    assert response.status_code == 404
+
+
 def test_manual_batch_registration_supports_images_only_and_preannotation_counts(client: TestClient) -> None:
     created_type = client.post(
         "/api/dataset-types",

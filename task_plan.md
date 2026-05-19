@@ -145,6 +145,82 @@ Dispatch status:
 - Frontend agent: completed implementation and frontend tests in `../data_platform_frontend_agent`.
 - Integration/test agent: passed protected-file checks, backend/frontend tests, agent stack smoke, live API idempotency verification, browser smoke for `另存为新版本`, and service shutdown checks.
 - Main workspace: synchronized accepted code, passed backend/frontend tests, passed `scripts/integration-smoke.sh main`, and confirmed services/ports released.
+
+### P1 - Dataset Type Detail Navigation And Label Config Relocation
+
+Status: completed and accepted into main.
+
+Problem:
+
+- `/datasets` currently combines dataset type selection, batch management, and full label-config editing in one long homepage.
+- This does not scale for multiple dataset types such as `urban_violation` and `ares_detection`.
+- `label_config` is dataset-type-scoped, but the current UI exposes the full editor directly under every homepage type group.
+- Batch overview links type config by hash (`/datasets#label-config-{datasetType}`), which is fragile and not a real child route.
+
+Required behavior:
+
+- `/datasets` becomes the dataset-type landing page: each card summarizes one dataset type and exposes clear entry actions.
+- Each dataset type card must show active label config version, field schema version, batch count, and whether label config is missing.
+- Full label-config upload/validate/save/version activation UI moves into a dataset-type child management page.
+- A dataset-type child page must support direct navigation for at least:
+  - Type overview and batch list.
+  - Label config management.
+  - Creating a batch under that dataset type.
+- Batch-scoped routes remain based on concrete batch ids.
+- Batch overview should navigate to the dataset-type child label-config route, not to a homepage hash.
+- Do not modify protected QC sample review files.
+
+Backend agent tasks:
+
+- Add a focused dataset-type detail API such as `GET /api/dataset-types/{dataset_type}` returning the same `DatasetTypeResponse` shape used in `GET /api/dataset-types`.
+- Reuse the existing type grouping logic so the detail response includes display name, field schema version, active label config version, batch count, and batches.
+- Return 404 for an unknown dataset type.
+- Preserve existing list/create/type-scoped label-config endpoints and idempotent label-config save behavior.
+- Add backend tests for existing `urban_violation`, newly created empty `ares_detection`, and unknown type 404.
+
+Frontend agent tasks:
+
+- Add route(s) for dataset-type detail, recommended:
+  - `/datasets/types/:datasetType`
+  - `/datasets/types/:datasetType/label-config`
+- Add API client method for dataset-type detail if the backend endpoint exists; otherwise isolate fallback lookup behind the service layer.
+- Refactor `/datasets` so it shows compact dataset-type cards rather than embedding `LabelConfigUploadPanel`.
+- Put label config status and a `标签配置` / `管理类型配置` action inside each dataset type card.
+- Move `LabelConfigUploadPanel` into the dataset-type child page.
+- Move or reuse batch creation under the dataset-type child page; the homepage may keep a shortcut, but the full workflow must be available from the child page.
+- Update batch overview `typeConfigTarget` to the dataset-type label-config route.
+- Keep all visible copy in Chinese and preserve the current tech-minimal management style.
+- Do not touch `frontend/src/features/review-workbench/**`, `frontend/src/shared/components/BBoxOverlay.vue`, or `frontend/src/test/bboxOverlay.test.ts`.
+
+Integration/test tasks:
+
+- After backend and frontend agents finish, run protected-file checks, backend tests, frontend tests, and build.
+- Run agent stack smoke with fresh `PLATFORM_STATE_ROOT` and `LABEL_CONFIG_STORE_ROOT`.
+- Browser-smoke `/datasets` and verify:
+  - Dataset type cards for `urban_violation` are visible.
+  - The homepage no longer shows the full label config upload/editor table by default.
+  - The card contains label config status and navigation action.
+- Browser-smoke `/datasets/types/urban_violation/label-config` and verify:
+  - The label config panel is visible.
+  - Existing active config/version list loads.
+  - `保存配置` and `另存为新版本` remain present.
+- Browser-smoke a batch overview whose lifecycle needs config and verify `管理类型配置` opens the child label-config route.
+- Stop all services and confirm project ports are released.
+
+Acceptance:
+
+- Multi-type landing page remains useful when `urban_violation` and `ares_detection` both exist.
+- Full label config editing is no longer expanded directly on `/datasets`.
+- Dataset type child route is deep-linkable and contains the full type-scoped label config workflow.
+- Existing batch routes, import creation, QC queue generation, and label-config idempotency tests continue to pass.
+- Agent integration validation passes before main workspace synchronization.
+
+Dispatch status:
+
+- Backend agent: completed dataset-type detail API and backend tests in `../data_platform_backend_agent`.
+- Frontend agent: completed homepage/type route refactor and frontend tests in `../data_platform_frontend_agent`.
+- Integration/test agent: passed protected-file checks, backend/frontend tests, agent stack smoke, live API checks, browser route checks, and service shutdown checks.
+- Main workspace: synchronized accepted code, passed backend/frontend tests, passed `scripts/integration-smoke.sh main`, passed live dataset-type API checks, captured browser evidence for dataset home, label-config child route, and create-batch child route, then stopped services and released ports.
 - Integration/test agent: assigned for combined agent-stack validation.
 
 Acceptance:

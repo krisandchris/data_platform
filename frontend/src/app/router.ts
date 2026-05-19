@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import LoginPage from '../features/auth/LoginPage.vue';
 import DatasetsPage from '../features/datasets/DatasetsPage.vue';
+import DatasetTypePage from '../features/datasets/DatasetTypePage.vue';
 import DatasetOverviewPage from '../features/datasets/DatasetOverviewPage.vue';
 import DatasetAssetsPage from '../features/datasets/DatasetAssetsPage.vue';
 import PreannotationsPage from '../features/datasets/PreannotationsPage.vue';
@@ -27,6 +28,24 @@ export const router = createRouter({
       path: '/datasets',
       name: 'datasets',
       component: DatasetsPage,
+    },
+    {
+      path: '/datasets/types/:datasetType',
+      name: 'dataset-type',
+      component: DatasetTypePage,
+      props: (route) => ({
+        datasetType: String(route.params.datasetType),
+        section: 'overview',
+      }),
+    },
+    {
+      path: '/datasets/types/:datasetType/label-config',
+      name: 'dataset-type-label-config',
+      component: DatasetTypePage,
+      props: (route) => ({
+        datasetType: String(route.params.datasetType),
+        section: 'label-config',
+      }),
     },
     {
       path: '/sample-pool',

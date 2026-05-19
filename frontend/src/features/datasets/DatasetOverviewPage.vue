@@ -224,7 +224,7 @@ const summary = computed(() => data.value);
 const lifecycleStatus = computed(() => summary.value?.dataset.lifecycleStatus ?? summary.value?.dataset.status ?? 'draft');
 const latestImportJobId = computed(() => summary.value?.latestImportJob?.id ?? summary.value?.dataset.activeImportJobId);
 const datasetType = computed(() => summary.value?.dataset.datasetType ?? summary.value?.assetSummary?.datasetType ?? props.id);
-const typeConfigTarget = computed(() => `/datasets#label-config-${encodeURIComponent(datasetType.value)}`);
+const typeConfigTarget = computed(() => `/datasets/types/${encodeURIComponent(datasetType.value)}/label-config`);
 const generatingQcQueue = ref(false);
 const actionMessage = ref('');
 const actionMessageIsError = ref(false);

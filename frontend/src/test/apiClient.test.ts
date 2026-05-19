@@ -93,6 +93,17 @@ describe('HTTP API adapter', () => {
         ]),
       )
       .mockResolvedValueOnce(
+        jsonResponse({
+          dataset_type: 'urban_violation',
+          display_name: '城市违规',
+          field_schema_version: '2026-05-18',
+          active_label_config_version: 1,
+          status: 'active',
+          batch_count: 1,
+          batches: [],
+        }),
+      )
+      .mockResolvedValueOnce(
         jsonResponse(
           {
             dataset_type: 'ares_detection',
@@ -108,6 +119,7 @@ describe('HTTP API adapter', () => {
     const api = new HttpUrbanViolationApi(new HttpClient({ baseUrl: 'http://backend.test', fetcher }));
 
     const types = await api.listDatasetTypes();
+    const detail = await api.getDatasetType('urban_violation');
     const created = await api.createDatasetType({
       datasetType: 'ares_detection',
       displayName: 'Ares Detection',
@@ -117,6 +129,11 @@ describe('HTTP API adapter', () => {
     expect(fetcher).toHaveBeenNthCalledWith(1, 'http://backend.test/dataset-types', expect.objectContaining({ method: 'GET' }));
     expect(fetcher).toHaveBeenNthCalledWith(
       2,
+      'http://backend.test/dataset-types/urban_violation',
+      expect.objectContaining({ method: 'GET' }),
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      3,
       'http://backend.test/dataset-types',
       expect.objectContaining({
         method: 'POST',
@@ -132,11 +149,50 @@ describe('HTTP API adapter', () => {
       activeLabelConfigVersion: '1',
       batches: [expect.objectContaining({ id: 'urban_violation__0508_fixture' })],
     });
+    expect(detail).toMatchObject({
+      datasetType: 'urban_violation',
+      activeLabelConfigVersion: '1',
+      batchCount: 1,
+    });
     expect(created).toMatchObject({
       datasetType: 'ares_detection',
       displayName: 'Ares Detection',
       batchCount: 0,
       batches: [],
+    });
+  });
+
+  it('falls back to dataset type list when detail endpoint is unavailable', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ detail: 'not implemented' }, { status: 501 }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          dataset_types: [
+            {
+              dataset_type: 'ares_detection',
+              display_name: 'Ares Detection',
+              field_schema_version: 'draft',
+              status: 'active',
+              batch_count: 0,
+              batches: [],
+            },
+          ],
+        }),
+      );
+    const api = new HttpUrbanViolationApi(new HttpClient({ baseUrl: 'http://backend.test', fetcher }));
+
+    const detail = await api.getDatasetType('ares_detection');
+
+    expect(fetcher).toHaveBeenNthCalledWith(
+      1,
+      'http://backend.test/dataset-types/ares_detection',
+      expect.objectContaining({ method: 'GET' }),
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(2, 'http://backend.test/dataset-types', expect.objectContaining({ method: 'GET' }));
+    expect(detail).toMatchObject({
+      datasetType: 'ares_detection',
+      batchCount: 0,
     });
   });
 

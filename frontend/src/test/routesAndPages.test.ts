@@ -36,6 +36,7 @@ const mockApiClient = vi.hoisted(() => ({
   deleteRoleBinding: vi.fn(),
   listDatasets: vi.fn(),
   listDatasetTypes: vi.fn(),
+  getDatasetType: vi.fn(),
   createDatasetType: vi.fn(),
   getDatasetBatchSummary: vi.fn(),
   getDatasetBatchAssetSummary: vi.fn(),
@@ -115,6 +116,7 @@ vi.mock('../services/urbanViolationApi', () => ({
 }));
 
 import DatasetsPage from '../features/datasets/DatasetsPage.vue';
+import DatasetTypePage from '../features/datasets/DatasetTypePage.vue';
 import DatasetAssetsPage from '../features/datasets/DatasetAssetsPage.vue';
 import DatasetOverviewPage from '../features/datasets/DatasetOverviewPage.vue';
 import PreannotationsPage from '../features/datasets/PreannotationsPage.vue';
@@ -844,6 +846,15 @@ beforeEach(() => {
   mockApiClient.listRoleBindings.mockResolvedValue([]);
   mockApiClient.logout.mockResolvedValue(undefined);
   mockApiClient.getDatasetBatchSummary.mockResolvedValue(makeDatasetSummary('ds-live', 'Batch A', 2));
+  mockApiClient.getDatasetType.mockResolvedValue({
+    datasetType: 'urban_violation',
+    displayName: '城市违规',
+    fieldSchemaVersion: '2026-05-18',
+    activeLabelConfigVersion: 'urban_violation_labels_v1',
+    status: 'active',
+    batchCount: 1,
+    batches: [dataset],
+  });
   mockApiClient.getDatasetBatchAssetSummary.mockResolvedValue(makeAssetSummary('ds-live', 2));
   mockApiClient.getDatasetBatchQcModificationEventStats.mockResolvedValue(makeQcModificationStats('ds-live'));
   mockApiClient.getQcModificationEventStats.mockResolvedValue(makeQcModificationStats('ds-live'));
@@ -1457,13 +1468,21 @@ describe('route rendering and live route states', () => {
         batchCount: 1,
         batches: [dataset],
       },
+      {
+        datasetType: 'ares_detection',
+        displayName: 'Ares Detection',
+        fieldSchemaVersion: 'draft',
+        status: 'active',
+        batchCount: 0,
+        batches: [],
+      },
     ]);
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [
         { path: '/datasets', component: DatasetsPage },
-        { path: '/datasets/:id/overview', component: { template: '<div />' } },
-        { path: '/datasets/:id/import-jobs/:jobId', component: { template: '<div />' } },
+        { path: '/datasets/types/:datasetType', component: { template: '<div />' } },
+        { path: '/datasets/types/:datasetType/label-config', component: { template: '<div />' } },
       ],
     });
     await router.push('/datasets');
@@ -1477,9 +1496,60 @@ describe('route rendering and live route states', () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain('urban_violation');
-    expect(wrapper.text()).toContain('ds-live');
-    expect(wrapper.text()).toContain('数据集类型共享的标签配置版本');
-    expect(mockApiClient.getActiveLabelConfig).toHaveBeenCalledWith('urban_violation');
+    expect(wrapper.text()).toContain('ares_detection');
+    expect(wrapper.text()).toContain('urban_violation_labels_v1');
+    expect(wrapper.text()).toContain('批次数');
+    expect(wrapper.text()).toContain('进入类型管理');
+    expect(wrapper.text()).toContain('标签配置');
+    expect(wrapper.text()).toContain('新建批次');
+    expect(wrapper.text()).not.toContain('标签配置上传');
+    expect(wrapper.text()).not.toContain('配置版本');
+    expect(mockApiClient.getActiveLabelConfig).not.toHaveBeenCalled();
+  });
+
+  it('opens dataset type label config management from the child route', async () => {
+    mockApiClient.getDatasetType.mockResolvedValue({
+      datasetType: 'urban_violation',
+      displayName: '城市违规',
+      fieldSchemaVersion: '2026-05-18',
+      activeLabelConfigVersion: 'urban_violation_labels_v1',
+      status: 'active',
+      batchCount: 1,
+      batches: [dataset],
+    });
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        {
+          path: '/datasets/types/:datasetType/label-config',
+          component: DatasetTypePage,
+          props: (route) => ({
+            datasetType: String(route.params.datasetType),
+            section: 'label-config',
+          }),
+        },
+      ],
+    });
+    await router.push('/datasets/types/urban_violation/label-config');
+    await router.isReady();
+
+    const wrapper = mount(RouterView, {
+      global: {
+        plugins: [router],
+        stubs: {
+          RouterLink: {
+            props: ['to'],
+            template: '<a><slot /></a>',
+          },
+        },
+      },
+    });
+    await flushPromises();
+
+    expect(mockApiClient.getDatasetType).toHaveBeenCalledWith('urban_violation');
+    expect(wrapper.text()).toContain('标签配置上传');
+    expect(wrapper.text()).toContain('保存配置');
+    expect(wrapper.text()).toContain('另存为新版本');
   });
 
   it('creates a second dataset type without needing a batch', async () => {
@@ -1525,7 +1595,10 @@ describe('route rendering and live route states', () => {
     const wrapper = mount(DatasetsPage, {
       global: {
         stubs: {
-          RouterLink: true,
+          RouterLink: {
+            props: ['to'],
+            template: '<a><slot /></a>',
+          },
         },
       },
     });
@@ -1543,7 +1616,8 @@ describe('route rendering and live route states', () => {
       fieldSchemaVersion: 'draft',
     });
     expect(wrapper.text()).toContain('ares_detection');
-    expect(wrapper.text()).toContain('暂无批次');
+    expect(wrapper.text()).toContain('进入类型管理');
+    expect(wrapper.text()).toContain('新建批次');
   });
 
   it('registers a manual batch from a selected directory structure', async () => {
@@ -1565,26 +1639,23 @@ describe('route rendering and live route states', () => {
       sourceStructure: 'images_with_preannotations',
       sourceUri: 'batch',
     };
-    mockApiClient.listDatasetTypes.mockResolvedValueOnce([
-      {
+    mockApiClient.getDatasetType
+      .mockResolvedValueOnce({
         datasetType: 'ares_detection',
         displayName: 'Ares Detection',
         fieldSchemaVersion: 'draft',
         status: 'active',
         batchCount: 0,
         batches: [],
-      },
-    ]);
-    mockApiClient.listDatasetTypes.mockResolvedValueOnce([
-      {
+      })
+      .mockResolvedValueOnce({
         datasetType: 'ares_detection',
         displayName: 'Ares Detection',
         fieldSchemaVersion: 'draft',
         status: 'active',
         batchCount: 1,
         batches: [aresBatch],
-      },
-    ]);
+      });
     mockApiClient.createImportJob.mockResolvedValue({
       ...importJob,
       id: 'manual-import-1',
@@ -1597,14 +1668,32 @@ describe('route rendering and live route states', () => {
       state: 'Draft',
     });
 
-    const wrapper = mount(DatasetsPage, {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/datasets/types/:datasetType', component: { template: '<div />' } }],
+    });
+    await router.push('/datasets/types/ares_detection');
+    await router.isReady();
+
+    const wrapper = mount(DatasetTypePage, {
+      props: {
+        datasetType: 'ares_detection',
+        section: 'overview',
+      },
       global: {
+        plugins: [router],
         stubs: {
-          RouterLink: true,
+          RouterLink: {
+            props: ['to'],
+            template: '<a><slot /></a>',
+          },
         },
       },
     });
     await flushPromises();
+
+    expect(mockApiClient.getDatasetType).toHaveBeenCalledWith('ares_detection');
+    expect(wrapper.text()).toContain('暂无批次');
 
     const newBatchButton = wrapper.findAll('button').find((button) => button.text().includes('新建批次'));
     expect(newBatchButton).toBeTruthy();
@@ -1660,6 +1749,9 @@ describe('route rendering and live route states', () => {
       stage2FailureFileCount: 1,
     });
     expect(wrapper.text()).toContain('ares_detection__20260518_roadside');
+    expect(wrapper.text()).toContain('概览');
+    expect(wrapper.text()).toContain('资产');
+    expect(wrapper.text()).toContain('导入校验');
     expect(wrapper.text()).toContain('队列未生成');
   });
 
@@ -1682,8 +1774,8 @@ describe('route rendering and live route states', () => {
       status: 'qc_ready',
       qcQueueId: 'qcq_urban_violation_0518_imported',
     };
-    mockApiClient.listDatasetTypes.mockResolvedValueOnce([
-      {
+    mockApiClient.getDatasetType
+      .mockResolvedValueOnce({
         datasetType: 'urban_violation',
         displayName: '城市违规',
         fieldSchemaVersion: '2026-05-18',
@@ -1691,10 +1783,8 @@ describe('route rendering and live route states', () => {
         status: 'active',
         batchCount: 1,
         batches: [readyBatch],
-      },
-    ]);
-    mockApiClient.listDatasetTypes.mockResolvedValueOnce([
-      {
+      })
+      .mockResolvedValueOnce({
         datasetType: 'urban_violation',
         displayName: '城市违规',
         fieldSchemaVersion: '2026-05-18',
@@ -1702,13 +1792,27 @@ describe('route rendering and live route states', () => {
         status: 'active',
         batchCount: 1,
         batches: [queuedBatch],
-      },
-    ]);
+      });
 
-    const wrapper = mount(DatasetsPage, {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/datasets/types/:datasetType', component: { template: '<div />' } }],
+    });
+    await router.push('/datasets/types/urban_violation');
+    await router.isReady();
+
+    const wrapper = mount(DatasetTypePage, {
+      props: {
+        datasetType: 'urban_violation',
+        section: 'overview',
+      },
       global: {
+        plugins: [router],
         stubs: {
-          RouterLink: true,
+          RouterLink: {
+            props: ['to'],
+            template: '<a><slot /></a>',
+          },
         },
       },
     });
@@ -1721,6 +1825,7 @@ describe('route rendering and live route states', () => {
 
     expect(mockApiClient.generateQcQueue).toHaveBeenCalledWith('urban_violation__0518_imported');
     expect(wrapper.text()).toContain('质检就绪');
+    expect(wrapper.text()).toContain('进入质检队列');
     expect(wrapper.findAll('button').some((button) => button.text().includes('生成质检队列'))).toBe(false);
   });
 
@@ -1765,6 +1870,33 @@ describe('route rendering and live route states', () => {
     expect(mockApiClient.getDatasetBatchSummary).toHaveBeenLastCalledWith('urban_violation__batch_b');
     expect(wrapper.text()).toContain('Batch B');
     expect(wrapper.text()).not.toContain('Batch A');
+  });
+
+  it('links batch overview type configuration to the dataset-type child route', async () => {
+    const labelConfigRequired = makeDatasetSummary('urban_violation__needs_config', 'Batch A', 2);
+    labelConfigRequired.dataset.lifecycleStatus = 'label_config_required';
+    labelConfigRequired.dataset.status = 'label_config_required';
+    labelConfigRequired.dataset.datasetType = 'urban_violation';
+    mockApiClient.getDatasetBatchSummary.mockResolvedValueOnce(labelConfigRequired);
+
+    const wrapper = mount(DatasetOverviewPage, {
+      props: {
+        id: 'urban_violation__needs_config',
+      },
+      global: {
+        stubs: {
+          RouterLink: {
+            props: ['to'],
+            template: '<a :href="String(to)"><slot /></a>',
+          },
+        },
+      },
+    });
+    await flushPromises();
+
+    const links = wrapper.findAll('a').filter((link) => link.text().includes('管理类型配置'));
+    expect(links.length).toBeGreaterThan(0);
+    expect(links.every((link) => link.attributes('href') === '/datasets/types/urban_violation/label-config')).toBe(true);
   });
 
   it('renders readonly QC analysis stats on the batch overview with the concrete batch id', async () => {

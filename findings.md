@@ -155,6 +155,17 @@ This file keeps durable project facts, constraints, and open risks. Historical n
 - API/client code should continue splitting dataset type id from dataset batch id.
 - P1/P2 frontend architecture work remains in `docs/frontend/README.md`.
 
+## Dataset Center Design Audit
+
+- Current dataset center home is `/datasets`, implemented by `frontend/src/features/datasets/DatasetsPage.vue`.
+- Current route model has only one dataset-type collection route (`/datasets`) and batch routes under `/datasets/:id/...`; there is no dedicated dataset-type detail route such as `/datasets/types/:datasetType`.
+- The backend/frontend contract already supports multi-type grouping: `DatasetType` contains `datasetType`, `displayName`, `fieldSchemaVersion`, `activeLabelConfigVersion`, `batchCount`, and `batches`.
+- The homepage currently renders each dataset type as a large panel with all batches, and then renders `LabelConfigUploadPanel` immediately after each type panel.
+- Batch overview page links type config by hash back to `/datasets#label-config-{datasetType}`.
+- This works technically for one or two dataset types, but does not scale as a multi-type management landing page because label-config upload/version tables become long embedded editor sections on the homepage.
+- The better navigation model is: `/datasets` = dataset-type cards and high-level status; dataset type detail = type-scoped configuration, label config, and batch list; batch detail routes stay under concrete batch ids for overview/assets/import/preannotation/qc.
+- `label_config` is dataset-type-scoped, so it belongs inside the dataset type card as a status/entry action, not as an always-expanded homepage editor. The edit/upload/version UI should live in a child type-management view.
+
 ## Backend Facts
 
 - Framework: FastAPI, Pydantic, `uv`.

@@ -193,6 +193,16 @@ def build_router(service: FixtureRuntimeService) -> APIRouter:
     ) -> list[DatasetTypeResponse]:
         return runtime.list_dataset_types()
 
+    @router.get("/api/dataset-types/{dataset_type}", response_model=DatasetTypeResponse)
+    async def get_dataset_type(
+        dataset_type: str,
+        runtime: FixtureRuntimeService = Depends(get_service),
+    ) -> DatasetTypeResponse:
+        try:
+            return runtime.get_dataset_type(dataset_type)
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
     @router.post(
         "/api/dataset-types",
         response_model=DatasetTypeResponse,
