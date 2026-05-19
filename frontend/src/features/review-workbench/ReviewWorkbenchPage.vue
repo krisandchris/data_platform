@@ -13,6 +13,12 @@
         :request-label-suggestions="requestLabelSuggestions"
         :validate-label-edit="validateLabelEdit"
         :submit-label-edit="submitLabelEdit"
+        :current-user="detail.currentUser"
+        :batch-assignment="detail.batchAssignment"
+        :qc-task="detail.qcTask"
+        :sample-lease="detail.sampleLease"
+        :readonly-reason="readonlyReason"
+        :release-sample-lease="releaseCurrentLease"
       />
     </div>
     <div v-else class="empty-state">No review detail returned by the backend.</div>
@@ -20,17 +26,20 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { apiClient } from '../../services/urbanViolationApi';
 import type {
+  CurrentUser,
   LabelConfig,
   LabelEditPatchPayload,
   LabelEditSubmitPayload,
   LabelSuggestion,
   QcQueueItem,
   ReviewSampleDetail,
+  SampleLease,
 } from '../../shared/types/contract';
 import ReviewWorkbenchShell from './components/ReviewWorkbenchShell.vue';
+import { useAuthState } from '../auth/authState';
 
 const props = defineProps<{
   id: string;
@@ -45,7 +54,30 @@ const labelSuggestions = ref<Record<string, string[]>>({});
 const initialLoading = ref(true);
 const refreshing = ref(false);
 const error = ref<string>();
+const { loadCurrentUser } = useAuthState();
 let requestSequence = 0;
+let heartbeatTimer: number | undefined;
+
+const readonlyReason = computed(() => {
+  const reviewDetail = detail.value;
+  const currentUser = reviewDetail?.currentUser;
+  const assignment = reviewDetail?.batchAssignment;
+  const lease = reviewDetail?.sampleLease;
+  if (!reviewDetail) return '';
+  if (!assignment || assignment.status === 'revoked') {
+    return '该批次尚未分配，需 batch_manager/qc_lead 先分配后才能编辑';
+  }
+  if (!currentUser) {
+    return '未读取到当前用户，当前样本只读';
+  }
+  if (assignment.assigneeUserId !== currentUser.userId) {
+    return `该批次已分配给 ${assignment.assigneeDisplayName || assignment.assigneeUserId}`;
+  }
+  if (!lease || lease.status !== 'active' || lease.userId !== currentUser.userId) {
+    return '未持有有效 sample lease，当前样本只读';
+  }
+  return '';
+});
 
 const loadInitial = async () => {
   const sequence = ++requestSequence;
@@ -53,7 +85,8 @@ const loadInitial = async () => {
   refreshing.value = false;
   error.value = undefined;
   try {
-    const [reviewDetail, queueItems, labelContext] = await Promise.all([
+    const [currentUser, reviewDetail, queueItems, labelContext] = await Promise.all([
+      loadCurrentUser(),
       apiClient.getReviewSample(props.id, props.sampleId),
       apiClient.listQcQueue(props.id),
       loadLabelContext(props.id),
@@ -61,7 +94,7 @@ const loadInitial = async () => {
     if (sequence !== requestSequence) {
       return;
     }
-    detail.value = reviewDetail;
+    detail.value = await hydrateEditableContext(reviewDetail, currentUser);
     queue.value = queueItems;
     activeLabelConfig.value = labelContext.config;
     labelConfigError.value = labelContext.error ?? '';
@@ -86,13 +119,14 @@ const refreshSample = async () => {
   } else {
     refreshing.value = true;
   }
-  error.value = undefined;
+    error.value = undefined;
   try {
+    const currentUser = await loadCurrentUser();
     const reviewDetail = await apiClient.getReviewSample(props.id, props.sampleId);
     if (sequence !== requestSequence) {
       return;
     }
-    detail.value = reviewDetail;
+    detail.value = await hydrateEditableContext(reviewDetail, currentUser);
   } catch (err) {
     if (sequence !== requestSequence) {
       return;
@@ -107,10 +141,101 @@ const refreshSample = async () => {
 };
 
 const validateLabelEdit = (payload: LabelEditPatchPayload) =>
-  apiClient.validateLabelEdit(props.id, props.sampleId, payload);
+  apiClient.validateLabelEdit(props.id, props.sampleId, withLeaseContext(payload));
 
-const submitLabelEdit = (payload: LabelEditSubmitPayload) =>
-  apiClient.submitLabelEdit(props.id, props.sampleId, payload);
+const submitLabelEdit = async (payload: LabelEditSubmitPayload) => {
+  const result = await apiClient.submitLabelEdit(props.id, props.sampleId, withLeaseContext(payload));
+  if (payload.submitAction === 'submit_changes') {
+    await releaseCurrentLease();
+  }
+  return result;
+};
+
+async function hydrateEditableContext(
+  reviewDetail: ReviewSampleDetail,
+  currentUser: CurrentUser | undefined,
+): Promise<ReviewSampleDetail> {
+  const nextDetail: ReviewSampleDetail = {
+    ...reviewDetail,
+    currentUser: reviewDetail.currentUser ?? currentUser,
+  };
+  const assignment = nextDetail.batchAssignment;
+  const existingLease = nextDetail.sampleLease;
+  if (
+    currentUser &&
+    assignment?.assigneeUserId === currentUser.userId &&
+    assignment.status !== 'revoked' &&
+    (!existingLease || existingLease.status !== 'active' || existingLease.userId !== currentUser.userId)
+  ) {
+    try {
+      nextDetail.sampleLease = await apiClient.acquireSampleLease(props.id, props.sampleId);
+    } catch {
+      nextDetail.sampleLease = existingLease;
+    }
+  }
+  startHeartbeat(nextDetail.sampleLease);
+  try {
+    nextDetail.myDraft = nextDetail.myDraft ?? await apiClient.getMyLabelEditDraft(props.id, props.sampleId);
+  } catch {
+    // Draft is optional; conflicts must not wipe the local in-page draft.
+  }
+  return nextDetail;
+}
+
+function withLeaseContext<T extends LabelEditPatchPayload | LabelEditSubmitPayload>(payload: T): T {
+  return {
+    ...payload,
+    leaseId: detail.value?.sampleLease?.leaseId,
+    baseRevision: detail.value?.qcTask?.taskRevision,
+    taskRevision: detail.value?.qcTask?.taskRevision,
+  };
+}
+
+function startHeartbeat(lease: SampleLease | undefined) {
+  stopHeartbeat();
+  if (!lease || lease.status !== 'active') {
+    return;
+  }
+  heartbeatTimer = window.setInterval(async () => {
+    try {
+      const nextLease = await apiClient.heartbeatSampleLease(props.id, props.sampleId, lease.leaseId);
+      if (detail.value && detail.value.asset.sampleId === props.sampleId) {
+        detail.value = { ...detail.value, sampleLease: nextLease };
+      }
+    } catch {
+      stopHeartbeat();
+    }
+  }, 60_000);
+}
+
+function stopHeartbeat() {
+  if (heartbeatTimer !== undefined) {
+    window.clearInterval(heartbeatTimer);
+    heartbeatTimer = undefined;
+  }
+}
+
+async function releaseCurrentLease() {
+  const lease = detail.value?.sampleLease;
+  if (!lease || lease.status !== 'active') {
+    return;
+  }
+  stopHeartbeat();
+  try {
+    await apiClient.releaseSampleLease(props.id, props.sampleId, lease.leaseId);
+    if (detail.value) {
+      detail.value = {
+        ...detail.value,
+        sampleLease: {
+          ...lease,
+          status: 'released',
+        },
+      };
+    }
+  } catch {
+    // Release is best-effort on navigation/unload.
+  }
+}
 
 async function loadLabelContext(datasetId: string): Promise<{
   config?: LabelConfig;
@@ -167,6 +292,13 @@ function suggestionValues(suggestions: LabelSuggestion[]) {
 }
 
 onMounted(loadInitial);
+onBeforeUnmount(() => {
+  void releaseCurrentLease();
+});
+
+window.addEventListener?.('beforeunload', () => {
+  void releaseCurrentLease();
+});
 
 watch(
   () => [props.id, props.sampleId],

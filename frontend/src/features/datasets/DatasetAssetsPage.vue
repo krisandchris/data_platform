@@ -47,7 +47,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { onMounted, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 import { Database, FileCheck2, FileCog, Image, LayoutDashboard, ShieldCheck, TriangleAlert } from 'lucide-vue-next';
 import { apiClient } from '../../services/urbanViolationApi';
@@ -62,28 +62,58 @@ const summary = ref<DatasetSummary>();
 const assetSummary = ref<AssetSummary>();
 const loading = ref(true);
 const error = ref<string>();
+let loadSequence = 0;
 
-const loadAssets = async (filters: AssetListFilters = {}) => {
+const resetBatchState = () => {
+  assets.value = [];
+  summary.value = undefined;
+  assetSummary.value = undefined;
+  error.value = undefined;
+};
+
+const loadAssets = async (filters: AssetListFilters = {}, options: { reset?: boolean } = {}) => {
+  const requestId = ++loadSequence;
+  const batchId = props.id;
+  if (options.reset) {
+    resetBatchState();
+  }
   loading.value = true;
   error.value = undefined;
   try {
     const [nextAssets, nextSummary] = await Promise.all([
-      apiClient.listAssets(props.id, filters),
-      summary.value ? Promise.resolve(summary.value) : apiClient.getDatasetSummary(props.id),
+      apiClient.listDatasetBatchAssets(batchId, filters),
+      summary.value && !options.reset ? Promise.resolve(summary.value) : apiClient.getDatasetBatchSummary(batchId),
     ]);
-    const nextAssetSummary = assetSummary.value
-      ?? await apiClient.getAssetSummary(props.id).catch(() => nextSummary.assetSummary);
+    const nextAssetSummary = assetSummary.value && !options.reset
+      ? assetSummary.value
+      : await apiClient.getDatasetBatchAssetSummary(batchId).catch(() => nextSummary.assetSummary);
+    if (requestId !== loadSequence) {
+      return;
+    }
     assets.value = nextAssets;
     summary.value = nextSummary;
     assetSummary.value = nextAssetSummary;
   } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Unable to load assets';
+    if (requestId === loadSequence) {
+      error.value = err instanceof Error ? err.message : 'Unable to load assets';
+      assets.value = [];
+      summary.value = undefined;
+      assetSummary.value = undefined;
+    }
   } finally {
-    loading.value = false;
+    if (requestId === loadSequence) {
+      loading.value = false;
+    }
   }
 };
 
-onMounted(() => loadAssets());
+onMounted(() => loadAssets({}, { reset: true }));
+watch(
+  () => props.id,
+  () => {
+    void loadAssets({}, { reset: true });
+  },
+);
 </script>
 
 <style scoped>

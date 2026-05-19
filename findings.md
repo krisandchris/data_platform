@@ -1,125 +1,183 @@
-# Findings - Urban Violation Platform
+# Findings
 
-This file records research findings from `urban_violation_platform_markdown/` and `DATASET/`.
+Last compacted: 2026-05-19
 
-## Documentation Findings
+This file keeps durable project facts, constraints, and open risks. Historical notes have been compressed out of the working version.
 
-- `urban_violation_platform_markdown/README.md` states the documentation set contains three markdown documents and UI mockup images: `frontend_uiux.md`, `frontend_architecture.md`, `backend_architecture.md`, and `images/`.
-- `frontend_uiux.md` defines five UI surfaces:
-  - Dataset overview dashboard.
-  - Dataset registration/upload wizard.
-  - Import task and sample alignment validation.
-  - Sample asset list/browse view.
-  - QC review workbench.
-- `frontend_architecture.md` proposes a Vue-style feature structure under `frontend/src/` with `app/`, `services/`, `features/`, and `shared/`, and feature modules for `datasets`, `import`, `review-workbench`, `qc`, and `exports`.
-- `frontend_architecture.md` route candidates: `/datasets`, `/datasets/:id/overview`, `/datasets/:id/assets`, `/datasets/:id/import-jobs/:jobId`, `/datasets/:id/preannotations`, `/datasets/:id/qc`, `/datasets/:id/samples/:sampleId/review`.
-- `backend_architecture.md` proposes FastAPI + async SQLAlchemy, PostgreSQL, Redis, MinIO, Meilisearch, Milvus Lite, Celery + Redis.
-- `backend_architecture.md` module boundaries: data import, annotation management, QC, search, export, permissions, analytics.
-- `backend_architecture.md` import state machine: `Draft -> Uploading -> Uploaded -> Scanning -> Validating -> ValidationPassed -> PreviewReady -> Importing -> Imported -> QCQueueGenerated`, with failure paths `ValidationFailed -> Draft` and `Importing -> ImportFailed`.
-- `backend_architecture.md` database entities listed: `RawAsset`, `PreAnnotationStep1`, `PreAnnotationStep2`, `HumanReview`, `AuditArtifact`.
+## Documentation Facts
 
-## Dataset Findings
+- Current documentation entry points:
+  - `docs/README.md`
+  - `docs/frontend/README.md`
+  - `docs/backend/README.md`
+  - `docs/architecture/README.md`
+- The original product input folder has been removed; durable conclusions are now consolidated into the current documentation entry points and git history preserves the deleted source material.
 
-- Root dataset path inspected: `DATASET/urban_violation`.
-- Top-level layout:
+## Dataset Facts
+
+- Primary fixture root: `DATASET/urban_violation`.
+- Top-level fixture layout:
   - `images/`: 797 original `.jpg` files.
-  - `stage1_run_0508/`: stage 1 model run outputs.
-  - `stage2_run_0508/`: stage 2 model run outputs.
-- File counts by major bucket:
-  - `images`: 797 `.jpg`.
-  - `stage1_run_0508`: 797 each for `requests`, `responses`, `parsed`, `records`, `visualizations`; 6 `meta` files.
-  - `stage2_run_0508`: 797 `inputs`, 797 `requests`, 780 `responses`, 780 `parsed`, 780 `records`, 19 `failures`, 6 `meta` files.
-  - Entire dataset sample contains 7151 `.json`, 2 `.jsonl`, 797 `.jpg`, and 797 `.png`.
-- Both stage directories use two-character shard directories such as `49/000142_0_1762483003246.json`; this should be treated as an implementation detail derived from sample ID hashing/pathing, not as a user-facing concept.
-- `meta/manifest.jsonl` is the most direct pairing index:
-  - Stage1 lines include `id`, `request_path`, `response_path`, `parsed_path`, and `record_path`.
-  - Stage2 lines include success entries with paths and failure entries with `status`, `input_path`, `request_path`, and `failure_path`.
-- `meta/plan.json` is a 797-item array with `id`, `image_ref`, `prefix_key`, `is_warmup`, `group_size`, `already_done`, and `previous_failed`.
-- Stage1 `summary.json`: 797 total jobs, 797 attempted, 797 succeeded, 0 failed, 797 with relation bbox, 797 with valid bbox coordinates, 797 visualized.
-- Stage2 `summary.json`: 797 total jobs, 778 skipped existing success, 19 attempted, 2 succeeded, 17 failed in the rerun summary; on-disk aggregate has 780 successful parsed/records and 19 failure files.
-- Stage1 parsed schema top-level keys: `environment_analysis`, `scene_elements`, `key_anchors`, `key_relations`.
-- Stage1 relation objects include `subject`, `relation`, `object`, `description`, and `bbox` integer arrays in a 0-1000 quantized coordinate space.
-- Stage1 record schema top-level keys: `id`, `images`, `messages`, `metadata`; metadata includes model cache stats, `response_source`, `judge_report`, `bbox_validation`, and `qc_integration`.
-- Stage2 input schema top-level keys: `sample_id`, `image_path`, `stage1_output`.
-- Stage2 parsed schema top-level keys: `sample_id`, `fact_verifications`, `candidates`.
-- Stage2 fact verification objects include `relation_index`, `subject`, `relation`, `object`, `bbox`, `visibility_level`, visible attributes, observations, `verification_result`, and `verification_confidence`.
-- Stage2 candidate objects include `violation_category`, `evidence_relation_indices`, `evidence_reasoning`, `relation_hint`, `segmentation_targets`, `confidence`, and `sample_category`.
-- Stage2 failure files include `error_type` and `message`; example error: `ValueError` with invalid output reason `boundary_truncation but supported`.
-- Observed stage2 category distribution across parsed outputs:
-  - `no violation`: 387
-  - `nonmotor_vehicle_illegal_parking`: 302
-  - `goods_blocking_road`: 221
-  - `road_occupying_vendor`: 20
-  - `motor_vehicle_illegal_parking`: 13
-- Observed stage2 sample category distribution: `positive samples` 859, `hard boundary samples` 56, `negative samples` 28. Counts exceed sample count because candidates are per candidate, not per image.
-- Observed fact verification result distribution: `supported` 1709, `weakly_supported` 764, `unsupported` 2, `unclear` 1.
-- Observed judge decisions:
-  - Stage1 records: 592 `pass`, 205 `soft_fail`.
-  - Stage2 records: 569 `pass`, 211 `soft_fail`.
-- Original images and visualizations are 1280x720 for sampled assets; UI mockup PNGs are 1672x941.
+  - `stage1_run_0508/`: STEP1 outputs.
+  - `stage2_run_0508/`: STEP2 outputs.
+- On-disk aggregate counts:
+  - 797 raw images.
+  - 797 STEP1 parsed outputs.
+  - 780 STEP2 successful parsed outputs.
+  - 19 STEP2 failure artifacts.
+- STEP1 parsed payloads include:
+  - `environment_analysis`
+  - `scene_elements`
+  - `key_anchors`
+  - `key_relations`
+- STEP1 relation bbox values are integer arrays in a 0-1000 quantized coordinate space.
+- STEP2 parsed payloads include:
+  - `sample_id`
+  - `fact_verifications`
+  - `candidates`
+- STEP2 candidates include category, evidence relation indices, evidence reasoning, relation hint, segmentation targets, confidence, and sample category.
+- `stage2_run_*/parsed` and `stage2_run_*/failures` are separate sets. Do not subtract failure count from parsed success count.
+- Some newer STEP2 payloads can omit fields such as `subject_visible` and `subject_match`; ingestion should tolerate compatible variants.
+- The dataset uses shard folders such as `parsed/00/{sample_id}.json`; scanners must recurse.
 
-## Cross-Agent Contract Notes
+## Dataset Management Facts
 
-- Frontend and backend agents should converge first on route/API contracts for datasets, assets, import jobs, preannotations, QC queue, review submission, audit artifacts, search, and export jobs.
-- Backend agent owns the data model and import pipeline contract; frontend agent owns UI workflows and typed client integration; integration testing agent owns fixture selection from `DATASET/urban_violation` and end-to-end acceptance.
-- Minimal ingest contract should preserve source paths and pairing paths from `manifest.jsonl`; deriving records by glob alone risks mismatch because stage2 manifests include historical failed entries and rerun state.
-- Frontend review tooling must handle both `pass` and `soft_fail`, show bbox overlays from stage1/stage2, and expose failure states for stage2 invalid outputs.
-- Backend API should normalize file-system-specific paths into stable asset URLs and record IDs; absolute source image paths inside JSON records are not directly browser-safe.
+- Dataset type and dataset batch are distinct.
+- Dataset type examples: `urban_violation`, future `ares_detection`.
+- Dataset batch examples: `urban_violation__0508_fixture`, future date or scene batches.
+- Dataset type owns shared field design and active label config.
+- Dataset batch owns import execution, asset statistics, preannotation state, QC queue, assignment, leases, drafts, submissions, and progress.
+- Asset browsing belongs under a batch, not as an unrelated top-level product module.
+- Import jobs are part of dataset-batch creation or refresh.
+- Batch QC queue generation is explicit and label-config gated.
+- Registered batches must not fall back to fixture assets or fixture QC tasks.
+- Runtime platform state should use `PLATFORM_STATE_ROOT`; raw `DATASET/` should not be treated as a writable application state directory.
 
-## UI Findings
+## Label Config Facts
 
-- The sample review route should be treated as a focused audit workspace rather than a normal management page.
-- The previous review route stacked three header/chrome layers: global `AppShell` navigation/search, page-level `ReviewWorkbenchPage` title/actions, and the review-specific `ReviewWorkbenchShell` status/action topbar.
-- For sample audit, the only necessary top chrome is the review-specific workbench topbar because it contains sample id, queue progress, stage judge state, draft state, and Prev/Next/List controls.
-- Global navigation/search and page-level marketing/management titles reduce vertical evidence space and should be hidden on `/datasets/:id/samples/:sampleId/review`.
-- Bbox overlays in the image evidence area should not show visible text labels because labels compete with image evidence and create clutter; keep label text as `aria-label` only.
-- Minimal bbox styling is preferable for this QC workflow: thin outlines, transparent fill, restrained selected state, and a small resize handle preserve editability without covering visual evidence.
-- Bbox rendering must treat stored bbox values as 0-1000 quantized coordinates. The preview stage uses the actual image resolution only to preserve aspect ratio; overlay placement converts quantized x/y values to percentages of the rendered image stage.
-- Bbox visual semantics: default boxes should use pure 2px non-red lines; red is reserved for the selected active box, where the line should become thicker.
-- The sample review workbench should consume the full review-focus viewport on desktop: top status bar at the top, image/relation/candidate panels filling the middle, and vote note/review actions docked to the browser bottom.
-- QC label editing should distinguish closed enum fields from open controlled tags. `violation_category`, `sample_category`, `relation`, `verification_result`, and `visibility_level` should be dictionary-backed closed fields, while `scene_elements` and `segmentation_targets` should allow custom human tags with suggestion assistance, normalization, deduplication, and audit history.
-- Dataset label configuration should be uploaded and activated through the frontend dataset workflow. Backend package-level config files are acceptable only as fixtures/examples; the product source of truth is the dataset-bound uploaded config version.
-- The test upload config for the current dataset lives at `DATASET/urban_violation/label_config.json`; it has 8 fields, with 6 `closed_enum` fields and 2 `open_tags` fields.
-- Live integration confirmed the backend upload lifecycle API with the current dataset config: validate, save, activate, active config read, suggestions, and three negative validation cases passed. Browser E2E still needs a working Playwright or Chrome DevTools environment.
-- If label config validation shows `Not Found` in the frontend, first verify that `http://127.0.0.1:8000/openapi.json` contains `/api/datasets/{dataset_id}/label-configs/validate`; a stale backend process on port 8000 can keep serving old routes even after the backend branch has been updated.
-- STEP1/STEP2 field-level QC design now lives in `docs/qc_step_review_field_layout_design.md`.
-- STEP1 editable fields should focus first on `key_relations[].subject/relation/object/description/bbox` and `scene_elements`; `environment_analysis` and `key_anchors` can be secondary editors.
-- STEP2 `fact_verifications[]` should be edited together with the matching STEP1 relation inside the Relation review area; `relation_index` is an import compatibility key and should not be exposed as the primary UI editing target.
-- STEP2 `candidates[]` should be edited in the Candidate/verdict area; `evidence_relation_indices` should render as readable Relation rows and save through stable relation references rather than naked numeric indices.
-- STEP2 failure records (`error_type`, `message`) are readonly diagnostics, but the review UI should allow a human-created Candidate patch when model stage2 produced no candidate.
-- The right review rail should be treated as two operational regions: upper `Relation 复核区` for relation/verification editing and lower `Candidate 与质检裁决` for candidate evidence, category, confidence, note, and decision.
-- The two-zone review design preview now lives at `docs/qc_step_review_field_layout_preview.html`; it uses real sample `000142_0_1762483003246`, the current dark review-workbench style, image-stage bbox overlays, Relation editor, Candidate evidence rows, and global bottom decision actions.
-- Corrected review layout requirement: `Relation 复核区` and `Candidate 与质检裁决` must each occupy exactly half of the right rail, each with its own scrollable content area; `vote note` and all review decision buttons must be a full-width bottom dock across the whole workbench.
-- Browser verification for the preview used `google-chrome --headless=new` because Chrome DevTools MCP could not connect to the local Chrome profile.
-- For annotator-only label editing, the bottom dock should not expose final QC actions such as pass/reject/manual refinement and should not require any explanation text. It should use only status chips plus `跳过样本`, `校验修改`, `保存草稿`, and `提交修改`.
-- Label-edit audit should rely on structured patch diffs and field-level validation results, not a free-text `change_note`.
-- The left side of `Relation 复核区` should be an index-only selector that displays only `R1/R2/R3`; status, triple text, verification result, bbox state, and relation explanations belong in the right-side Relation detail/editor or Candidate evidence area.
-- `subject_visible`, `subject_match`, and `key_attributes_visible` should not be annotator-editable fields in this workbench. They should be shown as read-only model visibility reference below `bbox_observation / global_context_observation`.
-- `Candidate 与质检裁决` should mirror the Relation panel structure: a left candidate index rail showing only `C1/C2/+`, and a right-side editor containing category, confidence, segmentation targets, reasoning, evidence relations, and hint fields.
-- Bottom action `校验修改` is field-legality validation only: type, requiredness, enum membership, open-tag format, numeric range, bbox coordinate legality, and text constraints. It must not judge Relation truth, Candidate evidence sufficiency, cross-field business consistency, QC verdict, saving, submission, or queue state.
-- Implementation contract for this round: backend owns `POST /api/datasets/{dataset_id}/samples/{sample_id}/label-edits/validate` and `POST /api/datasets/{dataset_id}/samples/{sample_id}/label-edits`; frontend consumes those endpoints for `校验修改`, `保存草稿`, and `提交修改`.
-- Main integration confirmed the backend/frontend label-edit contract live: `validate` does not persist, `save_draft` hydrates `label_edit_state`, `submit_changes` persists `annotation_submitted`, and invalid confidence returns 422 with field-level validation details.
-- When running frontend in Vite proxy mode with `VITE_API_BASE_URL=/api`, `/media` must also be proxied to the backend or review images fall through to the frontend HTML route.
-- Local dev startup should keep frontend in Vite proxy mode by default: `VITE_API_BASE_URL=/api` and `VITE_API_PROXY_TARGET=$BACKEND_URL`. This avoids browser CORS issues and keeps review images loading through the same `/media` proxy path.
-- Image evidence zoom should be implemented as a visual transform on the rendered image stage, not as bbox coordinate mutation. This keeps 0-1000 quantized bbox data stable while the image and overlay boxes scale together.
-- Bbox color semantics after the latest review tweak: unreferenced Relation boxes use purple by default and turn red when selected. Ordinary referenced Relation boxes use a stable Relation-id-based pseudo-random color card that excludes purple, red, and black.
-- Bbox selected-state semantics after the latest review tweak: the red selected outline must be driven only by image evidence area bbox interactions, not by the right-side default active Relation or active Candidate evidence state on page entry.
-- Candidate editing semantics after the latest review tweak: `segmentation_targets` may be an empty array, and deleting an existing Candidate should be represented as a structured `delete_candidate` label-edit operation.
+- Label config is uploaded and activated through the frontend workflow.
+- Active config is dataset-type-scoped and inherited by all batches of that type.
+- Batch detail pages may display inherited active version but should not activate config.
+- Current test config: `DATASET/urban_violation/label_config.json`.
+- Current config shape: `label_config_v1`, dataset type `urban_violation`, 8 fields, 6 closed enum fields, 2 open tag fields.
+- Closed enum examples include category, relation, verification result, visibility level, and sample category.
+- Open controlled tags include `scene_elements` and `segmentation_targets`.
+- `scene_elements` and `segmentation_targets` must allow custom human entries, suggestion assistance, normalization, deduplication, and audit history.
+- Current duplicate-version issue is caused by save, not reload: backend save creates a new `label-config-N` even when content hash is identical.
+- Desired fix: idempotent save for identical content, or a distinct explicit "save as new version" flow.
 
-## Dataset Management Findings
+## QC Review Facts
 
-- Dataset management should be modeled as dataset type plus batch. `urban_violation` is the shared type; concrete batches such as `0508_fixture` carry import state, asset statistics, and QC queue membership.
-- The same dataset type shares one field design and active label configuration. Batch pages should inherit that type-level configuration instead of duplicating dictionaries per batch.
-- QC queue membership is batch-scoped. Opening a QC queue from dataset management must preserve the concrete batch context and should not merge all batches of the same type by default.
-- Asset browsing is not a separate top-level module for this product shape. It belongs under the dataset batch as asset statistics, sample browsing, failure filtering, and review entry points.
-- Import tasks are part of dataset-batch creation/refresh. Import job detail should be shown as a batch execution record with validation diagnostics, retry hooks, and links back to affected assets.
-- Current fixture semantics distinguish preserved import diagnostics from current asset status: the fixture import job records 19 failure diagnostics, while the current failed asset filter returns 17 failed stage2 assets.
-- The current main-directory QC review workbench is the source of truth. Subagent output may verify routes around it, but must not replace the established review-workbench layout or interaction behavior.
+- The current main-directory review workbench is the accepted source of truth.
+- Sample review route should hide global sidebar/topbar and show only review-related controls.
+- Stored bbox values are 0-1000 quantized coordinates.
+- Actual image resolution is used only to preserve aspect ratio of the rendered image stage.
+- Bbox overlay placement must convert quantized coordinates to percentages of the rendered image stage.
+- Bbox overlays must stay inside the image stage, not black side-fill areas.
+- Bbox visible text labels are removed; accessibility labels may remain.
+- Default bbox border is a simple 2px solid line.
+- Selected state changes color but should not alter geometry unless explicitly requested.
+- Red is reserved for explicitly selected boxes.
+- Purple is reserved for unreferenced Relation boxes.
+- Default referenced boxes must use a color palette excluding red, black, and purple.
+- Selection red must be driven by image evidence interaction, not by default active Relation/Candidate state on page entry.
+- Image evidence supports wheel zoom and middle-button panning for local detail inspection.
+- Relation panel left rail shows only Relation indices such as `R1/R2/R3`.
+- Candidate panel mirrors the Relation structure with a left candidate index rail.
+- `subject_visible`, `subject_match`, and `key_attributes_visible` are read-only model visibility references, not human-editable fields in the current workbench.
+- Bottom action `校验修改` performs field legality validation only.
 
-## Open Questions
+## Label Edit Contract Facts
 
-- Whether the platform should import full raw request/response payloads or store them as audit artifacts only while exposing normalized parsed fields to the UI.
-- Whether stage2 failure entries should enter QC queue by default or live in a separate import-failure remediation queue.
-- Whether category labels should remain machine labels such as `nonmotor_vehicle_illegal_parking` or be mapped to Chinese display labels in backend dictionaries.
-- Whether future dataset batch keys should be strictly date-based, scene-based, or allow a combined convention like `{date}_{scene}`.
-- Whether import job validation should become persistent audit history or remain an on-demand recalculation in the initial product pass.
+- The editable state must preserve readonly base sample data and write patch/draft data separately.
+- `baseSample` remains readonly.
+- `reviewDraft` is editable.
+- The UI shows merged state for review.
+- Saving should be patch-only.
+- Validation must happen before final submission.
+- Current operation scopes include `stage1`, `relation:R*`, `verification:R*`, and `candidate:C*`.
+- A sample-level edit scope like `sample.scene_elements` is invalid in the current backend contract.
+- Candidate deletion should be represented as structured `delete_candidate` label-edit operation.
+- Empty `segmentation_targets` is allowed.
+
+## Multi-User Facts
+
+- Authentication uses internal custom platform accounts, not LDAP/SSO or gateway identity injection.
+- Batch assignment is single-user per concrete dataset batch.
+- One sample has only one active editor at a time.
+- Drafts are user-owned by `dataset_id + sample_id + user_id`.
+- Submissions are immutable history records.
+- `submitted` means annotator submitted changes and still requires qc_lead secondary confirmation.
+- `跳过样本` does not release or change batch assignment.
+- Batch roles must be scoped to concrete batch ids such as `urban_violation__0508_fixture`, not the dataset type id `urban_violation`.
+- Backend assignment APIs use action names such as `batch_assignment.assign`; tests should assert actual emitted actions.
+- Users with only `audit:read_own` may list audit events only when `actor_user_id` is bound to themselves.
+- Admin assignment accepts any active user as assignee, including `platform_admin`.
+
+## Frontend Facts
+
+- Framework: Vue 3, Vite, vue-router, lucide icons.
+- Source root: `frontend/src`.
+- Main routes:
+  - `/login`
+  - `/datasets`
+  - `/datasets/:id/overview`
+  - `/datasets/:id/assets`
+  - `/import-jobs/:jobId`
+  - `/preannotations`
+  - `/qc`
+  - `/samples/:sampleId/review`
+  - `/account`
+  - `/account/permissions`
+  - `/account/audit`
+- Legacy `/users` and `/audit` redirect into the account hierarchy.
+- Sidebar should derive current batch links from the active route id and must not hardcode `urban_violation`.
+- Sample review route remains chrome-free and protected.
+- Vite proxy mode should proxy both `/api` and `/media`; otherwise review images can fall through to frontend HTML.
+- API/client code should continue splitting dataset type id from dataset batch id.
+- P1/P2 frontend architecture work remains in `docs/frontend/README.md`.
+
+## Backend Facts
+
+- Framework: FastAPI, Pydantic, `uv`.
+- Source root: `src/urban_violation_backend`.
+- Important modules:
+  - `app.py`
+  - `routes.py`
+  - `service.py`
+  - `api_schemas.py`
+  - `schemas.py`
+  - `labels.py`
+  - `auth.py`
+  - `permissions.py`
+  - `state_store.py`
+  - `importer/`
+- Backend routes serve normalized media URLs; frontend must not consume raw absolute filesystem paths as image sources.
+- Importer should discover `stage1_run_*` and `stage2_run_*`, not only fixed `0508` directories.
+- Backend-readable `source_uri` can ingest manually registered batches; browser-selected local files alone are not trustworthy backend paths.
+- `GET /api/datasets/{dataset_id}/samples/{sample_id}/review` is the current review-detail endpoint.
+- `/api/datasets/{dataset_id}/samples/{sample_id}` is not the review-detail endpoint.
+
+## Integration Facts
+
+- Integration validation must test the actual frontend and backend products together.
+- It is not enough for the integration agent to prepare scaffolding.
+- Browser verification may use system Chrome/headless fallback when Chrome DevTools MCP or repo-local Playwright is unavailable.
+- Service checks should use the current command conventions and stop all local services after verification.
+- Local proxy quirks can affect localhost checks; direct port and process checks are required after stack shutdown.
+
+## Agent Workflow Facts
+
+- Frontend/backend product work should be done in agent worktrees.
+- Main workspace should integrate only reviewed and accepted changes.
+- Agent worktrees can lag behind main; compare before syncing and avoid copying stale shared contract files wholesale.
+- `DATASET` in agent worktrees should be a symlink to the main readonly dataset rather than a copied 1.6G tree.
+- Sync excludes must preserve worktree `.git` pointer files.
+
+## Open Risks
+
+- Label config duplicate-version behavior still needs an idempotency fix.
+- Default runtime/config state paths should be audited so smoke runs do not write into raw `DATASET/`.
+- Import validation persistence vs recalculation remains a product decision.
+- STEP2 failure remediation may need its own queue instead of normal QC queue inclusion.
+- Category/code dictionaries may need clearer Chinese label mapping while preserving machine-readable codes.

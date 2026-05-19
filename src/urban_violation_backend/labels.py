@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import Field, ValidationError, field_validator, model_validator
@@ -39,6 +40,10 @@ class LabelConfigVersionNotFoundError(ValueError):
 
 class ActiveLabelConfigNotFoundError(ValueError):
     """Raised when a dataset has no activated label config."""
+
+
+class LabelConfigPersistenceError(ValueError):
+    """Raised when a persisted label config cannot be loaded safely."""
 
 
 class LabelOption(StrictModel):
@@ -198,6 +203,17 @@ class InMemoryLabelConfigRepository:
         self._configs_by_dataset: dict[str, dict[str, StoredLabelConfig]] = {}
         self._active_config_id_by_dataset: dict[str, str] = {}
 
+    def list_dataset_ids(self) -> list[str]:
+        """Return dataset/type ids that have saved configs."""
+        return sorted(self._configs_by_dataset)
+
+    def list_configs(self, dataset_id: str) -> list[StoredLabelConfig]:
+        """Return all saved config versions for one dataset/type."""
+        return sorted(
+            self._configs_by_dataset.get(dataset_id, {}).values(),
+            key=lambda item: (item.created_at, item.config_id),
+        )
+
     def save(
         self,
         dataset_id: str,
@@ -265,6 +281,196 @@ class InMemoryLabelConfigRepository:
                 f"Active label config not found for dataset: {dataset_id}"
             )
         return active
+
+    def reload_active(self, dataset_id: str) -> StoredLabelConfig:
+        """Reload active config into runtime cache; memory backend is already current."""
+        return self.get_active(dataset_id)
+
+
+class FileBackedLabelConfigRepository(InMemoryLabelConfigRepository):
+    """Label config repository persisted under DATASET/{dataset_type}/label_configs."""
+
+    def __init__(self, store_root: Path) -> None:
+        super().__init__()
+        self._store_root = store_root.resolve()
+        self._load_all_datasets()
+
+    def list_dataset_ids(self) -> list[str]:
+        """Return dataset/type ids from memory and persisted directories."""
+        persisted = {
+            path.parent.name
+            for path in self._store_root.glob("*/label_configs")
+            if path.is_dir()
+        }
+        return sorted(set(super().list_dataset_ids()) | persisted)
+
+    def list_configs(self, dataset_id: str) -> list[StoredLabelConfig]:
+        """Return saved config versions, loading persisted entries on demand."""
+        self._load_dataset(dataset_id)
+        return super().list_configs(dataset_id)
+
+    def save(
+        self,
+        dataset_id: str,
+        file_name: str,
+        report: LabelConfigValidationReport,
+        config: DatasetLabelConfig,
+        activate: bool,
+    ) -> StoredLabelConfig:
+        """Save one config version and persist the version registry."""
+        stored = super().save(
+            dataset_id=dataset_id,
+            file_name=file_name,
+            report=report,
+            config=config,
+            activate=activate,
+        )
+        self._persist_dataset(dataset_id)
+        return stored
+
+    def activate(self, dataset_id: str, config_id: str) -> StoredLabelConfig:
+        """Activate a version and persist the active pointer."""
+        self._load_dataset(dataset_id)
+        stored = super().activate(dataset_id=dataset_id, config_id=config_id)
+        self._persist_dataset(dataset_id)
+        return stored
+
+    def get_active(self, dataset_id: str) -> StoredLabelConfig:
+        """Return active config, restoring it from disk after service restart."""
+        try:
+            return super().get_active(dataset_id)
+        except ActiveLabelConfigNotFoundError:
+            return self.reload_active(dataset_id)
+
+    def reload_active(self, dataset_id: str) -> StoredLabelConfig:
+        """Reload active config from active.json and version file into memory."""
+        active_path = self._active_path(dataset_id)
+        if not active_path.is_file():
+            raise ActiveLabelConfigNotFoundError(
+                f"Active label config not found for dataset: {dataset_id}"
+            )
+
+        active_pointer = self._read_json(active_path)
+        config_id = active_pointer.get("config_id")
+        if not isinstance(config_id, str) or not config_id:
+            raise LabelConfigPersistenceError(f"Invalid active config pointer: {active_path}")
+
+        version_path = self._version_path(dataset_id, config_id)
+        if not version_path.is_file():
+            raise LabelConfigVersionNotFoundError(
+                f"Active label config version file not found: {version_path}"
+            )
+
+        stored = StoredLabelConfig.model_validate(self._read_json(version_path))
+        expected_dataset = active_pointer.get("dataset_type")
+        if expected_dataset != dataset_id or stored.dataset_id != dataset_id:
+            raise LabelConfigPersistenceError(
+                f"Persisted label config dataset mismatch for {dataset_id}"
+            )
+        expected_hash = active_pointer.get("content_hash")
+        if expected_hash and expected_hash != stored.content_hash:
+            raise LabelConfigPersistenceError(
+                f"Persisted label config hash mismatch for {dataset_id}/{config_id}"
+            )
+
+        dataset_store = self._configs_by_dataset.setdefault(dataset_id, {})
+        dataset_store[config_id] = stored.model_copy(update={"status": "active"})
+        self._active_config_id_by_dataset[dataset_id] = config_id
+        self._counter = max(self._counter, _extract_config_counter(config_id))
+        return dataset_store[config_id]
+
+    def _load_all_datasets(self) -> None:
+        for dataset_id in self.list_dataset_ids():
+            self._load_dataset(dataset_id)
+
+    def _load_dataset(self, dataset_id: str) -> None:
+        versions_dir = self._versions_dir(dataset_id)
+        if not versions_dir.is_dir():
+            return
+
+        dataset_store = self._configs_by_dataset.setdefault(dataset_id, {})
+        for version_path in sorted(versions_dir.glob("*.json")):
+            stored = StoredLabelConfig.model_validate(self._read_json(version_path))
+            if stored.dataset_id != dataset_id:
+                raise LabelConfigPersistenceError(
+                    f"Persisted label config dataset mismatch: {version_path}"
+                )
+            dataset_store[stored.config_id] = stored
+            self._counter = max(self._counter, _extract_config_counter(stored.config_id))
+
+        active_path = self._active_path(dataset_id)
+        if active_path.is_file():
+            active_pointer = self._read_json(active_path)
+            config_id = active_pointer.get("config_id")
+            if isinstance(config_id, str) and config_id in dataset_store:
+                self._active_config_id_by_dataset[dataset_id] = config_id
+
+    def _persist_dataset(self, dataset_id: str) -> None:
+        dataset_store = self._configs_by_dataset.get(dataset_id, {})
+        if not dataset_store:
+            return
+
+        self._versions_dir(dataset_id).mkdir(parents=True, exist_ok=True)
+        for stored in dataset_store.values():
+            self._write_json(self._version_path(dataset_id, stored.config_id), stored.model_dump(mode="json"))
+
+        versions = [
+            {
+                "config_id": stored.config_id,
+                "version": stored.version,
+                "status": stored.status,
+                "content_hash": stored.content_hash,
+                "file_name": stored.file_name,
+                "created_at": stored.created_at.isoformat(),
+                "activated_at": stored.activated_at.isoformat() if stored.activated_at else None,
+            }
+            for stored in self.list_configs(dataset_id)
+        ]
+        self._write_json(
+            self._registry_path(dataset_id),
+            {"dataset_type": dataset_id, "versions": versions},
+        )
+
+        active_config_id = self._active_config_id_by_dataset.get(dataset_id)
+        if active_config_id:
+            active = dataset_store[active_config_id]
+            self._write_json(
+                self._active_path(dataset_id),
+                {
+                    "dataset_type": dataset_id,
+                    "config_id": active.config_id,
+                    "version": active.version,
+                    "content_hash": active.content_hash,
+                    "activated_at": active.activated_at.isoformat() if active.activated_at else None,
+                },
+            )
+
+    def _dataset_dir(self, dataset_id: str) -> Path:
+        return self._store_root / dataset_id / "label_configs"
+
+    def _registry_path(self, dataset_id: str) -> Path:
+        return self._dataset_dir(dataset_id) / "registry.json"
+
+    def _active_path(self, dataset_id: str) -> Path:
+        return self._dataset_dir(dataset_id) / "active.json"
+
+    def _versions_dir(self, dataset_id: str) -> Path:
+        return self._dataset_dir(dataset_id) / "versions"
+
+    def _version_path(self, dataset_id: str, config_id: str) -> Path:
+        return self._versions_dir(dataset_id) / f"{config_id}.json"
+
+    def _read_json(self, path: Path) -> dict[str, Any]:
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def _write_json(self, path: Path, payload: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.with_suffix(f"{path.suffix}.tmp")
+        tmp_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        tmp_path.replace(path)
 
 
 def validate_label_config(
@@ -377,6 +583,12 @@ def _extract_string(payload: dict[str, Any], key: str) -> str:
     """Extract best-effort string for error-report envelope fields."""
     value = payload.get(key)
     return value if isinstance(value, str) else ""
+
+
+def _extract_config_counter(config_id: str) -> int:
+    """Return numeric suffix from a generated config id."""
+    suffix = config_id.rsplit("-", 1)[-1]
+    return int(suffix) if suffix.isdigit() else 0
 
 
 def _normalize_validation_errors(exc: ValidationError) -> list[LabelValidationIssue]:

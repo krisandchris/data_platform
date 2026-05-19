@@ -3,19 +3,38 @@ import type {
   AssetListFilters,
   AssetListItem,
   AssetSummary,
+  AuditEvent,
+  AuditEventFilters,
+  BatchAssignmentPayload,
+  BatchQcAssignment,
+  CurrentUser,
   Dataset,
   DatasetSummary,
+  DatasetType,
+  DatasetTypeCreatePayload,
   HumanReview,
   ImportJobDetail,
   LabelConfig,
+  LabelEditDraft,
+  LabelEditSubmission,
   LabelEditState,
   LabelEditSubmitPayload,
   LabelConfigSaveResult,
   LabelConfigValidationResult,
   LabelSuggestion,
+  LoginPayload,
   PreannotationSummary,
+  QcProgress,
   QcQueueItem,
+  QcTask,
+  QcWorkspace,
   ReviewSampleDetail,
+  RoleBinding,
+  RoleBindingCreatePayload,
+  SampleLease,
+  UserAccount,
+  UserCreatePayload,
+  UserUpdatePayload,
 } from '../shared/types/contract';
 
 const dataset: Dataset = {
@@ -47,6 +66,121 @@ const dataset: Dataset = {
   tags: ['traffic_violation', 'hangzhou', 'workday'],
   owner: 'data-admin',
 };
+
+const datasetTypes: DatasetType[] = [
+  {
+    datasetType: 'urban_violation',
+    displayName: '城市违规',
+    fieldSchemaVersion: '2026-05-18',
+    activeLabelConfigVersion: 'urban_violation_labels_v1',
+    status: 'active',
+    batchCount: 1,
+    batches: [dataset],
+  },
+];
+
+const fixtureUsers: UserAccount[] = [
+  {
+    userId: 'admin',
+    username: 'admin',
+    displayName: '平台管理员',
+    email: 'admin@example.local',
+    status: 'active',
+    roles: ['platform_admin'],
+  },
+  {
+    userId: 'manager',
+    username: 'manager',
+    displayName: '批次经理',
+    email: 'manager@example.local',
+    status: 'active',
+    roles: ['batch_manager'],
+  },
+  {
+    userId: 'annotator_a',
+    username: 'annotator_a',
+    displayName: '标注员 A',
+    email: 'annotator_a@example.local',
+    status: 'active',
+    roles: ['annotator'],
+  },
+  {
+    userId: 'annotator_b',
+    username: 'annotator_b',
+    displayName: '标注员 B',
+    email: 'annotator_b@example.local',
+    status: 'active',
+    roles: ['annotator'],
+  },
+  {
+    userId: 'lead',
+    username: 'lead',
+    displayName: '质检组长',
+    email: 'lead@example.local',
+    status: 'active',
+    roles: ['qc_lead'],
+  },
+  {
+    userId: 'auditor',
+    username: 'auditor',
+    displayName: '审计员',
+    email: 'auditor@example.local',
+    status: 'active',
+    roles: ['auditor'],
+  },
+];
+
+let fixtureCurrentUserId = 'annotator_a';
+
+const roleBindings: RoleBinding[] = fixtureUsers.flatMap((user) =>
+  (user.roles ?? []).map((role) => ({
+    bindingId: `binding-${user.userId}-${role}`,
+    userId: user.userId,
+    role,
+    scopeType: role === 'platform_admin' ? 'platform' : 'dataset_batch',
+    scopeId: role === 'platform_admin' ? '*' : dataset.id,
+    createdAt: '2026-05-18T00:00:00Z',
+    createdBy: 'admin',
+  })),
+);
+
+let batchAssignment: BatchQcAssignment = {
+  assignmentId: 'assignment-urban-violation-0508',
+  qcQueueId: dataset.qcQueueId,
+  datasetId: dataset.id,
+  assigneeUserId: 'annotator_a',
+  assigneeDisplayName: '标注员 A',
+  assignedBy: 'manager',
+  assignedByDisplayName: '批次经理',
+  status: 'in_progress',
+  assignedAt: '2026-05-18T09:00:00Z',
+  updatedAt: '2026-05-18T09:30:00Z',
+};
+
+const taskStatusBySample: Record<string, QcTask['status']> = {
+  '000142_0_1762483003246': 'in_progress',
+  '001710_0_1763108687181': 'draft_saved',
+  '000233_0_1762483885120': 'submitted',
+  '000376_0_1762484770192': 'confirmed',
+  '000511_0_1762485111234': 'returned',
+};
+
+const leases = new Map<string, SampleLease>();
+const submissions = new Map<string, LabelEditSubmission[]>();
+const auditEvents: AuditEvent[] = [
+  {
+    eventId: 'audit-assignment-1',
+    actorUserId: 'manager',
+    actorDisplayName: '批次经理',
+    actorRole: 'batch_manager',
+    action: 'batch_assignment.assign',
+    entityType: 'batch_assignment',
+    entityId: batchAssignment.assignmentId,
+    datasetId: dataset.id,
+    after: batchAssignment,
+    createdAt: batchAssignment.assignedAt ?? '2026-05-18T09:00:00Z',
+  },
+];
 
 const mediaUrl = (sampleId: string, variant?: 'thumb') =>
   `/api/datasets/${dataset.id}/assets/${encodeURIComponent(sampleId)}/image${variant ? `?variant=${variant}` : ''}`;
@@ -765,8 +899,213 @@ const reviews = new Map<string, HumanReview>(
 );
 const labelEdits = new Map<string, LabelEditState[]>();
 
-const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+const clone = <T>(value: T): T => (value === undefined ? value : JSON.parse(JSON.stringify(value))) as T;
 const delay = async () => new Promise((resolve) => window.setTimeout(resolve, 80));
+const userDisplayName = (userId?: string) =>
+  fixtureUsers.find((user) => user.userId === userId)?.displayName ?? userId ?? '未分配';
+const currentFixtureUser = (): CurrentUser => {
+  let userId = fixtureCurrentUserId;
+  try {
+    userId = window.localStorage.getItem('uvp.devUserId') || fixtureCurrentUserId;
+  } catch {
+    userId = fixtureCurrentUserId;
+  }
+  const account = fixtureUsers.find((user) => user.userId === userId) ?? fixtureUsers[0];
+  const bindings = roleBindings.filter((binding) => binding.userId === account.userId);
+  return {
+    ...account,
+    authMode: 'dev_header',
+    roles: account.roles ?? bindings.map((binding) => binding.role),
+    roleBindings: bindings,
+    permissions: permissionsFor(account.roles ?? []),
+  };
+};
+
+const permissionsFor = (roles: UserAccount['roles'] = []) => {
+  const permissions = new Set<string>();
+  roles.forEach((role) => {
+    if (role === 'platform_admin') {
+      [
+        'users:manage',
+        'roles:manage',
+        'batch_assignment:manage',
+        'audit:read',
+        'qc_submission:confirm',
+        'label_edit:write',
+      ].forEach((item) => permissions.add(item));
+    }
+    if (role === 'batch_manager') {
+      ['batch_assignment:manage', 'audit:read', 'label_edit:write'].forEach((item) => permissions.add(item));
+    }
+    if (role === 'qc_lead') {
+      ['batch_assignment:manage', 'audit:read', 'qc_submission:confirm', 'label_edit:write'].forEach((item) =>
+        permissions.add(item),
+      );
+    }
+    if (role === 'annotator') {
+      permissions.add('label_edit:write');
+    }
+    if (role === 'auditor') {
+      permissions.add('audit:read');
+    }
+  });
+  return Array.from(permissions);
+};
+
+const taskForAsset = (asset: AssetListItem): QcTask => ({
+  taskId: `task-${asset.sampleId}`,
+  qcQueueId: dataset.qcQueueId,
+  datasetId: dataset.id,
+  sampleId: asset.sampleId,
+  status: taskStatusBySample[asset.sampleId] ?? 'assigned',
+  assigneeUserId: batchAssignment.assigneeUserId,
+  assigneeDisplayName: batchAssignment.assigneeDisplayName,
+  claimedAt: asset.sampleId === '000142_0_1762483003246' ? '2026-05-18T09:31:00Z' : undefined,
+  submittedAt: asset.sampleId === '000233_0_1762483885120' ? '2026-05-18T10:00:00Z' : undefined,
+  confirmedBy: asset.sampleId === '000376_0_1762484770192' ? 'lead' : undefined,
+  confirmedAt: asset.sampleId === '000376_0_1762484770192' ? '2026-05-18T10:30:00Z' : undefined,
+  latestSubmissionId: asset.sampleId === '000233_0_1762483885120' ? 'submission-000233' : undefined,
+  labelConfigId: fixtureLabelConfig.configId,
+  labelConfigVersion: fixtureLabelConfig.version,
+  taskRevision: 1,
+  updatedAt: asset.updatedAt,
+});
+
+const submissionForTask = (task: QcTask): LabelEditSubmission | undefined =>
+  task.latestSubmissionId
+    ? {
+        submissionId: task.latestSubmissionId,
+        datasetId: dataset.id,
+        sampleId: task.sampleId,
+        userId: task.assigneeUserId ?? 'annotator_a',
+        userDisplayName: task.assigneeDisplayName,
+        status: 'submitted',
+        operations: [],
+        validation: {
+          valid: true,
+          datasetId: dataset.id,
+          sampleId: task.sampleId,
+          checkedOperationCount: 0,
+          errors: [],
+          warnings: [],
+          checkedAt: task.submittedAt,
+        },
+        labelConfigId: task.labelConfigId,
+        labelConfigVersion: task.labelConfigVersion,
+        taskRevision: task.taskRevision,
+        submittedAt: task.submittedAt,
+      }
+    : undefined;
+
+const qcQueueItems = (): QcQueueItem[] =>
+  assets.map((asset) => {
+    const task = taskForAsset(asset);
+    const lease = leases.get(asset.sampleId);
+    const latestSubmission = submissions.get(asset.sampleId)?.at(-1) ?? submissionForTask(task);
+    return {
+      sampleId: asset.sampleId,
+      assetId: asset.id,
+      status: asset.qcStatus,
+      judgeDecision: asset.judgeDecision,
+      highestConfidence: asset.highestConfidence,
+      primaryCategory: asset.violationCategories[0],
+      stage2Failure: asset.hasStage2Failure,
+      updatedAt: asset.updatedAt,
+      task,
+      taskStatus: task.status,
+      assigneeUserId: task.assigneeUserId,
+      assigneeDisplayName: task.assigneeDisplayName,
+      lease,
+      leaseStatus: lease?.status,
+      latestSubmission,
+      labelConfigVersion: task.labelConfigVersion,
+    };
+  });
+
+const assignmentFor = (assigneeUserId: string, status: BatchQcAssignment['status']): BatchQcAssignment => ({
+  assignmentId: `assignment-${dataset.id}`,
+  qcQueueId: dataset.qcQueueId,
+  datasetId: dataset.id,
+  assigneeUserId,
+  assigneeDisplayName: userDisplayName(assigneeUserId),
+  assignedBy: currentFixtureUser().userId,
+  assignedByDisplayName: currentFixtureUser().displayName,
+  status,
+  assignedAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+});
+
+const progressFromTasks = (tasks: QcTask[]): QcProgress => {
+  const byStatus = tasks.reduce<QcProgress['byStatus']>((acc, task) => {
+    acc[task.status] = (acc[task.status] ?? 0) + 1;
+    return acc;
+  }, {});
+  const byUserMap = new Map<string, QcProgress['byUser'][number]>();
+  tasks.forEach((task) => {
+    const userId = task.assigneeUserId ?? 'unassigned';
+    const row = byUserMap.get(userId) ?? {
+      userId,
+      displayName: task.assigneeDisplayName ?? userDisplayName(userId),
+      draftSaved: 0,
+      submitted: 0,
+      returned: 0,
+      confirmed: 0,
+    };
+    if (task.status === 'draft_saved') row.draftSaved += 1;
+    if (task.status === 'submitted') row.submitted += 1;
+    if (task.status === 'returned') row.returned += 1;
+    if (task.status === 'confirmed' || task.status === 'completed') row.confirmed += 1;
+    byUserMap.set(userId, row);
+  });
+  return {
+    datasetId: dataset.id,
+    byStatus,
+    byUser: Array.from(byUserMap.values()),
+    total: tasks.length,
+    updatedAt: new Date().toISOString(),
+  };
+};
+
+const audit = (
+  action: string,
+  entityType: string,
+  entityId: string,
+  before?: unknown,
+  after?: unknown,
+  sampleId?: string,
+): AuditEvent => {
+  const user = currentFixtureUser();
+  return {
+    eventId: `audit-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    actorUserId: user.userId,
+    actorDisplayName: user.displayName,
+    actorRole: user.roles[0],
+    action,
+    entityType,
+    entityId,
+    datasetId: dataset.id,
+    sampleId,
+    before,
+    after,
+    createdAt: new Date().toISOString(),
+  };
+};
+
+const createLease = (sampleId: string): SampleLease => {
+  const user = currentFixtureUser();
+  return {
+    leaseId: `lease-${sampleId}-${user.userId}-${Date.now()}`,
+    datasetId: dataset.id,
+    sampleId,
+    taskId: `task-${sampleId}`,
+    userId: user.userId,
+    userDisplayName: user.displayName,
+    status: 'active',
+    acquiredAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    heartbeatAt: new Date().toISOString(),
+  };
+};
 
 const filterAssets = (filters: AssetListFilters = {}) =>
   assets.filter((asset) => {
@@ -847,6 +1186,10 @@ const labelConfigSaveResult = (activate = false): LabelConfigSaveResult => ({
   config: fixtureLabelConfig,
 });
 
+const labelConfigVersions = (): LabelConfigSaveResult[] => [
+  labelConfigSaveResult(true),
+];
+
 const suggestionsFor = (fieldName: string, query = ''): LabelSuggestion[] => {
   const normalizedQuery = query.trim().toLowerCase();
   const field = fixtureLabelConfig.fields.find((item) => item.field === fieldName);
@@ -866,41 +1209,193 @@ const suggestionsFor = (fieldName: string, query = ''): LabelSuggestion[] => {
 };
 
 export const fixtureApiClient: UrbanViolationApi = {
+  async login(payload: LoginPayload) {
+    await delay();
+    const account = fixtureUsers.find((user) => user.username === payload.username || user.userId === payload.username);
+    if (account) {
+      fixtureCurrentUserId = account.userId;
+      try {
+        window.localStorage.setItem('uvp.devUserId', account.userId);
+      } catch {
+        // noop in non-browser tests
+      }
+    }
+    return clone(currentFixtureUser());
+  },
+  async logout() {
+    await delay();
+  },
+  async getCurrentUser() {
+    await delay();
+    return clone(currentFixtureUser());
+  },
+  async listUsers() {
+    await delay();
+    return clone(fixtureUsers);
+  },
+  async createUser(payload: UserCreatePayload) {
+    await delay();
+    const user: UserAccount = {
+      userId: payload.userId || payload.username,
+      username: payload.username,
+      displayName: payload.displayName,
+      email: payload.email,
+      status: payload.status ?? 'active',
+      roles: [],
+      createdAt: new Date().toISOString(),
+    };
+    fixtureUsers.push(user);
+    return clone(user);
+  },
+  async updateUser(userId: string, payload: UserUpdatePayload) {
+    await delay();
+    const index = fixtureUsers.findIndex((user) => user.userId === userId);
+    const next = {
+      ...(fixtureUsers[index] ?? {
+        userId,
+        username: userId,
+        displayName: userId,
+        status: 'active' as const,
+        roles: [],
+      }),
+      ...payload,
+    };
+    if (index >= 0) {
+      fixtureUsers[index] = next;
+    } else {
+      fixtureUsers.push(next);
+    }
+    return clone(next);
+  },
+  async listRoleBindings() {
+    await delay();
+    return clone(roleBindings);
+  },
+  async createRoleBinding(payload: RoleBindingCreatePayload) {
+    await delay();
+    const binding: RoleBinding = {
+      bindingId: `binding-${payload.userId}-${payload.role}-${Date.now()}`,
+      ...payload,
+      createdAt: new Date().toISOString(),
+      createdBy: currentFixtureUser().userId,
+    };
+    roleBindings.push(binding);
+    const user = fixtureUsers.find((item) => item.userId === payload.userId);
+    if (user && !(user.roles ?? []).includes(payload.role)) {
+      user.roles = [...(user.roles ?? []), payload.role];
+    }
+    return clone(binding);
+  },
+  async deleteRoleBinding(bindingId: string) {
+    await delay();
+    const index = roleBindings.findIndex((binding) => binding.bindingId === bindingId);
+    if (index >= 0) {
+      roleBindings.splice(index, 1);
+    }
+  },
   async listDatasets() {
     await delay();
     return clone([dataset]);
+  },
+  async listDatasetTypes() {
+    await delay();
+    return clone(datasetTypes);
+  },
+  async createDatasetType(payload: DatasetTypeCreatePayload) {
+    await delay();
+    if (!datasetTypes.some((item) => item.datasetType === payload.datasetType)) {
+      datasetTypes.push({
+        datasetType: payload.datasetType,
+        displayName: payload.displayName,
+        fieldSchemaVersion: payload.fieldSchemaVersion || 'draft',
+        status: 'active',
+        batchCount: 0,
+        batches: [],
+      });
+    }
+    return clone(datasetTypes.find((item) => item.datasetType === payload.datasetType)!);
   },
   async getDatasetSummary() {
     await delay();
     return clone(datasetSummary);
   },
+  async getDatasetBatchSummary(batchId) {
+    return this.getDatasetSummary(batchId);
+  },
   async getAssetSummary() {
     await delay();
     return clone(assetSummary);
+  },
+  async getDatasetBatchAssetSummary(batchId) {
+    return this.getAssetSummary(batchId);
   },
   async listAssets(_datasetId, filters) {
     await delay();
     return clone(filterAssets(filters));
   },
+  async listDatasetBatchAssets(batchId, filters) {
+    return this.listAssets(batchId, filters);
+  },
   async listImportJobs() {
     await delay();
     return clone([datasetSummary.latestImportJob!]);
   },
+  async listDatasetBatchImportJobs(batchId) {
+    return this.listImportJobs(batchId);
+  },
   async createImportJob(_datasetId, payload) {
     await delay();
-    return clone({
+    const created: ImportJobDetail = {
       ...importJob,
       id: `import-${payload.batchKey ?? dataset.batchKey ?? 'draft'}`,
+      datasetId: payload.batchKey && payload.datasetType ? `${payload.datasetType}__${payload.batchKey}` : importJob.datasetId,
+      datasetType: payload.datasetType ?? importJob.datasetType,
+      batchKey: payload.batchKey ?? importJob.batchKey,
       title: payload.batchName ?? 'New batch import',
       state: 'Draft',
       activeStep: 1,
       sourceMode: payload.sourceMode,
       sourceUri: payload.sourceUri,
-    });
+      sourceStructure: payload.sourceStructure,
+    };
+    if (payload.batchKey && payload.datasetType) {
+      const group = datasetTypes.find((item) => item.datasetType === payload.datasetType);
+      const batch: Dataset = {
+        ...dataset,
+        id: created.datasetId,
+        name: payload.batchName ?? payload.batchKey,
+        datasetType: payload.datasetType,
+        batchKey: payload.batchKey,
+        batchName: payload.batchName ?? payload.batchKey,
+        lifecycleStatus: 'registered',
+        status: 'registered',
+        activeImportJobId: created.id,
+        qcQueueId: undefined,
+        assetTotal: payload.imageCount ?? 0,
+        stage1Total: payload.stage1FileCount ?? 0,
+        stage2SuccessTotal: payload.stage2FileCount ?? 0,
+        stage2FailureTotal: payload.stage2FailureFileCount ?? 0,
+        sourceMode: payload.sourceMode,
+        sourceUri: payload.sourceUri,
+        sourceStructure: payload.sourceStructure,
+        sourceFileCount: payload.sourceFileCount,
+      };
+      if (group && !group.batches.some((item) => item.id === batch.id)) {
+        group.batches.push(batch);
+        group.batchCount = group.batches.length;
+      }
+    }
+    return clone(created);
+  },
+  async createDatasetBatchImportJob(batchId, payload) {
+    return this.createImportJob(batchId, payload);
   },
   async getImportJob() {
     await delay();
     return clone(importJob);
+  },
+  async getDatasetBatchImportJob(batchId, jobId) {
+    return this.getImportJob(batchId, jobId);
   },
   async scanImportJob() {
     await delay();
@@ -922,29 +1417,146 @@ export const fixtureApiClient: UrbanViolationApi = {
     await delay();
     return clone(preannotationSummary);
   },
+  async getDatasetBatchPreannotationSummary(batchId) {
+    return this.getPreannotationSummary(batchId);
+  },
   async listQcQueue() {
     await delay();
-    return clone(
-      assets.map<QcQueueItem>((asset) => ({
-        sampleId: asset.sampleId,
-        assetId: asset.id,
-        status: asset.qcStatus,
-        judgeDecision: asset.judgeDecision,
-        highestConfidence: asset.highestConfidence,
-        primaryCategory: asset.violationCategories[0],
-        stage2Failure: asset.hasStage2Failure,
-        updatedAt: asset.updatedAt,
-      })),
-    );
+    return clone(qcQueueItems());
+  },
+  async listDatasetBatchQcQueue(batchId) {
+    return this.listQcQueue(batchId);
+  },
+  async getQcWorkspace() {
+    await delay();
+    const tasks = assets.map((asset) => taskForAsset(asset));
+    const workspace: QcWorkspace = {
+      datasetId: dataset.id,
+      assignment: batchAssignment,
+      queue: qcQueueItems(),
+      tasks,
+      leases: Array.from(leases.values()),
+      progress: progressFromTasks(tasks),
+    };
+    return clone(workspace);
+  },
+  async getDatasetBatchQcWorkspace(batchId) {
+    return this.getQcWorkspace(batchId);
+  },
+  async generateQcQueue() {
+    await delay();
+    const tasks = assets.map((asset) => taskForAsset(asset));
+    const workspace: QcWorkspace = {
+      datasetId: dataset.id,
+      assignment: batchAssignment,
+      queue: qcQueueItems(),
+      tasks,
+      leases: Array.from(leases.values()),
+      progress: progressFromTasks(tasks),
+    };
+    return clone(workspace);
+  },
+  async getQcProgress() {
+    await delay();
+    return clone(progressFromTasks(assets.map((asset) => taskForAsset(asset))));
+  },
+  async getDatasetBatchQcProgress(batchId) {
+    return this.getQcProgress(batchId);
+  },
+  async getBatchAssignment() {
+    await delay();
+    return clone(batchAssignment);
+  },
+  async assignBatch(_datasetId, payload: BatchAssignmentPayload) {
+    await delay();
+    batchAssignment = assignmentFor(payload.assigneeUserId, 'assigned');
+    auditEvents.unshift(audit('batch_assignment.assign', 'batch_assignment', batchAssignment.assignmentId, undefined, batchAssignment));
+    return clone(batchAssignment);
+  },
+  async reassignBatch(_datasetId, payload: BatchAssignmentPayload) {
+    await delay();
+    const previous = clone(batchAssignment);
+    leases.clear();
+    batchAssignment = assignmentFor(payload.assigneeUserId, 'assigned');
+    auditEvents.unshift(audit('batch_assignment.reassign', 'batch_assignment', batchAssignment.assignmentId, previous, batchAssignment));
+    return clone(batchAssignment);
+  },
+  async releaseBatchAssignment() {
+    await delay();
+    const previous = clone(batchAssignment);
+    leases.clear();
+    batchAssignment = {
+      ...batchAssignment,
+      status: 'revoked',
+      updatedAt: new Date().toISOString(),
+    };
+    auditEvents.unshift(audit('batch_assignment.release', 'batch_assignment', batchAssignment.assignmentId, previous, batchAssignment));
+    return clone(batchAssignment);
+  },
+  async listQcTasks() {
+    await delay();
+    return clone(assets.map((asset) => taskForAsset(asset)));
   },
   async getReviewSample(_datasetId, sampleId) {
     await delay();
     const detail = reviewDetails[sampleId] ?? reviewDetails['000142_0_1762483003246'];
     const cloned = clone(detail);
+    const task = taskForAsset(cloned.asset);
+    const lease = leases.get(cloned.asset.sampleId);
+    const currentUser = currentFixtureUser();
     cloned.humanReview = reviews.get(cloned.asset.sampleId);
     cloned.labelEditHistory = clone(labelEdits.get(cloned.asset.sampleId) ?? []);
     cloned.labelEditState = cloned.labelEditHistory.at(-1);
+    cloned.currentUser = currentUser;
+    cloned.batchAssignment = clone(batchAssignment);
+    cloned.qcTask = clone(task);
+    cloned.sampleLease = lease ? clone(lease) : undefined;
+    cloned.myDraft = cloned.labelEditState && cloned.labelEditState.userId === currentUser.userId
+      ? {
+          draftId: cloned.labelEditState.editId,
+          datasetId: cloned.labelEditState.datasetId,
+          sampleId: cloned.labelEditState.sampleId,
+          userId: currentUser.userId,
+          operations: cloned.labelEditState.operations,
+          labelConfigId: cloned.labelEditState.labelConfigId,
+          labelConfigVersion: cloned.labelEditState.labelConfigVersion,
+          leaseId: cloned.labelEditState.leaseId,
+          taskRevision: cloned.labelEditState.taskRevision,
+          updatedAt: cloned.labelEditState.updatedAt,
+        }
+      : undefined;
+    cloned.latestSubmission = clone(submissions.get(cloned.asset.sampleId)?.at(-1) ?? submissionForTask(task));
     return cloned;
+  },
+  async acquireSampleLease(_datasetId, sampleId) {
+    await delay();
+    const lease = createLease(sampleId);
+    leases.set(sampleId, lease);
+    auditEvents.unshift(audit('sample_lease.acquire', 'sample_lease', lease.leaseId, undefined, lease, sampleId));
+    return clone(lease);
+  },
+  async heartbeatSampleLease(_datasetId, sampleId, leaseId) {
+    await delay();
+    const lease = leases.get(sampleId);
+    if (lease?.leaseId === leaseId) {
+      lease.heartbeatAt = new Date().toISOString();
+      lease.expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+      return clone(lease);
+    }
+    const nextLease = createLease(sampleId);
+    leases.set(sampleId, nextLease);
+    return clone(nextLease);
+  },
+  async releaseSampleLease(_datasetId, sampleId, leaseId) {
+    await delay();
+    const lease = leases.get(sampleId);
+    if (lease?.leaseId === leaseId) {
+      lease.status = 'released';
+      leases.delete(sampleId);
+      auditEvents.unshift(audit('sample_lease.release', 'sample_lease', lease.leaseId, lease, { ...lease, status: 'released' }, sampleId));
+      return clone(lease);
+    }
+    return undefined;
   },
   async submitReviewDecision(_datasetId, sampleId, payload: SubmitReviewPayload) {
     await delay();
@@ -972,22 +1584,83 @@ export const fixtureApiClient: UrbanViolationApi = {
       checkedAt: new Date().toISOString(),
     };
   },
+  async getMyLabelEditDraft(_datasetId, sampleId) {
+    await delay();
+    const user = currentFixtureUser();
+    const userHistory = (labelEdits.get(sampleId) ?? []).filter((item) => item.userId === user.userId);
+    const state = userHistory[userHistory.length - 1];
+    if (!state) {
+      return undefined;
+    }
+    const draft: LabelEditDraft = {
+      draftId: state.editId,
+      datasetId: state.datasetId,
+      sampleId,
+      userId: user.userId,
+      operations: clone(state.operations),
+      labelConfigId: state.labelConfigId,
+      labelConfigVersion: state.labelConfigVersion,
+      leaseId: state.leaseId,
+      taskRevision: state.taskRevision,
+      updatedAt: state.updatedAt,
+    };
+    return clone(draft);
+  },
+  async getLabelEditHistory(_datasetId, sampleId) {
+    await delay();
+    return clone(submissions.get(sampleId) ?? []);
+  },
   async submitLabelEdit(_datasetId, sampleId, payload: LabelEditSubmitPayload) {
     await delay();
     const history = labelEdits.get(sampleId) ?? [];
+    const user = currentFixtureUser();
     const state: LabelEditState = {
       editId: `label-edit-${history.length + 1}`,
       datasetId: dataset.id,
       sampleId,
+      userId: user.userId,
       taskMode: payload.taskMode,
       submitAction: payload.submitAction,
       taskStatus: payload.taskStatus,
       labelConfigId: payload.labelConfigId,
       labelConfigVersion: payload.labelConfigVersion,
+      leaseId: payload.leaseId,
+      taskRevision: payload.taskRevision,
       operations: clone(payload.operations),
       updatedAt: new Date().toISOString(),
     };
     labelEdits.set(sampleId, [...history, state]);
+    if (payload.submitAction === 'submit_changes') {
+      const submission: LabelEditSubmission = {
+        submissionId: `submission-${sampleId}-${Date.now()}`,
+        datasetId: dataset.id,
+        sampleId,
+        userId: user.userId,
+        userDisplayName: user.displayName,
+        status: 'submitted',
+        operations: clone(payload.operations),
+        labelConfigId: payload.labelConfigId,
+        labelConfigVersion: payload.labelConfigVersion,
+        taskRevision: payload.taskRevision,
+        submittedAt: state.updatedAt,
+        validation: {
+          valid: true,
+          datasetId: dataset.id,
+          sampleId,
+          checkedOperationCount: payload.operations.length,
+          errors: [],
+          warnings: [],
+          checkedAt: state.updatedAt,
+        },
+      };
+      submissions.set(sampleId, [...(submissions.get(sampleId) ?? []), submission]);
+      taskStatusBySample[sampleId] = 'submitted';
+      leases.delete(sampleId);
+      auditEvents.unshift(audit('label_edit.submit', 'label_edit_submission', submission.submissionId, undefined, submission, sampleId));
+    } else {
+      taskStatusBySample[sampleId] = 'draft_saved';
+      auditEvents.unshift(audit('label_edit.save_draft', 'label_edit_draft', state.editId, undefined, state, sampleId));
+    }
     return {
       saved: true,
       sampleId,
@@ -1008,21 +1681,109 @@ export const fixtureApiClient: UrbanViolationApi = {
       },
     };
   },
+  async confirmLabelEditSubmission(_datasetId, sampleId, submissionId) {
+    await delay();
+    const history = submissions.get(sampleId) ?? [];
+    const task = taskForAsset(assets.find((asset) => asset.sampleId === sampleId) ?? assets[0]);
+    const submission = history.find((item) => item.submissionId === submissionId) ?? submissionForTask(task) ?? {
+      submissionId,
+      datasetId: dataset.id,
+      sampleId,
+      userId: task.assigneeUserId ?? 'annotator_a',
+      userDisplayName: task.assigneeDisplayName,
+      status: 'submitted' as const,
+      operations: [],
+      submittedAt: new Date().toISOString(),
+    };
+    const next: LabelEditSubmission = {
+      ...(submission as LabelEditSubmission),
+      status: 'confirmed',
+      confirmedBy: currentFixtureUser().userId,
+      confirmedAt: new Date().toISOString(),
+    };
+    submissions.set(sampleId, [...history.filter((item) => item.submissionId !== submissionId), next]);
+    taskStatusBySample[sampleId] = 'confirmed';
+    auditEvents.unshift(audit('label_edit.confirm', 'label_edit_submission', next.submissionId, submission, next, sampleId));
+    return clone(next);
+  },
+  async returnLabelEditSubmission(_datasetId, sampleId, submissionId, reason = '') {
+    await delay();
+    const history = submissions.get(sampleId) ?? [];
+    const task = taskForAsset(assets.find((asset) => asset.sampleId === sampleId) ?? assets[0]);
+    const submission = history.find((item) => item.submissionId === submissionId) ?? submissionForTask(task) ?? {
+      submissionId,
+      datasetId: dataset.id,
+      sampleId,
+      userId: task.assigneeUserId ?? 'annotator_a',
+      userDisplayName: task.assigneeDisplayName,
+      status: 'submitted' as const,
+      operations: [],
+      submittedAt: new Date().toISOString(),
+    };
+    const next: LabelEditSubmission = {
+      ...(submission as LabelEditSubmission),
+      status: 'returned',
+      returnedAt: new Date().toISOString(),
+      returnReason: reason,
+    };
+    submissions.set(sampleId, [...history.filter((item) => item.submissionId !== submissionId), next]);
+    taskStatusBySample[sampleId] = 'returned';
+    auditEvents.unshift(audit('label_edit.returned', 'label_edit_submission', next.submissionId, submission, next, sampleId));
+    return clone(next);
+  },
+  async listAuditEvents(filters: AuditEventFilters = {}) {
+    await delay();
+    return clone(
+      auditEvents.filter(
+        (event) =>
+          (!filters.datasetId || event.datasetId === filters.datasetId) &&
+          (!filters.sampleId || event.sampleId === filters.sampleId) &&
+          (!filters.actorUserId || event.actorUserId === filters.actorUserId) &&
+          (!filters.action || event.action.includes(filters.action)),
+      ),
+    );
+  },
   async validateLabelConfig() {
     await delay();
     return clone(labelConfigValidation());
+  },
+  async validateDatasetTypeLabelConfig(datasetTypeId, payload) {
+    return this.validateLabelConfig(datasetTypeId, payload);
   },
   async saveLabelConfig(_datasetId, payload) {
     await delay();
     return clone(labelConfigSaveResult(Boolean(payload.activate)));
   },
+  async saveDatasetTypeLabelConfig(datasetTypeId, payload) {
+    return this.saveLabelConfig(datasetTypeId, payload);
+  },
+  async listLabelConfigs() {
+    await delay();
+    return clone(labelConfigVersions());
+  },
+  async listDatasetTypeLabelConfigs(datasetTypeId) {
+    return this.listLabelConfigs(datasetTypeId);
+  },
   async activateLabelConfig() {
     await delay();
     return clone(labelConfigSaveResult(true));
   },
+  async activateDatasetTypeLabelConfig(datasetTypeId, configId) {
+    return this.activateLabelConfig(datasetTypeId, configId);
+  },
+  async reloadActiveLabelConfig() {
+    await delay();
+    return clone(labelConfigSaveResult(true));
+  },
+  async reloadActiveDatasetTypeLabelConfig(datasetTypeId) {
+    return this.reloadActiveLabelConfig(datasetTypeId);
+  },
   async getActiveLabelConfig() {
     await delay();
     return clone(fixtureLabelConfig);
+  },
+  async getActiveDatasetTypeLabelConfig(datasetTypeId) {
+    return this.getActiveLabelConfig(datasetTypeId);
   },
   async getLabelSuggestions(_datasetId, field, query) {
     await delay();

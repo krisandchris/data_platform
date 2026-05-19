@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
+from typing import Any
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -49,6 +50,66 @@ class DatasetLifecycleStatus(str, Enum):
     ARCHIVED = "archived"
 
 
+class UserRole(str, Enum):
+    """Supported platform roles."""
+
+    PLATFORM_ADMIN = "platform_admin"
+    DATASET_ADMIN = "dataset_admin"
+    BATCH_MANAGER = "batch_manager"
+    ANNOTATOR = "annotator"
+    QC_LEAD = "qc_lead"
+    AUDITOR = "auditor"
+
+
+class RoleScopeType(str, Enum):
+    """RBAC scope levels."""
+
+    PLATFORM = "platform"
+    DATASET_TYPE = "dataset_type"
+    DATASET_BATCH = "dataset_batch"
+
+
+class UserStatus(str, Enum):
+    """User availability state."""
+
+    ACTIVE = "active"
+    DISABLED = "disabled"
+
+
+class BatchAssignmentStatus(str, Enum):
+    """Batch-level QC assignment state."""
+
+    ASSIGNED = "assigned"
+    IN_PROGRESS = "in_progress"
+    SUBMITTED = "submitted"
+    CONFIRMED = "confirmed"
+    RETURNED = "returned"
+    REVOKED = "revoked"
+
+
+class QcTaskStatus(str, Enum):
+    """Sample-level QC task state."""
+
+    QUEUED = "queued"
+    ASSIGNED = "assigned"
+    IN_PROGRESS = "in_progress"
+    DRAFT_SAVED = "draft_saved"
+    SKIPPED = "skipped"
+    SUBMITTED = "submitted"
+    CONFIRMED = "confirmed"
+    RETURNED = "returned"
+    COMPLETED = "completed"
+
+
+class LeaseStatus(str, Enum):
+    """Sample lease state."""
+
+    ACTIVE = "active"
+    RELEASED = "released"
+    EXPIRED = "expired"
+    REVOKED = "revoked"
+
+
 class StrictModel(BaseModel):
     """Base model that rejects unknown fields for safer contracts."""
 
@@ -84,6 +145,16 @@ class ImportJob(StrictModel):
     dataset_id: str
     dataset_type: str = "urban_violation"
     batch_key: str = "0508_fixture"
+    batch_name: str | None = None
+    source_mode: Literal["local_directory", "uploaded_package", "object_storage_prefix", "manifest_only"] | None = None
+    source_uri: str | None = None
+    source_structure: Literal["images_only", "images_with_preannotations"] | None = None
+    description: str | None = None
+    source_file_count: int = Field(default=0, ge=0)
+    image_count: int = Field(default=0, ge=0)
+    stage1_file_count: int = Field(default=0, ge=0)
+    stage2_file_count: int = Field(default=0, ge=0)
+    stage2_failure_file_count: int = Field(default=0, ge=0)
     state: ImportJobState
     expected_assets: int = Field(ge=0)
     imported_assets: int = Field(ge=0)
@@ -208,4 +279,142 @@ class AuditArtifact(StrictModel):
     artifact_type: Literal["request", "response", "record", "failure", "review"]
     storage_url: str
     checksum: str
+    created_at: datetime
+
+
+class UserAccount(StrictModel):
+    """Internal platform account."""
+
+    user_id: str
+    display_name: str
+    email: str
+    password_hash: str
+    status: UserStatus = UserStatus.ACTIVE
+    created_at: datetime
+    updated_at: datetime
+    last_seen_at: datetime | None = None
+
+
+class RoleBinding(StrictModel):
+    """One role assignment over one scope."""
+
+    binding_id: str
+    user_id: str
+    role: UserRole
+    scope_type: RoleScopeType
+    scope_id: str
+    created_by: str
+    created_at: datetime
+
+
+class AuthSession(StrictModel):
+    """Authenticated session row."""
+
+    session_id: str
+    user_id: str
+    token: str
+    auth_mode: str
+    created_at: datetime
+    expires_at: datetime
+    revoked_at: datetime | None = None
+
+
+class BatchQcAssignment(StrictModel):
+    """Batch-level single-assignee row."""
+
+    assignment_id: str
+    qc_queue_id: str
+    dataset_id: str
+    assignee_user_id: str
+    assigned_by: str
+    status: BatchAssignmentStatus
+    assigned_at: datetime
+    submitted_at: datetime | None = None
+    confirmed_at: datetime | None = None
+    returned_at: datetime | None = None
+    revoked_at: datetime | None = None
+
+
+class QcTask(StrictModel):
+    """Per-sample QC task."""
+
+    task_id: str
+    qc_queue_id: str
+    dataset_id: str
+    sample_id: str
+    status: QcTaskStatus
+    assignee_user_id: str | None = None
+    claimed_at: datetime | None = None
+    submitted_at: datetime | None = None
+    completed_at: datetime | None = None
+    confirmed_by: str | None = None
+    confirmed_at: datetime | None = None
+    latest_submission_id: str | None = None
+    label_config_id: str | None = None
+    label_config_version: str | None = None
+    task_revision: int = 0
+
+
+class SampleLease(StrictModel):
+    """Sample edit lease."""
+
+    lease_id: str
+    dataset_id: str
+    sample_id: str
+    task_id: str
+    user_id: str
+    status: LeaseStatus
+    acquired_at: datetime
+    expires_at: datetime
+    heartbeat_at: datetime
+    released_at: datetime | None = None
+    revoked_at: datetime | None = None
+
+
+class LabelEditDraft(StrictModel):
+    """User-private draft snapshot for one sample."""
+
+    draft_id: str
+    dataset_id: str
+    sample_id: str
+    user_id: str
+    task_id: str
+    lease_id: str
+    base_revision: int
+    label_config_id: str | None = None
+    label_config_version: str | None = None
+    operations: list[dict[str, Any]] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class LabelEditSubmission(StrictModel):
+    """Immutable submitted patch snapshot."""
+
+    submission_id: str
+    dataset_id: str
+    sample_id: str
+    user_id: str
+    task_id: str
+    lease_id: str
+    base_revision: int
+    label_config_id: str | None = None
+    label_config_version: str | None = None
+    operations: list[dict[str, Any]] = Field(default_factory=list)
+    created_at: datetime
+
+
+class AuditEvent(StrictModel):
+    """Audit trail row for identity, assignment, lease, and edit actions."""
+
+    event_id: str
+    actor_user_id: str
+    actor_roles: list[UserRole] = Field(default_factory=list)
+    action: str
+    entity: str
+    dataset_id: str | None = None
+    sample_id: str | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+    before: dict[str, Any] | None = None
+    after: dict[str, Any] | None = None
     created_at: datetime

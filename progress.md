@@ -1,316 +1,142 @@
-# Progress - Urban Violation Platform Planning
+# Progress
 
-## 2026-05-15
+Last compacted: 2026-05-19
 
-- Initialized planning files in `/mnt/lc/LC/ares_xtws/0_train_data/data_platform`.
-- Read `planning-with-files` skill from `/home/hy/.agents/skills/planning-with-files/SKILL.md` after the AGENTS-specified path was not present.
-- Started Phase 1 documentation inventory.
-- Read all markdown files under `urban_violation_platform_markdown/`.
-- Recorded documentation findings covering UI surfaces, frontend routes/modules, backend modules, state machine, and listed database entities.
-- Inspected UI mockup image dimensions.
-- Inspected `DATASET/urban_violation` top-level layout, file counts, stage summaries, manifest/plan metadata, representative stage1/stage2 parsed and record schemas, and failure samples.
-- Noted that `qc_integration_report.json` is very large; subsequent reads use summarized fields only.
-- Added detailed execution work packages for backend implementation, frontend implementation, and integration testing agents to `task_plan.md`.
-- Added global contract, dataset, UI, verification-command, and open-question handoff gates to `task_plan.md`.
-- Final verification confirmed planning sections are present; `git status` is unavailable because this directory is not a Git repository.
-- Added `.gitignore`, `.nvmrc`, and `AGENT_WORKTREES.md`.
-- Initialized Git repository with `main` as the default branch.
-- Added Phase 5 and Phase 6 to `task_plan.md` for worktree setup and next execution bootstrap.
-- Created Git worktrees:
-  - `/mnt/lc/LC/ares_xtws/0_train_data/data_platform_backend_agent` on `agent/backend-implementation`.
-  - `/mnt/lc/LC/ares_xtws/0_train_data/data_platform_frontend_agent` on `agent/frontend-implementation`.
-  - `/mnt/lc/LC/ares_xtws/0_train_data/data_platform_integration_agent` on `agent/integration-testing`.
-- Added and committed `AGENT_TASK.md` in each agent worktree.
-- Marked Phase 5 complete.
-- Started Phase 6 execution by launching three agents:
-  - Backend implementation agent in `data_platform_backend_agent`.
-  - Frontend implementation agent in `data_platform_frontend_agent`.
-  - Integration testing agent in `data_platform_integration_agent`.
-- Verified `git worktree list` shows the main worktree plus all three agent worktrees.
-- Backend first slice completed and committed `fc82b60` on `agent/backend-implementation`; validation reported `uv sync`, contract export, fixture inspection, and `uv run pytest` with 5 passing tests.
-- Integration first slice completed and committed `8344695` on `agent/integration-testing`; fixture validator passed 5/5 runs and placeholder contract/E2E tests skipped as expected without runtime URLs.
-- Frontend subagent timed out with uncommitted changes; took over the frontend worktree, fixed build config, ran `npm ci`, `npm run build`, and `npm run test`, then committed `83f4501` on `agent/frontend-implementation`.
-- Verified all three agent worktrees are clean and `git worktree list` points to backend `fc82b60`, frontend `83f4501`, and integration `8344695`.
-- Started frontend Vite dev server from the frontend worktree at `http://127.0.0.1:5173/` and verified it returns HTTP 200.
-- Consolidated unfinished work into `REMAINING_TASKS.md` with P0/P1/P2 priorities, ownership, acceptance criteria, and recommended next execution order.
-- Started Phase 8 planning for the P0 execution cycle: backend runtime API, frontend live API integration, and integration contract/E2E activation.
-- Added `NEXT_TASKS.md` to each agent worktree and committed:
-  - backend `263ed47`
-  - frontend `124ed55`
-  - integration `c33d584`
-- Launched three P0 execution agents:
-  - backend runtime API agent for `data_platform_backend_agent`
-  - frontend live API integration agent for `data_platform_frontend_agent`
-  - integration contract/E2E activation agent for `data_platform_integration_agent`
-- Backend P0 completed at `f6a76ee`: added fixture-backed FastAPI runtime, media serving, OpenAPI export, and API tests; reported `uv sync`, `uv run pytest` with 12 passed, contract export, and startup health check.
-- Integration P0 completed initial activation at `efaf43f`, then canonical backend route fixes at `c1d04b7`, then E2E canonical asset filter fix at `501578a`.
-- Frontend P0 completed at `5d55505`: live API is default, fixture fallback uses `VITE_API_MODE=fixture`, route states and tests expanded; reported `npm ci`, `npm run build`, and `npm run test` with 13 passed.
-- Ran active verification locally:
-  - `python3 scripts/validate_fixture_manifest.py`: passed.
-  - `BACKEND_URL=http://127.0.0.1:8000 pytest -q tests/contracts`: 6 passed.
-  - `FRONTEND_URL=http://127.0.0.1:5173 BACKEND_URL=http://127.0.0.1:8000 pytest -q tests/e2e`: 3 passed, 1 skipped.
-- Stopped verification servers on ports 8000 and 5173 after testing.
-- Clarified integration-agent responsibility: it must validate backend/frontend agent code products as running services, not just prepare test scaffolding.
-- Added `FRONT_BACK_INTEGRATION_TASK.md` in the integration worktree and committed `adfce4f`.
-- Re-ran integration-agent validation against backend `f6a76ee` and frontend `5d55505`; integration commit `ee3deb5` published `docs/front_back_integration_report.md`.
-- Integration report result: fixture validation passed, backend contract tests 6 passed, frontend/backend E2E smoke 3 passed and 1 skipped. The skip remains owned by the P1 review/audit contract gap.
-- Stopped integration validation services on ports 8000 and 5173 after report review.
-- Registered the real `DATASET/urban_violation` data into the backend runtime path instead of the 2-sample fixture default.
-- Backend now reports 797 raw assets, 797 stage1 records, 780 stage2 success records, 19 preserved stage2 failure artifacts, 797 import validation rows, and 797 QC queue items.
-- Expanded backend runtime API payloads for dataset distributions, import validation rows/mapping steps, asset confidence/category fields, and QC queue asset/category fields.
-- Updated frontend live API adapter to consume backend import validation rows and stage2 success counts.
-- Verified backend with `uv run pytest`: 13 passed.
-- Verified frontend with `npm run build` and `npm run test`: build passed, 14 tests passed.
-- Restarted local preview services in tmux:
-  - backend `uvp-backend` on `http://127.0.0.1:8000`
-  - frontend `uvp-frontend` on `http://127.0.0.1:5173`
-- Headless browser checks passed for datasets, overview, assets, import job, preannotations, QC queue, success review sample, and stage2 failure review sample routes.
-- Integration validation after full DATASET registration:
-  - `python3 scripts/validate_fixture_manifest.py`: passed.
-  - `BACKEND_URL=http://127.0.0.1:8000 pytest -q tests/contracts`: 6 passed.
-  - `FRONTEND_URL=http://127.0.0.1:5173 BACKEND_URL=http://127.0.0.1:8000 pytest -q tests/e2e`: 3 passed, 1 skipped.
-- Redesigned the QC sample review surface into an immersive single-screen evidence workbench.
-- STEP1 analysis used for the redesign: scene understanding, scene elements, anchors, and relation bboxes are the spatial evidence layer.
-- STEP2 analysis used for the redesign: fact verifications provide supported/weakly-supported evidence confidence, candidates provide final category reasoning, and stage2 failures need a visible remediation state.
-- The new review layout uses a left QC queue rail, central image evidence canvas, bottom relation timeline, right STEP1/STEP2/candidate evidence inspector, and fixed decision dock.
-- Verified review redesign with `npm run test`: 14 passed.
-- Verified review redesign with `npm run build`: passed.
-- Captured browser checks for success and stage2-failure review routes without route-level error state.
+This file now records only current project progress and recent verification context. Detailed historical phase logs are preserved in git history.
 
-## 2026-05-16
+## Current State
 
-- Re-read `2026-05-13-qc-tool-ui-interaction-design.md` and `2026-05-13-qc-tool-ui-interaction-preview.html` as the reference for the sample review page.
-- Reworked the live review shell to match the reference Sample Detail layout: top status/action bar, left image evidence panel, middle Relation review panel, and right Candidate/verdict panel.
-- Added STEP1/STEP2/candidate bbox layer toggles, active relation expansion, orphan relation warning, stage2 failure warning, Pass gate checklist, local Save Patch state, vote note, and Patch Preview.
-- Preserved existing human review submission semantics, including the `需人工精标` decision and `提交质检` action.
-- Added route-prop reload handling in `ReviewWorkbenchPage.vue` so Prev/Next sample links reload the active review detail.
-- Verified frontend after the reference-aligned redesign:
-  - `npm run test`: 14 passed.
+- Main workspace is initialized as a git worktree with dedicated frontend, backend, and integration agent worktrees.
+- `AGENTS.md` now defines main-workspace governance: product frontend/backend code work should be done in agent worktrees first, then reviewed and synchronized into main.
+- `scripts/agent-dev-stack.sh` starts and stops frontend/backend code from the agent worktrees for human review.
+- `scripts/dev-stack.sh` remains the launcher for accepted main-workspace code.
+- Current accepted code includes dataset management, import jobs, asset browsing, preannotations, QC queue, sample review, label editing, label config upload/reload, multi-user assignment, user center, permissions, and audit baseline.
+- Current documentation has been organized under `docs/README.md`, `docs/frontend/README.md`, `docs/backend/README.md`, and `docs/architecture/README.md`.
+
+## Latest Completed Work
+
+### Documentation Compaction
+
+- Replaced long historical `task_plan.md`, `progress.md`, and `findings.md` with compact current-state versions.
+- Added current documentation entry points:
+  - `docs/README.md`
+  - `docs/frontend/README.md`
+  - `docs/backend/README.md`
+  - `docs/architecture/README.md`
+- Removed earlier detailed design and implementation docs from `docs/` after consolidating durable content into the four current entry documents.
+- Removed the historical architecture-input folder after consolidating durable architecture content into the current `docs/` entry documents.
+- Expanded `docs/frontend/README.md` into the current frontend interface specification, including page inventory, navigation, per-page layout diagrams, data fields, core components, interaction/exception states, API integration, permissions, and operation boundaries.
+- Prepared the current main-workspace project state for a git commit snapshot after documentation cleanup and frontend documentation consolidation.
+
+### Main Workspace Governance
+
+- Added `AGENTS.md`.
+- Added `scripts/agent-dev-stack.sh`.
+- The agent stack defaults to backend port `18031` and frontend port `15195`.
+- `BACKEND_WORKTREE` and `FRONTEND_WORKTREE` can override agent worktree paths.
+- `start`, `stop`, `restart`, `status`, `logs`, and `urls` are supported.
+
+### Frontend Architecture P0 Repair
+
+- Integrated route-reuse refresh support.
+- Added stale-request protection through `useAsyncState`.
+- Cleared asset image failure cache on batch switch.
+- Added semantic aliases/wrappers for dataset type id and dataset batch id.
+- Preserved protected review workbench files.
+- Latest recorded verification:
+  - `npm run test -- routesAndPages apiClient`: 41 passed.
   - `npm run build`: passed.
-  - Headless Chrome DOM checks passed for success sample `000142_0_1762483003246` and stage2 failure sample `001710_0_1763108687181`.
-  - Captured smoke screenshots at `/tmp/uvp_review_success.png` and `/tmp/uvp_review_failure.png`.
-- Investigated sample switching flicker in the review workbench.
-- Root cause: route prop changes called the first-load path, set `loading=true`, and temporarily unmounted the review shell in favor of the full-page loading state.
-- Reworked `ReviewWorkbenchPage.vue` refresh mode:
-  - First entry uses `initialLoading`.
-  - Same-dataset sample navigation uses `refreshing`.
-  - Current sample detail stays mounted while the next detail loads.
-  - A sticky `正在切换到 ...` banner replaces the disruptive full-page loading flash.
-  - QC queue fetch stays on initial load; sample switching fetches review detail only.
-  - Request sequence guards prevent stale responses from overwriting newer navigation.
-- Added route refresh regression coverage in `routesAndPages.test.ts`.
-- Verified non-blocking refresh mode:
-  - `npm run test`: 15 passed.
-  - `npm run build`: passed.
-  - Headless Chrome CDP click test confirmed transition state has no `Loading review sample...`, keeps old sample visible, shows the refresh banner, then settles on `000143_0_1762483007499` with `Patch Preview`.
-- Refined the sample review workbench per the latest layout request:
-  - Removed the visible sample-switch sticky refresh banner while keeping silent non-blocking refresh behavior.
-  - Removed the image evidence card's old active-relation text block.
-  - Added clickable bbox overlays through `BBoxOverlay` and wired box selection to expand the matching Relation row.
-  - Added bbox coordinate editing for the selected relation and wired edits into relation display plus patch preview.
-  - Reflowed the main workbench to left image evidence plus right stacked Relation/Candidate cards.
-  - Moved `vote note`, approve, reject, manual-label, and submit actions into a unified bottom review bar.
-  - Removed panel-header subtitle descriptions so card headers show only primary titles on the left.
-- Verified the refined layout and bbox behavior:
-  - `npm run test`: 16 passed.
-  - `npm run build`: passed.
-  - Headless Chrome checks confirmed no `正在切换到 ...` banner, no full-page loading flash while switching, bbox click opens R3, bbox coordinate edit updates relation state and patch preview.
-  - Captured updated layout screenshot at `/tmp/uvp_review_layout_new.png`.
-- Reworked image preview bbox editing to operate directly on visible boxes instead of manual coordinate inputs:
-  - `BBoxOverlay` now separates the black preview shell from the real rendered image stage and computes the stage size from the source image aspect ratio.
-  - Overlay boxes render inside the image stage only, preventing bbox drift into left/right black fill areas.
-  - Stage1 relation boxes are editable by dragging the box to move it and dragging the bottom-right handle to resize it.
-  - Selecting or editing a box opens the matching Relation review row and writes bbox changes into Patch Preview.
-  - Removed the `BBox 坐标` manual editor from the image evidence card.
-  - Changed the bottom review action bar to normal document flow so it no longer covers or intercepts lower image boxes.
-- Verified direct image-stage bbox editing:
-  - `npm run test`: 18 passed.
-  - `npm run build`: passed.
-  - Headless Chrome CDP check confirmed side fill exists but stage and boxes stay aligned, no manual bbox inputs render, no refresh banner renders, dragging R3 selects R3 and writes `relation:R3` bbox data into Patch Preview.
-  - Captured updated screenshot at `/tmp/uvp_review_direct_bbox.png`.
-- Reduced the sample review route chrome after identifying the three stacked header layers:
-  - Global `AppShell` sidebar/topbar.
-  - `ReviewWorkbenchPage` page title/actions header.
-  - `ReviewWorkbenchShell` review-specific status/action topbar.
-- Added `app-shell--review-focus` mode for sample review routes so the global sidebar and search topbar are hidden and the page surface becomes compact, dark, and full-width.
-- Removed the page-level `质检工作台 / 样本审阅` header from `ReviewWorkbenchPage`.
-- Kept only review-related controls inside the workbench: sample state, progress, stage judge, draft state, Prev/Next, List, evidence, relation review, candidate verdict, and bottom review actions.
-- Verified focused review mode:
-  - `npm run test`: 19 passed.
-  - `npm run build`: passed.
-  - Headless Chrome DOM check confirmed `app-shell--review-focus`, no `.sidebar`, no `.topbar`, no `.page-header`, no global brand/search text, and workbench top at 10px.
-  - Captured updated screenshot at `/tmp/uvp_review_focus_mode.png`.
-- Simplified bbox preview styling in the image evidence area:
-  - Removed visible text labels from bbox overlays.
-  - Kept labels as `aria-label` for accessibility and keyboard context.
-  - Replaced heavy filled/shadowed box styling with a restrained 1px outline, transparent fill, subtle selected outline, softer colors, and a 9px square resize handle.
-  - Removed the review-shell CSS override that positioned bbox label text above the image.
-- Verified minimal bbox preview:
-  - `npm run test`: 19 passed.
-  - `npm run build`: passed.
-  - Headless Chrome DOM check confirmed 8 bbox overlays, no visible bbox text, retained aria labels, 1px selected border, and 9px resize handle.
-  - Captured updated screenshot at `/tmp/uvp_review_minimal_boxes.png`.
-- Corrected bbox projection from pixel-based math to the dataset's 0-1000 quantized coordinate system:
-  - `BBoxOverlay` now uses `BBOX_COORDINATE_MAX = 1000` for all bbox placement, drag, resize, and clamping math.
-  - `imageWidth` and `imageHeight` are now used only to preserve the rendered image stage aspect ratio.
-  - Dragging and resizing a box writes edited values back as 0-1000 quantized coordinates.
-  - Updated tests to prove bbox percentages are independent from source image resolution.
-- Verified quantized bbox projection:
-  - `npm run test`: 20 passed.
-  - `npm run build`: passed.
-  - Headless Chrome DOM check confirmed sample R1 `[163, 362, 336, 632]` renders as `left: 16.3%; top: 36.2%; width: 17.3%; height: 27%` and remains inside the image stage.
-  - Captured updated screenshot at `/tmp/uvp_review_quantized_boxes.png`.
-- Updated bbox visual rules:
-  - Default bbox overlays now use pure `2px solid currentColor` lines with no shadow/fill effect.
-  - Selected bbox overlays now use a thicker `4px` red border.
-  - Orphan stage1 relations and unsupported stage2 verifications no longer map to red default tones.
-  - Default overlay tones are limited to non-red blue, green, orange, and purple.
-- Verified bbox color rules:
-  - `npm run test`: 20 passed.
-  - `npm run build`: passed.
-  - Headless Chrome computed-style check confirmed selected R1 is `4px` red, default R2/R3/S2 boxes are `2px` non-red lines, and default red count is 0.
-  - Captured updated screenshot at `/tmp/uvp_review_box_color_rules.png`.
-- Reworked sample review vertical layout so the vote note/action dock aligns to the browser bottom and the main review panels are taller:
-  - Review-focus page surface now uses fixed viewport height with no desktop bottom padding.
-  - `ReviewWorkbenchShell` now uses a full-height flex column.
-  - `.review-grid` expands to fill available space between the top status bar and bottom review action dock.
-  - Image evidence row minimum was increased, and Relation/Candidate panels now share the expanded right-side stack height.
-  - Bottom dock bottom padding/border/radius were removed so the vote note textarea aligns with the viewport bottom.
-- Verified bottom-aligned review layout:
-  - `npm run test`: 20 passed.
-  - `npm run build`: passed.
-  - Headless Chrome layout check confirmed action dock bottom gap `0`, vote note textarea bottom gap `0`, image stage height `430`, and Relation/Candidate panel heights `310` each.
-  - Captured updated screenshot at `/tmp/uvp_review_bottom_aligned_layout.png`.
-- Created the QC label field editing design document:
-  - Added `docs/qc_label_field_editing_design.md`.
-  - Confirmed category/relation/result fields should be treated as closed enums backed by backend dictionaries.
-  - Confirmed `scene_elements` and `segmentation_targets` should be treated as open controlled tags, not fixed enumerations.
-  - Defined open-tag persistence with `raw_text`, `normalized_text`, optional `canonical_code`, source, status, and dictionary/suggestion version.
-  - Defined patch-only modification examples for closed enum replacement, open-tag add, open-tag normalization, and open-tag deletion.
-  - Added implementation order and acceptance criteria for backend, frontend, and integration verification.
-- Corrected the label config loading strategy after user clarification:
-  - Added `docs/qc_label_config_upload_flow.md`.
-  - Clarified that label configs should be manually uploaded from the frontend during dataset registration/settings, then validated, versioned, activated, and loaded by the QC workbench.
-  - Documented that backend-bundled `dataset_configs/{dataset_id}.json` should not be the production source of truth.
-  - Defined the required API lifecycle: validate upload, save draft, activate version, get active config, get suggestions from active config.
-- Prepared subagent execution for the uploaded label config workflow:
-  - Added ignored test config file `DATASET/urban_violation/label_config.json`.
-  - Verified the config parses as `label_config_v1`, dataset type `urban_violation`, with 8 fields: 6 closed enum fields and 2 open tag fields.
-  - Added `docs/subagent_label_config_upload_tasks.md` with backend, frontend, and integration task briefs.
-  - Recorded API lifecycle and acceptance criteria for all three implementation agents.
-- Completed subagent execution tracking for uploaded label config workflow:
-  - Backend subagent committed `a7ba76e` with uploaded config validate/save/activate/active/suggestions APIs; `uv run pytest` passed with 20 tests.
-  - Frontend subagent committed `e93f581` with manual upload panel, label config client, active-config review gate, and DOM/API tests; `npm run test` passed with 23 tests and `npm run build` passed.
-  - Integration subagent committed `98a2560` and `454cc3e`; live API smoke against `http://127.0.0.1:8010` passed with 4 tests.
-  - Browser E2E remained blocked: Python Playwright is missing and Chrome DevTools MCP could not connect because `DevToolsActivePort` was unavailable.
-- Resolved runtime `Not Found` on label config validation:
-  - Reproduced that port `8000` returned 404 for `POST /api/datasets/urban_violation/label-configs/validate`.
-  - Confirmed the running `8000` process was an older backend process without label-config routes.
-  - Restarted `8000` from the current backend worktree commit `a7ba76e`.
-  - Verified direct validate request returns 200 with `valid=true`, `field_count=8`, `closed_enum_count=6`, `open_tags_count=2`, `option_count=54`.
-  - Verified `BACKEND_URL=http://127.0.0.1:8000 pytest -q tests/label_config/test_label_config_api_smoke.py` passes with 4 tests.
-- Reorganized the STEP1/STEP2 QC-editable field design:
-  - Added `docs/qc_step_review_field_layout_design.md`.
-  - Re-sampled the dataset fields for `000142_0_1762483003246` and a STEP2 failure record.
-  - Documented STEP1 editable targets: `environment_analysis`, `scene_elements`, `key_anchors`, and `key_relations[].subject/relation/object/description/bbox`.
-  - Documented STEP2 editable targets: `fact_verifications[]`, `candidates[]`, and the special handling for failure diagnostics.
-  - Defined the target right-side layout as two regions: `Relation 复核区` and `Candidate 与质检裁决`.
-  - Recorded current implementation gaps: contextual Relation/Candidate editors, editable evidence relation selection, confidence override, detailed verification fields, and stage2 failure manual Candidate creation.
-- Created the STEP1/STEP2 two-zone HTML preview:
-  - Added `docs/qc_step_review_field_layout_preview.html`.
-  - Matched the current frontend review-workbench dark panel styling, bbox rules, top status bar, and bottom decision controls.
-  - Used real dataset sample `000142_0_1762483003246` and rendered R1/R2/R3 bbox overlays from 0-1000 coordinates.
-  - Added lightweight preview interaction: clicking a bbox or Relation row updates the active Relation editor fields.
-  - Chrome DevTools MCP was unavailable due to `DevToolsActivePort`; verified the preview with `google-chrome --headless=new --screenshot=/tmp/qc_step_review_field_layout_preview.png`.
-- Corrected the two-zone preview after layout feedback:
-  - Changed the right rail to strict 50% `Relation 复核区` and 50% `Candidate 与质检裁决`.
-  - Kept both right-side panels independently scrollable for full content display.
-  - Moved `vote note`, review decision buttons, `保存 Patch`, and `提交质检` out of the Candidate panel into a full-width bottom dock.
-  - Updated `docs/qc_step_review_field_layout_design.md` so the design contract matches the corrected layout.
-  - Re-verified the corrected preview with `google-chrome --headless=new --screenshot=/tmp/qc_step_review_field_layout_preview_50_50.png`.
-- Fixed Relation review editor text overlap in the HTML preview:
-  - Changed the Relation editor from compressed grid rows to a vertical flex flow.
-  - Disabled horizontal overflow and kept vertical scrolling for long content.
-  - Added stable textarea minimum heights and wrapping for the long observation label.
-  - Verified with `google-chrome --headless=new --screenshot=/tmp/qc_step_review_field_layout_relation_fix.png`.
-- Reframed the bottom bar for annotator label-edit mode:
-  - Added `docs/qc_label_edit_bottom_bar_design.md`.
-  - Removed the explanation field from the label-edit bottom bar.
-  - Removed pass/reject/manual-refinement verdict buttons from the preview bottom bar.
-  - Added `跳过样本`, `校验修改`, `保存草稿`, and `提交修改`.
-  - Verified with `google-chrome --headless=new --screenshot=/tmp/qc_label_edit_bottom_bar_no_note.png`.
-- Updated the label-edit bottom bar after clarification:
-  - Confirmed no explanation text is required.
-  - Bottom bar now contains only status chips plus `跳过样本`, `校验修改`, `保存草稿`, and `提交修改`.
-  - Removed `change_note` from the recommended payload.
-- Simplified the Relation review left rail in the HTML preview:
-  - Relation selector rows now show only the index labels `R1`, `R2`, and `R3`.
-  - Removed visible status, triple summary, result, bbox, and explanation text from the left rail.
-  - Updated the design document so all detailed Relation state belongs to the right-side editor or Candidate evidence area.
-  - Verified with `google-chrome --headless=new --screenshot=/tmp/qc_relation_index_left_rail.png`.
-- Updated Relation/Candidate semantics after field-editing clarification:
-  - Moved `subject_visible`, `subject_match`, and visible attributes below `bbox_observation / global_context_observation`.
-  - Changed those fields from editable controls to model visibility reference display.
-  - Reworked Candidate layout to align with Relation layout: left `C1/+` index rail and right Candidate editor.
-  - Verified with `google-chrome --headless=new --screenshot=/tmp/qc_relation_candidate_aligned_layout.png`.
-- Narrowed the `校验修改` bottom action to field legality validation only:
-  - Updated the bottom bar design document and STEP1/STEP2 layout design.
-  - Changed the preview status chip from `校验通过` to `字段合法`.
-  - Excluded Relation truth judgment, Candidate evidence sufficiency, cross-field business consistency, QC verdict, saving, patch submission, and queue-state changes from this button.
-  - Verified with `google-chrome --headless=new --screenshot=/tmp/qc_field_legality_validate_action.png`.
-- Started frontend/backend implementation delegation:
-  - Backend worktree target: `/mnt/lc/LC/ares_xtws/0_train_data/data_platform_backend_agent`.
-  - Frontend worktree target: `/mnt/lc/LC/ares_xtws/0_train_data/data_platform_frontend_agent`.
-  - Shared source-of-truth docs are the current main-worktree bottom bar design, STEP1/STEP2 layout design, and HTML preview.
-  - Fixed shared API contract for this implementation round: `POST /label-edits/validate` for field legality only, and `POST /label-edits` for `save_draft` / `submit_changes`.
-- Integrated frontend/backend implementation products into main:
-  - Backend agent commit `59167a5` added `label-edits/validate`, `label-edits`, label edit state, review detail hydration, and backend pytest coverage.
-  - Frontend agent commit `791192d` added backend-contract-aligned client calls, the label-edit review workbench, Relation/Candidate index rails, and bottom bar actions.
-  - Main branch uses `urban_violation_platform_markdown/README.md` as the Python package readme to avoid carrying the backend-agent task file as package metadata.
-  - Added Vite `/media` proxy support so real backend review images render when the frontend is run with `/api` proxy mode.
-  - Verification passed: `uv run pytest` 26 passed; `cd frontend && npm run test` 25 passed; `cd frontend && npm run build` passed.
-  - Live backend smoke on `127.0.0.1:8011` passed for health, review detail, active label config, validate, save draft, submit changes, and invalid confidence 422.
-  - Live frontend smoke on `127.0.0.1:5178` rendered the review page, image, bbox overlays, Relation/Candidate index rails, and label-edit bottom bar; screenshot at `/tmp/uvp_main_integrated_review.png`.
-- Added one-command local frontend/backend dev-stack control:
-  - Created `scripts/dev-stack.sh` with `start`, `stop`, `restart`, `status`, `logs`, and `urls` subcommands.
-  - The backend launches through `uv run uvicorn urban_violation_backend.app:app`.
-  - The frontend launches through Vite with `VITE_API_BASE_URL=/api` and `VITE_API_PROXY_TARGET` pointing at the backend, preserving both `/api` and `/media` proxy behavior.
-  - Runtime pid/log metadata is written under ignored `.runtime/`.
-  - The script manages only its own pid files and reports occupied ports instead of killing unrelated processes.
-  - Fixed daemon startup to use `setsid`/`nohup` so services survive after the startup shell exits; stop now terminates the recorded process group.
-  - Verified with `BACKEND_PORT=8021 FRONTEND_PORT=5181 scripts/dev-stack.sh start`, backend `/health`, proxied review detail JSON, proxied `200 image/jpeg` media response, and `scripts/dev-stack.sh stop`.
-- Completed review workbench zoom and Candidate deletion tweaks:
-  - Added mouse-wheel zoom to `BBoxOverlay.vue`; bbox overlays scale with the image stage while stored coordinates remain 0-1000.
-  - Initial unreferenced Relation color rule was superseded by the next correction pass.
-  - Added a Candidate delete button in the right-side Candidate detail header.
-  - Added frontend `delete_candidate` patch emission and kept empty `segmentation_targets` valid.
-  - Added backend validation support and tests for empty segmentation targets and Candidate deletion operations.
-  - Verification passed: `uv run pytest` 28 passed; `cd frontend && npm run test` 28 passed; `cd frontend && npm run build` passed.
-  - Live smoke on `8022/5182` confirmed active config UI, Candidate delete button DOM, media loading, and label-edit validation for empty targets plus delete operation.
-- Corrected review workbench bbox color semantics:
-  - Unreferenced Relation boxes now use purple as the default tone and turn red through the selected state when active.
-  - Ordinary referenced Relation boxes use a stable Relation-id-based pseudo-random color from blue, green, orange, cyan, yellow, and teal.
-  - Ordinary default tones explicitly exclude purple, red, and black.
-  - Removed black tone support from `BBoxOverlay.vue`.
-  - Verification passed: `cd frontend && npm run test -- bboxOverlay routesAndPages` 17 passed; `cd frontend && npm run test` 28 passed; `cd frontend && npm run build` passed.
-  - Live smoke on `8023/5183` confirmed purple unreferenced boxes, selected purple boxes carrying selected state, no black bbox classes, ordinary palette boxes, and Candidate delete button DOM; screenshot saved at `/tmp/uvp_qc_color_review.png`.
-  - The first DOM smoke helper failed with bare `python` not found; re-ran with `uv run python` successfully.
-- Corrected bbox selected-state source:
-  - Added `activeImageRelationKey` so red selected-state is driven only by image-area bbox selection/editing.
-  - Right-side `activeRelationKey` still opens the Relation editor but no longer marks image boxes selected on page entry.
-  - Candidate active evidence relations no longer make boxes red by default.
-  - Verification passed: `cd frontend && npm run test -- bboxOverlay routesAndPages` 17 passed; `cd frontend && npm run test` 28 passed; `cd frontend && npm run build` passed.
-  - Live smoke on `8024/5184` confirmed initial review page bbox elements had `selected_element_count=0`, while purple/default palette classes remained present and black bbox classes remained absent; screenshot saved at `/tmp/uvp_qc_selected_entry.png`.
-- Completed dataset/asset/import management design and implementation pass:
-  - Added `docs/dataset_asset_import_usage_logic_design.md` for dataset type, batch lifecycle, batch-scoped QC queue, asset browsing, and import task orchestration.
-  - Added `docs/dataset_management_implementation_tasks.md` to split backend, frontend, and integration-test ownership.
-  - Backend implementation added batch-aware dataset summaries, import job detail/validation, asset summary/filtering, and canonical batch-aware QC responses.
-  - Frontend implementation added dataset type/batch management pages, overview, asset browser, import job detail, and batch-scoped QC navigation.
-  - Integration verified the important fixture distinction: import diagnostics report 19 failures while current failed assets report 17 failed stage2 assets.
-  - Main-thread verification passed: `uv run pytest` 30 passed; `cd frontend && npm run test` 35 passed; `cd frontend && npm run build` passed.
-  - Main-thread API smoke passed for dataset list, summary, import job detail/validation, asset summary/filtering, QC queue, and sample review detail.
-  - Headless Chrome smoke passed for dataset list, overview, assets, import job, QC queue, and sample review pages.
-  - Confirmed with the user that the QC workbench uses the current main-directory state as source of truth.
-  - Restored `task_plan.md`, `findings.md`, and `progress.md` after the integration validation run had overwritten them with a short report, then re-added the dataset-management implementation notes.
-  - Stopped the dev stack and killed one residual Vite process; hardened `scripts/dev-stack.sh stop` to clean owned residual frontend/backend processes by command and port.
-  - Verified `bash -n scripts/dev-stack.sh` passed and no backend/Vite dev-server process remained.
+
+### User Center And Chinese UI Refinement
+
+- `/account`, `/account/permissions`, and `/account/audit` are implemented.
+- Topbar user chip links to `/account`.
+- Permission and audit child pages are capability-gated.
+- Legacy `/users` and `/audit` redirect into the account hierarchy.
+- Topbar and permissions surfaces were refined into Chinese tech-minimal UI.
+- Latest recorded verification:
+  - Frontend full test suite: 53 passed.
+  - Frontend production build: passed.
+
+### Multi-User Baseline
+
+- Internal accounts, session login, scoped RBAC, batch assignment, sample lease, private draft, immutable submission, qc_lead confirm/return, and audit events are implemented.
+- Batch assignment is batch-scoped and one active assignee per batch.
+- A sample has only one active editor at a time.
+- `submitted` waits for qc_lead confirmation.
+- Runtime state uses `PLATFORM_STATE_ROOT` for smoke/test runs.
+- Latest recorded backend verification after user-center work:
+  - Full backend test suite: 43 passed.
+
+### Dataset Management Baseline
+
+- Dataset type and dataset batch are separate product levels.
+- `urban_violation` and future types such as `ares_detection` are same-level dataset types.
+- Label config is type-scoped and inherited by batches.
+- Manual batch registration supports:
+  - images-only directory
+  - images plus STEP1/STEP2 output directory
+- Batch scanner counts only business artifacts:
+  - `images/**/*`
+  - `stage1_run_*/parsed/**/*.json`
+  - `stage2_run_*/parsed/**/*.json`
+  - `stage2_run_*/failures/**/*.json`
+- Registered batches with STEP outputs require explicit QC queue generation.
+- QC task/progress/lease/draft/submission state is keyed by concrete batch id.
+
+### QC Review Workbench Baseline
+
+- Review route is chrome-free and focused.
+- Image evidence area supports direct bbox editing, wheel zoom, middle-button drag after zoom, and quantized bbox projection.
+- Relation and Candidate panels use the accepted right-side layout.
+- Bottom action bar uses:
+  - `跳过样本`
+  - `校验修改`
+  - `保存草稿`
+  - `提交修改`
+- Review layout and bbox behavior are now protected.
+
+## Known Remaining Work
+
+- Complete frontend architecture P1/P2 packages recorded in `docs/frontend/README.md`.
+- Make label config save idempotent for identical content.
+- Move default label/config/runtime persistence away from raw `DATASET/` unless explicitly configured.
+- Harden manual batch import validation and source-path diagnostics.
+- Add a reproducible browser smoke setup or document the system-Chrome fallback as the standard local path.
+
+## Current Verification Discipline
+
+For backend changes:
+
+```bash
+PLATFORM_STATE_ROOT=/tmp/uvp-check uv run pytest
+```
+
+For frontend changes:
+
+```bash
+cd frontend
+source ~/.nvm/nvm.sh
+nvm use "$(cat ../.nvmrc)"
+npm run test
+npm run build
+```
+
+For agent worktree review:
+
+```bash
+scripts/agent-dev-stack.sh start
+scripts/agent-dev-stack.sh status
+scripts/agent-dev-stack.sh stop
+```
+
+For accepted main code:
+
+```bash
+scripts/dev-stack.sh start
+scripts/dev-stack.sh stop
+```
+
+## Service State
+
+At the time of this compaction, no new frontend/backend service was intentionally started. Any future live verification must end with both stack stop commands and a process/port check.

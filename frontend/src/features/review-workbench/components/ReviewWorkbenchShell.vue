@@ -30,6 +30,14 @@
           <span>Active Config</span>
           <strong>{{ configVersionText }}</strong>
         </div>
+        <div class="meta-block">
+          <span>Assignee</span>
+          <strong>{{ assignmentText }}</strong>
+        </div>
+        <div class="meta-block">
+          <span>Lease</span>
+          <strong>{{ leaseText }}</strong>
+        </div>
       </div>
 
       <div class="top-actions">
@@ -60,9 +68,13 @@
       <CircleAlert :size="17" />
       <span>{{ actionMessage }}</span>
     </div>
-    <div v-if="!canEditLabels" class="gate-warning gate-warning--config">
+    <div v-if="readonlyReason" class="gate-warning gate-warning--readonly">
       <CircleAlert :size="17" />
-      <span>{{ labelConfigGateMessage || '请先上传并激活标签配置' }}</span>
+      <span>{{ readonlyReason }}</span>
+    </div>
+    <div v-if="!readonlyReason && !canEditLabels" class="gate-warning gate-warning--config">
+      <CircleAlert :size="17" />
+      <span>{{ editGateMessage }}</span>
     </div>
 
     <div class="review-grid">
@@ -559,6 +571,8 @@ import StatusChip from '../../../shared/components/StatusChip.vue';
 import type {
   BBox,
   FactVerification,
+  BatchQcAssignment,
+  CurrentUser,
   LabelConfig,
   LabelEditOperation,
   LabelEditPatchPayload,
@@ -566,7 +580,9 @@ import type {
   LabelEditSubmitResult,
   LabelEditValidationResult,
   QcQueueItem,
+  QcTask,
   ReviewSampleDetail,
+  SampleLease,
   Stage2Candidate,
   StageRelation,
 } from '../../../shared/types/contract';
@@ -581,6 +597,12 @@ const props = defineProps<{
   requestLabelSuggestions?: (field: string, query: string) => Promise<string[]>;
   validateLabelEdit?: (payload: LabelEditPatchPayload) => Promise<LabelEditValidationResult>;
   submitLabelEdit?: (payload: LabelEditSubmitPayload) => Promise<LabelEditSubmitResult>;
+  currentUser?: CurrentUser;
+  batchAssignment?: BatchQcAssignment;
+  qcTask?: QcTask;
+  sampleLease?: SampleLease;
+  readonlyReason?: string;
+  releaseSampleLease?: () => Promise<void> | void;
 }>();
 
 interface RelationDraft {
@@ -671,7 +693,23 @@ watch(
   },
 );
 
-const canEditLabels = computed(() => Boolean(props.labelConfig && !props.labelConfigMissing));
+const canEditLabels = computed(() => Boolean(props.labelConfig && !props.labelConfigMissing && !props.readonlyReason));
+const editGateMessage = computed(() => props.readonlyReason || props.labelConfigGateMessage || '请先上传并激活标签配置');
+const assignmentText = computed(() => {
+  const assignment = props.batchAssignment;
+  if (!assignment || assignment.status === 'revoked') {
+    return '未分配';
+  }
+  return `${assignment.assigneeDisplayName || assignment.assigneeUserId} · ${assignment.status}`;
+});
+const leaseText = computed(() => {
+  const lease = props.sampleLease;
+  if (!lease) {
+    return 'no lease';
+  }
+  const suffix = lease.expiresAt ? ` · ${timeLeft(lease.expiresAt)}` : '';
+  return `${lease.status} · ${lease.userDisplayName || lease.userId}${suffix}`;
+});
 const currentQueueIndex = computed(() =>
   props.queueItems.findIndex((item) => item.sampleId === baseSample.value.asset.sampleId),
 );
@@ -739,6 +777,9 @@ const patchPayload = computed<LabelEditPatchPayload>(() => ({
   taskMode: 'label_edit',
   labelConfigId: props.labelConfig?.configId,
   labelConfigVersion: props.labelConfig?.version,
+  leaseId: props.sampleLease?.leaseId,
+  baseRevision: props.qcTask?.taskRevision,
+  taskRevision: props.qcTask?.taskRevision,
   operations: operations.value,
 }));
 const validationIssueCount = computed(() => {
@@ -980,6 +1021,17 @@ function referenceBoolean(value: boolean | undefined) {
   return value === undefined ? '-' : String(value);
 }
 
+function timeLeft(expiresAt: string) {
+  const ms = new Date(expiresAt).getTime() - Date.now();
+  if (!Number.isFinite(ms)) {
+    return 'unknown';
+  }
+  if (ms <= 0) {
+    return 'expired';
+  }
+  return `${Math.ceil(ms / 60000)}m left`;
+}
+
 function markEdited() {
   patchSaved.value = false;
   validationResult.value = undefined;
@@ -988,7 +1040,7 @@ function markEdited() {
 
 function setRelationField(field: keyof RelationDraft, value: RelationDraft[keyof RelationDraft]) {
   if (!canEditLabels.value || !activeRelationDraft.value) {
-    actionMessage.value = props.labelConfigGateMessage || '请先上传并激活标签配置';
+    actionMessage.value = editGateMessage.value;
     return;
   }
   const badge = activeRelationKey.value;
@@ -1007,7 +1059,7 @@ function setRelationField(field: keyof RelationDraft, value: RelationDraft[keyof
 
 function setCandidateField(field: keyof CandidateDraft, value: CandidateDraft[keyof CandidateDraft]) {
   if (!canEditLabels.value || !activeCandidateDraft.value) {
-    actionMessage.value = props.labelConfigGateMessage || '请先上传并激活标签配置';
+    actionMessage.value = editGateMessage.value;
     return;
   }
   const activeId = activeCandidateDraft.value.id;
@@ -1051,7 +1103,7 @@ function updateOverlayBox(box: OverlayBox, bbox: BBox) {
 
 function addCandidate() {
   if (!canEditLabels.value) {
-    actionMessage.value = props.labelConfigGateMessage || '请先上传并激活标签配置';
+    actionMessage.value = editGateMessage.value;
     return;
   }
   const candidate = createEmptyCandidate();
@@ -1065,7 +1117,7 @@ function addCandidate() {
 
 function deleteCandidate(candidateId: string) {
   if (!canEditLabels.value) {
-    actionMessage.value = props.labelConfigGateMessage || '请先上传并激活标签配置';
+    actionMessage.value = editGateMessage.value;
     return;
   }
 
@@ -1121,7 +1173,8 @@ function toggleCandidateRelation(relationId: string, checked: boolean) {
   setCandidateField('evidenceRelationIds', next);
 }
 
-function skipSample() {
+async function skipSample() {
+  await props.releaseSampleLease?.();
   const target = nextQueueItem.value
     ? reviewHref(nextQueueItem.value.sampleId)
     : `/datasets/${baseSample.value.asset.datasetId}/qc`;
@@ -1134,7 +1187,7 @@ function skipSample() {
 
 async function validateChanges() {
   if (!canEditLabels.value || !props.validateLabelEdit) {
-    actionMessage.value = props.labelConfigGateMessage || '请先上传并激活标签配置';
+    actionMessage.value = editGateMessage.value;
     return undefined;
   }
   validationPending.value = true;
@@ -1160,6 +1213,7 @@ async function validateChanges() {
 
 async function saveDraft() {
   if (!canSubmitLabelEdit.value || !props.submitLabelEdit) {
+    actionMessage.value = editGateMessage.value;
     return;
   }
   savePending.value = true;
@@ -1182,6 +1236,7 @@ async function saveDraft() {
 
 async function submitChanges() {
   if (!canSubmitLabelEdit.value || !props.submitLabelEdit) {
+    actionMessage.value = editGateMessage.value;
     return;
   }
   submitPending.value = true;
@@ -1546,6 +1601,12 @@ function candidateSnapshotFromBase(candidate: Stage2Candidate, id: string) {
   border-color: rgba(245, 101, 101, 0.58);
   background: rgba(245, 101, 101, 0.12);
   color: #fed7d7;
+}
+
+.gate-warning--readonly {
+  border-color: rgba(79, 140, 255, 0.5);
+  background: rgba(79, 140, 255, 0.12);
+  color: #bfdbfe;
 }
 
 .review-grid {

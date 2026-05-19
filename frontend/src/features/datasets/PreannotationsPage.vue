@@ -79,7 +79,10 @@ import { useAsyncState } from '../../shared/composables/useAsyncState';
 import DistributionPanel from './components/DistributionPanel.vue';
 
 const props = defineProps<{ id: string }>();
-const { data, loading, error } = useAsyncState(() => apiClient.getPreannotationSummary(props.id));
+const { data, loading, error } = useAsyncState(() => apiClient.getDatasetBatchPreannotationSummary(props.id), {
+  watch: () => props.id,
+  resetOnExecute: true,
+});
 const summary = computed(() => data.value);
 </script>
 

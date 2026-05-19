@@ -10,7 +10,7 @@ This repository uses separate Git worktrees for three implementation tracks.
 
 ## Shared Inputs
 
-- Product and architecture docs: `urban_violation_platform_markdown/`
+- Product and architecture docs: `docs/README.md`, `docs/frontend/README.md`, `docs/backend/README.md`, `docs/architecture/README.md`
 - Planning files: `task_plan.md`, `findings.md`, `progress.md`
 - Local dataset source: `/mnt/lc/LC/ares_xtws/0_train_data/data_platform/DATASET/urban_violation`
 

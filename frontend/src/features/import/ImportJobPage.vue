@@ -151,7 +151,13 @@ const props = defineProps<{
   jobId: string;
 }>();
 
-const { data: job, loading, error } = useAsyncState(() => apiClient.getImportJob(props.id, props.jobId));
+const { data: job, loading, error } = useAsyncState(
+  () => apiClient.getDatasetBatchImportJob(props.id, props.jobId),
+  {
+    watch: [() => props.id, () => props.jobId],
+    resetOnExecute: true,
+  },
+);
 const actionLoading = ref(false);
 const actionMessage = ref('');
 const blockingIssues = computed(() => job.value?.validationReport?.blockingErrors ?? job.value?.warnings.filter((warning) => warning.severity === 'blocking') ?? []);

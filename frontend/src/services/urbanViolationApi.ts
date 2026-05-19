@@ -1,4 +1,4 @@
-import { ApiClientError, HttpClient } from './http';
+import { ApiClientError, clearSessionToken, HttpClient, saveSessionToken } from './http';
 import { fixtureApiClient } from './fixtures';
 import { apiMode } from './config';
 import { toBrowserMediaUrl } from './media';
@@ -7,6 +7,11 @@ import type {
   AssetListItem,
   AssetSummary,
   AuditArtifact,
+  AuditEvent,
+  AuditEventFilters,
+  BatchAssignmentPayload,
+  BatchAssignmentStatus,
+  BatchQcAssignment,
   BackendAuditArtifact,
   BackendDataset,
   BackendHumanReview,
@@ -18,9 +23,14 @@ import type {
   BackendStage2PreannotationFailure,
   BBox,
   CountDistribution,
+  CurrentUser,
   Dataset,
+  DatasetBatchId,
   DatasetId,
   DatasetSummary,
+  DatasetType,
+  DatasetTypeCreatePayload,
+  DatasetTypeId,
   FactVerification,
   HumanReview,
   ImportJobCreatePayload,
@@ -38,26 +48,41 @@ import type {
   LabelConfigSaveResult,
   LabelConfigSummary,
   LabelConfigValidationResult,
+  LabelEditDraft,
   LabelEditOperation,
   LabelEditPatchPayload,
   LabelEditState,
+  LabelEditSubmission,
   LabelEditSubmitPayload,
   LabelEditSubmitResult,
   LabelEditValidationIssue,
   LabelEditValidationResult,
   LabelSuggestion,
+  LeaseStatus,
+  LoginPayload,
   PreannotationSummary,
   PreAnnotationStep1,
   PreAnnotationStep2,
+  QcProgress,
   QcStatus,
   QcQueueItem,
+  QcTask,
+  QcTaskStatus,
+  QcWorkspace,
   ReviewDecision,
   ReviewSampleDetail,
+  RoleBinding,
+  RoleBindingCreatePayload,
   SampleId,
+  SampleLease,
   Stage2Candidate,
   Stage2Failure,
   StageRelation,
   StageStatus,
+  UserAccount,
+  UserCreatePayload,
+  UserRole,
+  UserUpdatePayload,
 } from '../shared/types/contract';
 
 export interface SubmitReviewPayload {
@@ -87,20 +112,52 @@ export class LabelEditValidationError extends Error {
 }
 
 export interface UrbanViolationApi {
+  login(payload: LoginPayload): Promise<CurrentUser>;
+  logout(): Promise<void>;
+  getCurrentUser(): Promise<CurrentUser>;
+  listUsers(): Promise<UserAccount[]>;
+  createUser(payload: UserCreatePayload): Promise<UserAccount>;
+  updateUser(userId: string, payload: UserUpdatePayload): Promise<UserAccount>;
+  listRoleBindings(): Promise<RoleBinding[]>;
+  createRoleBinding(payload: RoleBindingCreatePayload): Promise<RoleBinding>;
+  deleteRoleBinding(bindingId: string): Promise<void>;
   listDatasets(): Promise<Dataset[]>;
+  listDatasetTypes(): Promise<DatasetType[]>;
+  createDatasetType(payload: DatasetTypeCreatePayload): Promise<DatasetType>;
+  getDatasetBatchSummary(batchId: DatasetBatchId): Promise<DatasetSummary>;
   getDatasetSummary(datasetId: DatasetId): Promise<DatasetSummary>;
+  getDatasetBatchAssetSummary(batchId: DatasetBatchId): Promise<AssetSummary>;
   getAssetSummary(datasetId: DatasetId): Promise<AssetSummary>;
+  listDatasetBatchAssets(batchId: DatasetBatchId, filters?: AssetListFilters): Promise<AssetListItem[]>;
   listAssets(datasetId: DatasetId, filters?: AssetListFilters): Promise<AssetListItem[]>;
+  listDatasetBatchImportJobs(batchId: DatasetBatchId): Promise<ImportJobSummary[]>;
   listImportJobs(datasetId: DatasetId): Promise<ImportJobSummary[]>;
+  createDatasetBatchImportJob(batchId: DatasetBatchId, payload: ImportJobCreatePayload): Promise<ImportJobDetail>;
   createImportJob(datasetId: DatasetId, payload: ImportJobCreatePayload): Promise<ImportJobDetail>;
+  getDatasetBatchImportJob(batchId: DatasetBatchId, jobId: ImportJobId): Promise<ImportJobDetail>;
   getImportJob(datasetId: DatasetId, jobId: ImportJobId): Promise<ImportJobDetail>;
+  getDatasetBatchPreannotationSummary(batchId: DatasetBatchId): Promise<PreannotationSummary>;
   scanImportJob(datasetId: DatasetId, jobId: ImportJobId): Promise<ImportJobDetail>;
   validateImportJob(datasetId: DatasetId, jobId: ImportJobId): Promise<ImportJobDetail>;
   confirmImportJob(datasetId: DatasetId, jobId: ImportJobId): Promise<ImportJobDetail>;
   retryImportJob(datasetId: DatasetId, jobId: ImportJobId): Promise<ImportJobDetail>;
   getPreannotationSummary(datasetId: DatasetId): Promise<PreannotationSummary>;
+  listDatasetBatchQcQueue(batchId: DatasetBatchId): Promise<QcQueueItem[]>;
   listQcQueue(datasetId: DatasetId): Promise<QcQueueItem[]>;
+  getDatasetBatchQcWorkspace(batchId: DatasetBatchId): Promise<QcWorkspace>;
+  getQcWorkspace(datasetId: DatasetId): Promise<QcWorkspace>;
+  getDatasetBatchQcProgress(batchId: DatasetBatchId): Promise<QcProgress>;
+  generateQcQueue(datasetId: DatasetId): Promise<QcWorkspace>;
+  getQcProgress(datasetId: DatasetId): Promise<QcProgress>;
+  getBatchAssignment(datasetId: DatasetId): Promise<BatchQcAssignment | undefined>;
+  assignBatch(datasetId: DatasetId, payload: BatchAssignmentPayload): Promise<BatchQcAssignment>;
+  reassignBatch(datasetId: DatasetId, payload: BatchAssignmentPayload): Promise<BatchQcAssignment>;
+  releaseBatchAssignment(datasetId: DatasetId): Promise<BatchQcAssignment | undefined>;
+  listQcTasks(datasetId: DatasetId): Promise<QcTask[]>;
   getReviewSample(datasetId: DatasetId, sampleId: SampleId): Promise<ReviewSampleDetail>;
+  acquireSampleLease(datasetId: DatasetId, sampleId: SampleId): Promise<SampleLease>;
+  heartbeatSampleLease(datasetId: DatasetId, sampleId: SampleId, leaseId: string): Promise<SampleLease>;
+  releaseSampleLease(datasetId: DatasetId, sampleId: SampleId, leaseId: string): Promise<SampleLease | undefined>;
   submitReviewDecision(
     datasetId: DatasetId,
     sampleId: SampleId,
@@ -110,28 +167,144 @@ export interface UrbanViolationApi {
     datasetId: DatasetId,
     payload: Omit<LabelConfigUploadPayload, 'activate'>,
   ): Promise<LabelConfigValidationResult>;
+  validateDatasetTypeLabelConfig(
+    datasetTypeId: DatasetTypeId,
+    payload: Omit<LabelConfigUploadPayload, 'activate'>,
+  ): Promise<LabelConfigValidationResult>;
   saveLabelConfig(datasetId: DatasetId, payload: LabelConfigUploadPayload): Promise<LabelConfigSaveResult>;
+  saveDatasetTypeLabelConfig(datasetTypeId: DatasetTypeId, payload: LabelConfigUploadPayload): Promise<LabelConfigSaveResult>;
+  listLabelConfigs(datasetId: DatasetId): Promise<LabelConfigSaveResult[]>;
+  listDatasetTypeLabelConfigs(datasetTypeId: DatasetTypeId): Promise<LabelConfigSaveResult[]>;
   activateLabelConfig(datasetId: DatasetId, configId: string): Promise<LabelConfigSaveResult>;
+  activateDatasetTypeLabelConfig(datasetTypeId: DatasetTypeId, configId: string): Promise<LabelConfigSaveResult>;
+  reloadActiveLabelConfig(datasetId: DatasetId): Promise<LabelConfigSaveResult>;
+  reloadActiveDatasetTypeLabelConfig(datasetTypeId: DatasetTypeId): Promise<LabelConfigSaveResult>;
   getActiveLabelConfig(datasetId: DatasetId): Promise<LabelConfig>;
+  getActiveDatasetTypeLabelConfig(datasetTypeId: DatasetTypeId): Promise<LabelConfig>;
   getLabelSuggestions(datasetId: DatasetId, field: string, query?: string): Promise<LabelSuggestion[]>;
   validateLabelEdit(
     datasetId: DatasetId,
     sampleId: SampleId,
     payload: LabelEditPatchPayload,
   ): Promise<LabelEditValidationResult>;
+  getMyLabelEditDraft(datasetId: DatasetId, sampleId: SampleId): Promise<LabelEditDraft | undefined>;
+  getLabelEditHistory(datasetId: DatasetId, sampleId: SampleId): Promise<LabelEditSubmission[]>;
   submitLabelEdit(
     datasetId: DatasetId,
     sampleId: SampleId,
     payload: LabelEditSubmitPayload,
   ): Promise<LabelEditSubmitResult>;
+  confirmLabelEditSubmission(
+    datasetId: DatasetId,
+    sampleId: SampleId,
+    submissionId: string,
+  ): Promise<LabelEditSubmission>;
+  returnLabelEditSubmission(
+    datasetId: DatasetId,
+    sampleId: SampleId,
+    submissionId: string,
+    reason?: string,
+  ): Promise<LabelEditSubmission>;
+  listAuditEvents(filters?: AuditEventFilters): Promise<AuditEvent[]>;
 }
 
 export class HttpUrbanViolationApi implements UrbanViolationApi {
   constructor(private readonly http = new HttpClient()) {}
 
+  async login(payload: LoginPayload): Promise<CurrentUser> {
+    const response = await this.http.post<unknown>('/auth/login', {
+      user_id: payload.username,
+      password: payload.password,
+    });
+    const record = isRecord(response) ? response : {};
+    const token = stringValue(record.token);
+    if (token) {
+      saveSessionToken(token);
+      return this.getCurrentUser();
+    }
+    return normalizeCurrentUser(response);
+  }
+
+  async logout(): Promise<void> {
+    try {
+      await this.http.post<unknown>('/auth/logout');
+    } finally {
+      clearSessionToken();
+    }
+  }
+
+  async getCurrentUser(): Promise<CurrentUser> {
+    const response = await this.http.get<unknown>('/me');
+    return normalizeCurrentUser(response);
+  }
+
+  async listUsers(): Promise<UserAccount[]> {
+    const response = await this.http.get<unknown>('/users');
+    return listPayload(response, 'users').map((item) => normalizeUserAccount(item));
+  }
+
+  async createUser(payload: UserCreatePayload): Promise<UserAccount> {
+    const response = await this.http.post<unknown>('/users', {
+      user_id: payload.userId ?? payload.username,
+      username: payload.username,
+      display_name: payload.displayName,
+      email: payload.email,
+      password: payload.password,
+      status: payload.status,
+    });
+    return normalizeUserAccount(response);
+  }
+
+  async updateUser(userId: string, payload: UserUpdatePayload): Promise<UserAccount> {
+    const response = await this.http.patch<unknown>(`/users/${encodeURIComponent(userId)}`, {
+      display_name: payload.displayName,
+      email: payload.email,
+      password: payload.password,
+      status: payload.status,
+    });
+    return normalizeUserAccount(response);
+  }
+
+  async listRoleBindings(): Promise<RoleBinding[]> {
+    const response = await this.http.get<unknown>('/role-bindings');
+    return listPayload(response, 'role_bindings').map((item) => normalizeRoleBinding(item));
+  }
+
+  async createRoleBinding(payload: RoleBindingCreatePayload): Promise<RoleBinding> {
+    const response = await this.http.post<unknown>('/role-bindings', {
+      user_id: payload.userId,
+      role: payload.role,
+      scope_type: payload.scopeType,
+      scope_id: payload.scopeId,
+    });
+    return normalizeRoleBinding(response);
+  }
+
+  async deleteRoleBinding(bindingId: string): Promise<void> {
+    await this.http.delete<unknown>(`/role-bindings/${encodeURIComponent(bindingId)}`);
+  }
+
   async listDatasets(): Promise<Dataset[]> {
     const payload = await this.http.get<unknown>('/datasets');
     return listPayload(payload, 'datasets').map((item) => normalizeDataset(item));
+  }
+
+  async listDatasetTypes(): Promise<DatasetType[]> {
+    const payload = await this.http.get<unknown>('/dataset-types');
+    return listPayload(payload, 'dataset_types').map((item) => normalizeDatasetType(item));
+  }
+
+  async createDatasetType(payload: DatasetTypeCreatePayload): Promise<DatasetType> {
+    const response = await this.http.post<unknown>('/dataset-types', {
+      dataset_type: payload.datasetType,
+      display_name: payload.displayName,
+      field_schema_version: payload.fieldSchemaVersion || 'draft',
+    });
+    return normalizeDatasetType(response);
+  }
+
+  async getDatasetBatchSummary(batchId: DatasetBatchId): Promise<DatasetSummary> {
+    return this.getDatasetSummary(batchId);
   }
 
   async getDatasetSummary(datasetId: DatasetId): Promise<DatasetSummary> {
@@ -139,9 +312,17 @@ export class HttpUrbanViolationApi implements UrbanViolationApi {
     return normalizeDatasetSummary(payload, datasetId);
   }
 
+  async getDatasetBatchAssetSummary(batchId: DatasetBatchId): Promise<AssetSummary> {
+    return this.getAssetSummary(batchId);
+  }
+
   async getAssetSummary(datasetId: DatasetId): Promise<AssetSummary> {
     const payload = await this.http.get<unknown>(`/datasets/${encodeURIComponent(datasetId)}/assets/summary`);
     return normalizeAssetSummary(payload, datasetId);
+  }
+
+  async listDatasetBatchAssets(batchId: DatasetBatchId, filters: AssetListFilters = {}): Promise<AssetListItem[]> {
+    return this.listAssets(batchId, filters);
   }
 
   async listAssets(datasetId: DatasetId, filters: AssetListFilters = {}): Promise<AssetListItem[]> {
@@ -178,12 +359,24 @@ export class HttpUrbanViolationApi implements UrbanViolationApi {
     return listPayload(payload, 'import_jobs').map((item) => normalizeImportJobSummary(item, datasetId));
   }
 
+  async listDatasetBatchImportJobs(batchId: DatasetBatchId): Promise<ImportJobSummary[]> {
+    return this.listImportJobs(batchId);
+  }
+
+  async createDatasetBatchImportJob(batchId: DatasetBatchId, payload: ImportJobCreatePayload): Promise<ImportJobDetail> {
+    return this.createImportJob(batchId, payload);
+  }
+
   async createImportJob(datasetId: DatasetId, payload: ImportJobCreatePayload): Promise<ImportJobDetail> {
     const response = await this.http.post<unknown>(
       `/datasets/${encodeURIComponent(datasetId)}/import-jobs`,
       toBackendImportJobCreatePayload(payload),
     );
     return normalizeImportJob(response, datasetId, 'new-import-job');
+  }
+
+  async getDatasetBatchImportJob(batchId: DatasetBatchId, jobId: ImportJobId): Promise<ImportJobDetail> {
+    return this.getImportJob(batchId, jobId);
   }
 
   async getImportJob(datasetId: DatasetId, jobId: ImportJobId): Promise<ImportJobDetail> {
@@ -227,9 +420,76 @@ export class HttpUrbanViolationApi implements UrbanViolationApi {
     return normalizePreannotationSummary(payload, datasetId);
   }
 
+  async getDatasetBatchPreannotationSummary(batchId: DatasetBatchId): Promise<PreannotationSummary> {
+    return this.getPreannotationSummary(batchId);
+  }
+
+  async listDatasetBatchQcQueue(batchId: DatasetBatchId): Promise<QcQueueItem[]> {
+    return this.listQcQueue(batchId);
+  }
+
   async listQcQueue(datasetId: DatasetId): Promise<QcQueueItem[]> {
     const payload = await this.http.get<unknown>(`/datasets/${encodeURIComponent(datasetId)}/qc`);
     return listPayload(payload, 'queue').map((item) => normalizeQcQueueItem(item, datasetId));
+  }
+
+  async getDatasetBatchQcWorkspace(batchId: DatasetBatchId): Promise<QcWorkspace> {
+    return this.getQcWorkspace(batchId);
+  }
+
+  async getQcWorkspace(datasetId: DatasetId): Promise<QcWorkspace> {
+    const payload = await this.http.get<unknown>(`/datasets/${encodeURIComponent(datasetId)}/qc`);
+    return normalizeQcWorkspace(payload, datasetId);
+  }
+
+  async generateQcQueue(datasetId: DatasetId): Promise<QcWorkspace> {
+    const payload = await this.http.post<unknown>(`/datasets/${encodeURIComponent(datasetId)}/qc/generate`);
+    return normalizeQcWorkspace(payload, datasetId);
+  }
+
+  async getQcProgress(datasetId: DatasetId): Promise<QcProgress> {
+    const payload = await this.http.get<unknown>(`/datasets/${encodeURIComponent(datasetId)}/qc/progress`);
+    return normalizeQcProgressDetail(payload, datasetId);
+  }
+
+  async getDatasetBatchQcProgress(batchId: DatasetBatchId): Promise<QcProgress> {
+    return this.getQcProgress(batchId);
+  }
+
+  async getBatchAssignment(datasetId: DatasetId): Promise<BatchQcAssignment | undefined> {
+    try {
+      const payload = await this.http.get<unknown>(`/datasets/${encodeURIComponent(datasetId)}/qc/assignment`);
+      return normalizeBatchAssignment(payload, datasetId);
+    } catch (error) {
+      if (error instanceof ApiClientError && error.status === 404) {
+        return undefined;
+      }
+      throw error;
+    }
+  }
+
+  async assignBatch(datasetId: DatasetId, payload: BatchAssignmentPayload): Promise<BatchQcAssignment> {
+    const response = await this.http.post<unknown>(`/datasets/${encodeURIComponent(datasetId)}/qc/assignment`, {
+      assignee_user_id: payload.assigneeUserId,
+    });
+    return normalizeBatchAssignment(response, datasetId)!;
+  }
+
+  async reassignBatch(datasetId: DatasetId, payload: BatchAssignmentPayload): Promise<BatchQcAssignment> {
+    const response = await this.http.post<unknown>(`/datasets/${encodeURIComponent(datasetId)}/qc/assignment/reassign`, {
+      assignee_user_id: payload.assigneeUserId,
+    });
+    return normalizeBatchAssignment(response, datasetId)!;
+  }
+
+  async releaseBatchAssignment(datasetId: DatasetId): Promise<BatchQcAssignment | undefined> {
+    const response = await this.http.post<unknown>(`/datasets/${encodeURIComponent(datasetId)}/qc/assignment/release`);
+    return normalizeBatchAssignment(response, datasetId);
+  }
+
+  async listQcTasks(datasetId: DatasetId): Promise<QcTask[]> {
+    const payload = await this.http.get<unknown>(`/datasets/${encodeURIComponent(datasetId)}/qc/tasks`);
+    return listPayload(payload, 'tasks').map((item) => normalizeQcTask(item, datasetId));
   }
 
   async getReviewSample(datasetId: DatasetId, sampleId: SampleId): Promise<ReviewSampleDetail> {
@@ -237,6 +497,31 @@ export class HttpUrbanViolationApi implements UrbanViolationApi {
       `/datasets/${encodeURIComponent(datasetId)}/samples/${encodeURIComponent(sampleId)}/review`,
     );
     return normalizeReviewSample(payload, datasetId, sampleId);
+  }
+
+  async acquireSampleLease(datasetId: DatasetId, sampleId: SampleId): Promise<SampleLease> {
+    const response = await this.http.post<unknown>(
+      `/datasets/${encodeURIComponent(datasetId)}/samples/${encodeURIComponent(sampleId)}/lease`,
+    );
+    return normalizeSampleLease(response, datasetId, sampleId)!;
+  }
+
+  async heartbeatSampleLease(datasetId: DatasetId, sampleId: SampleId, leaseId: string): Promise<SampleLease> {
+    const response = await this.http.post<unknown>(
+      `/datasets/${encodeURIComponent(datasetId)}/samples/${encodeURIComponent(sampleId)}/lease/${encodeURIComponent(leaseId)}/heartbeat`,
+    );
+    return normalizeSampleLease(response, datasetId, sampleId)!;
+  }
+
+  async releaseSampleLease(
+    datasetId: DatasetId,
+    sampleId: SampleId,
+    leaseId: string,
+  ): Promise<SampleLease | undefined> {
+    const response = await this.http.post<unknown>(
+      `/datasets/${encodeURIComponent(datasetId)}/samples/${encodeURIComponent(sampleId)}/lease/${encodeURIComponent(leaseId)}/release`,
+    );
+    return normalizeSampleLease(response, datasetId, sampleId);
   }
 
   async submitReviewDecision(
@@ -262,40 +547,81 @@ export class HttpUrbanViolationApi implements UrbanViolationApi {
     datasetId: DatasetId,
     payload: Omit<LabelConfigUploadPayload, 'activate'>,
   ): Promise<LabelConfigValidationResult> {
+    return this.validateDatasetTypeLabelConfig(datasetId, payload);
+  }
+
+  async validateDatasetTypeLabelConfig(
+    datasetTypeId: DatasetTypeId,
+    payload: Omit<LabelConfigUploadPayload, 'activate'>,
+  ): Promise<LabelConfigValidationResult> {
     const response = await this.http.post<unknown>(
-      `/datasets/${encodeURIComponent(datasetId)}/label-configs/validate`,
+      `/dataset-types/${encodeURIComponent(datasetTypeId)}/label-configs/validate`,
       {
         file_name: payload.fileName,
         config: payload.config,
       },
     );
-    return normalizeLabelConfigValidation(response, datasetId);
+    return normalizeLabelConfigValidation(response, datasetTypeId);
   }
 
   async saveLabelConfig(datasetId: DatasetId, payload: LabelConfigUploadPayload): Promise<LabelConfigSaveResult> {
+    return this.saveDatasetTypeLabelConfig(datasetId, payload);
+  }
+
+  async saveDatasetTypeLabelConfig(datasetTypeId: DatasetTypeId, payload: LabelConfigUploadPayload): Promise<LabelConfigSaveResult> {
     const response = await this.http.post<unknown>(
-      `/datasets/${encodeURIComponent(datasetId)}/label-configs`,
+      `/dataset-types/${encodeURIComponent(datasetTypeId)}/label-configs`,
       {
         file_name: payload.fileName,
         config: payload.config,
         activate: Boolean(payload.activate),
       },
     );
-    return normalizeLabelConfigSaveResult(response, datasetId);
+    return normalizeLabelConfigSaveResult(response, datasetTypeId);
+  }
+
+  async listLabelConfigs(datasetId: DatasetId): Promise<LabelConfigSaveResult[]> {
+    return this.listDatasetTypeLabelConfigs(datasetId);
+  }
+
+  async listDatasetTypeLabelConfigs(datasetTypeId: DatasetTypeId): Promise<LabelConfigSaveResult[]> {
+    const response = await this.http.get<unknown>(
+      `/dataset-types/${encodeURIComponent(datasetTypeId)}/label-configs`,
+    );
+    return listPayload(response, 'configs').map((item) => normalizeLabelConfigSaveResult(item, datasetTypeId));
   }
 
   async activateLabelConfig(datasetId: DatasetId, configId: string): Promise<LabelConfigSaveResult> {
+    return this.activateDatasetTypeLabelConfig(datasetId, configId);
+  }
+
+  async activateDatasetTypeLabelConfig(datasetTypeId: DatasetTypeId, configId: string): Promise<LabelConfigSaveResult> {
     const response = await this.http.post<unknown>(
-      `/datasets/${encodeURIComponent(datasetId)}/label-configs/${encodeURIComponent(configId)}/activate`,
+      `/dataset-types/${encodeURIComponent(datasetTypeId)}/label-configs/${encodeURIComponent(configId)}/activate`,
     );
-    return normalizeLabelConfigSaveResult(response, datasetId);
+    return normalizeLabelConfigSaveResult(response, datasetTypeId);
+  }
+
+  async reloadActiveLabelConfig(datasetId: DatasetId): Promise<LabelConfigSaveResult> {
+    return this.reloadActiveDatasetTypeLabelConfig(datasetId);
+  }
+
+  async reloadActiveDatasetTypeLabelConfig(datasetTypeId: DatasetTypeId): Promise<LabelConfigSaveResult> {
+    const response = await this.http.post<unknown>(
+      `/dataset-types/${encodeURIComponent(datasetTypeId)}/label-config/active/reload`,
+    );
+    return normalizeLabelConfigSaveResult(response, datasetTypeId);
   }
 
   async getActiveLabelConfig(datasetId: DatasetId): Promise<LabelConfig> {
+    return this.getActiveDatasetTypeLabelConfig(datasetId);
+  }
+
+  async getActiveDatasetTypeLabelConfig(datasetTypeId: DatasetTypeId): Promise<LabelConfig> {
     const response = await this.http.get<unknown>(
-      `/datasets/${encodeURIComponent(datasetId)}/label-config/active`,
+      `/dataset-types/${encodeURIComponent(datasetTypeId)}/label-config/active`,
     );
-    return normalizeLabelConfig(response, datasetId);
+    return normalizeLabelConfig(response, datasetTypeId);
   }
 
   async getLabelSuggestions(datasetId: DatasetId, field: string, query = ''): Promise<LabelSuggestion[]> {
@@ -318,6 +644,20 @@ export class HttpUrbanViolationApi implements UrbanViolationApi {
     return normalizeLabelEditValidation(response);
   }
 
+  async getMyLabelEditDraft(datasetId: DatasetId, sampleId: SampleId): Promise<LabelEditDraft | undefined> {
+    const response = await this.http.get<unknown>(
+      `/datasets/${encodeURIComponent(datasetId)}/samples/${encodeURIComponent(sampleId)}/label-edits/my-draft`,
+    );
+    return normalizeLabelEditDraft(response, datasetId, sampleId);
+  }
+
+  async getLabelEditHistory(datasetId: DatasetId, sampleId: SampleId): Promise<LabelEditSubmission[]> {
+    const response = await this.http.get<unknown>(
+      `/datasets/${encodeURIComponent(datasetId)}/samples/${encodeURIComponent(sampleId)}/label-edits/history`,
+    );
+    return listPayload(response, 'submissions').map((item) => normalizeLabelEditSubmission(item, datasetId, sampleId));
+  }
+
   async submitLabelEdit(
     datasetId: DatasetId,
     sampleId: SampleId,
@@ -337,6 +677,41 @@ export class HttpUrbanViolationApi implements UrbanViolationApi {
       throw error;
     }
   }
+
+  async confirmLabelEditSubmission(
+    datasetId: DatasetId,
+    sampleId: SampleId,
+    submissionId: string,
+  ): Promise<LabelEditSubmission> {
+    const response = await this.http.post<unknown>(
+      `/datasets/${encodeURIComponent(datasetId)}/samples/${encodeURIComponent(sampleId)}/label-edits/${encodeURIComponent(submissionId)}/confirm`,
+    );
+    return normalizeLabelEditSubmission(response, datasetId, sampleId);
+  }
+
+  async returnLabelEditSubmission(
+    datasetId: DatasetId,
+    sampleId: SampleId,
+    submissionId: string,
+    reason = '',
+  ): Promise<LabelEditSubmission> {
+    const response = await this.http.post<unknown>(
+      `/datasets/${encodeURIComponent(datasetId)}/samples/${encodeURIComponent(sampleId)}/label-edits/${encodeURIComponent(submissionId)}/return`,
+      { reason },
+    );
+    return normalizeLabelEditSubmission(response, datasetId, sampleId);
+  }
+
+  async listAuditEvents(filters: AuditEventFilters = {}): Promise<AuditEvent[]> {
+    const search = new URLSearchParams();
+    if (filters.datasetId) search.set('dataset_id', filters.datasetId);
+    if (filters.sampleId) search.set('sample_id', filters.sampleId);
+    if (filters.actorUserId) search.set('actor_user_id', filters.actorUserId);
+    if (filters.action) search.set('action', filters.action);
+    const query = search.toString();
+    const response = await this.http.get<unknown>(`/audit-events${query ? `?${query}` : ''}`);
+    return listPayload(response, 'audit_events').map((item) => normalizeAuditEvent(item));
+  }
 }
 
 export const createUrbanViolationApi = (): UrbanViolationApi =>
@@ -351,6 +726,15 @@ const stringValue = (value: unknown, fallback = '') => (typeof value === 'string
 const numberValue = (value: unknown, fallback = 0) => (typeof value === 'number' && Number.isFinite(value) ? value : fallback);
 const booleanValue = (value: unknown, fallback = false) => (typeof value === 'boolean' ? value : fallback);
 const arrayValue = <T = unknown>(value: unknown): T[] => (Array.isArray(value) ? (value as T[]) : []);
+const optionalDisplayString = (value: unknown) => {
+  if (typeof value === 'string' && value) {
+    return value;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value);
+  }
+  return undefined;
+};
 
 const listPayload = (payload: unknown, preferredKey: string): unknown[] => {
   if (Array.isArray(payload)) {
@@ -368,6 +752,70 @@ const listPayload = (payload: unknown, preferredKey: string): unknown[] => {
   }
 
   return [];
+};
+
+const normalizeRole = (value: unknown): UserRole | undefined => {
+  const source = isRecord(value) ? value.role : value;
+  const role = stringValue(source);
+  return role ? (role as UserRole) : undefined;
+};
+
+const normalizeRoleList = (value: unknown): UserRole[] =>
+  arrayValue<unknown>(value).flatMap((item) => {
+    const role = normalizeRole(item);
+    return role ? [role] : [];
+  });
+
+const normalizeUserAccount = (value: unknown): UserAccount => {
+  const record = isRecord(value) ? value : {};
+  const userId = stringValue(record.userId ?? record.user_id ?? record.username, 'unknown-user');
+  return {
+    userId,
+    username: optionalString(record.username) ?? userId,
+    displayName: stringValue(record.displayName ?? record.display_name ?? record.name, userId),
+    email: optionalString(record.email),
+    status: stringValue(record.status, 'active') as UserAccount['status'],
+    createdAt: optionalString(record.createdAt ?? record.created_at),
+    lastSeenAt: optionalString(record.lastSeenAt ?? record.last_seen_at),
+    roles: normalizeRoleList(record.roles),
+    roleBindings: listPayload(record.roleBindings ?? record.role_bindings, 'role_bindings').map((item) =>
+      normalizeRoleBinding(item),
+    ),
+  };
+};
+
+const normalizeCurrentUser = (value: unknown): CurrentUser => {
+  const record = isRecord(value) ? value : {};
+  const userSource = isRecord(record.current_user) ? record.current_user : isRecord(record.user) ? record.user : record;
+  const user = normalizeUserAccount(userSource);
+  const backendRolesAsBindings = arrayValue<unknown>(record.roles).some((item) => isRecord(item))
+    ? record.roles
+    : undefined;
+  const roleBindings = listPayload(
+    record.roleBindings ?? record.role_bindings ?? userSource.role_bindings ?? backendRolesAsBindings,
+    'role_bindings',
+  ).map((item) => normalizeRoleBinding(item));
+  const roles = normalizeRoleList(record.roles ?? userSource.roles);
+  return {
+    ...user,
+    roleBindings: roleBindings.length ? roleBindings : user.roleBindings,
+    authMode: stringValue(record.authMode ?? record.auth_mode ?? userSource.auth_mode, 'session'),
+    roles: roles.length ? roles : user.roles ?? [],
+    permissions: normalizeStringList(record.permissions ?? userSource.permissions),
+  };
+};
+
+const normalizeRoleBinding = (value: unknown): RoleBinding => {
+  const record = isRecord(value) ? value : {};
+  return {
+    bindingId: stringValue(record.bindingId ?? record.binding_id, `binding-${stringValue(record.user_id ?? record.userId)}`),
+    userId: stringValue(record.userId ?? record.user_id),
+    role: stringValue(record.role, 'annotator') as RoleBinding['role'],
+    scopeType: stringValue(record.scopeType ?? record.scope_type, 'dataset_batch') as RoleBinding['scopeType'],
+    scopeId: stringValue(record.scopeId ?? record.scope_id, '*'),
+    createdAt: optionalString(record.createdAt ?? record.created_at),
+    createdBy: optionalString(record.createdBy ?? record.created_by),
+  };
 };
 
 const isBackendDataset = (value: unknown): value is BackendDataset =>
@@ -403,7 +851,7 @@ const normalizeDataset = (value: unknown, fallbackId = 'unknown-dataset'): Datas
       lifecycleStatus,
       displayName: value.name,
       fieldSchemaVersion: optionalString(value.field_schema_version),
-      activeLabelConfigVersion: optionalString(value.active_label_config_version),
+      activeLabelConfigVersion: optionalDisplayString(value.active_label_config_version),
       activeImportJobId: optionalString(value.active_import_job_id),
       qcQueueId: optionalString(value.qc_queue_id),
       assetTotal: value.total_assets,
@@ -412,6 +860,10 @@ const normalizeDataset = (value: unknown, fallbackId = 'unknown-dataset'): Datas
       stage2FailureTotal: value.stage2_failure_count,
       description: `${value.total_assets} assets imported from backend dataset ${value.dataset_id}.`,
       rootPath: value.root_path,
+      sourceMode: optionalString(value.source_mode) as Dataset['sourceMode'],
+      sourceUri: optionalString(value.source_uri),
+      sourceStructure: optionalString(value.source_structure) as Dataset['sourceStructure'],
+      sourceFileCount: maybeNumber(value.source_file_count),
       createdAt: value.created_at,
       updatedAt: value.created_at,
       tags: [],
@@ -438,7 +890,7 @@ const normalizeDataset = (value: unknown, fallbackId = 'unknown-dataset'): Datas
     lifecycleStatus,
     displayName: optionalString(record.displayName ?? record.display_name),
     fieldSchemaVersion: optionalString(record.fieldSchemaVersion ?? record.field_schema_version),
-    activeLabelConfigVersion: optionalString(record.activeLabelConfigVersion ?? record.active_label_config_version),
+    activeLabelConfigVersion: optionalDisplayString(record.activeLabelConfigVersion ?? record.active_label_config_version),
     activeImportJobId: optionalString(record.activeImportJobId ?? record.active_import_job_id),
     qcQueueId: optionalString(record.qcQueueId ?? record.qc_queue_id),
     assetTotal: maybeNumber(record.assetTotal ?? record.asset_total ?? record.total_assets),
@@ -451,10 +903,29 @@ const normalizeDataset = (value: unknown, fallbackId = 'unknown-dataset'): Datas
       : undefined,
     description: stringValue(record.description, ''),
     rootPath: stringValue(record.rootPath ?? record.root_path, ''),
+    sourceMode: optionalString(record.sourceMode ?? record.source_mode) as Dataset['sourceMode'],
+    sourceUri: optionalString(record.sourceUri ?? record.source_uri),
+    sourceStructure: optionalString(record.sourceStructure ?? record.source_structure) as Dataset['sourceStructure'],
+    sourceFileCount: maybeNumber(record.sourceFileCount ?? record.source_file_count),
     createdAt: stringValue(record.createdAt ?? record.created_at, new Date(0).toISOString()),
     updatedAt: stringValue(record.updatedAt ?? record.updated_at ?? record.createdAt, new Date(0).toISOString()),
     tags: arrayValue<string>(record.tags),
     owner: stringValue(record.owner, ''),
+  };
+};
+
+const normalizeDatasetType = (value: unknown): DatasetType => {
+  const record = isRecord(value) ? value : {};
+  const datasetType = stringValue(record.datasetType ?? record.dataset_type, 'unknown_type');
+  const batches = listPayload(record.batches, 'batches').map((item) => normalizeDataset(item, datasetType));
+  return {
+    datasetType,
+    displayName: stringValue(record.displayName ?? record.display_name, datasetType),
+    fieldSchemaVersion: optionalString(record.fieldSchemaVersion ?? record.field_schema_version),
+    activeLabelConfigVersion: optionalDisplayString(record.activeLabelConfigVersion ?? record.active_label_config_version),
+    status: optionalString(record.status),
+    batchCount: maybeNumber(record.batchCount ?? record.batch_count) ?? batches.length,
+    batches,
   };
 };
 
@@ -790,6 +1261,9 @@ const toBackendLabelEditPayload = (payload: LabelEditPatchPayload | LabelEditSub
     task_mode: payload.taskMode,
     label_config_id: payload.labelConfigId,
     label_config_version: payload.labelConfigVersion,
+    lease_id: payload.leaseId,
+    base_revision: payload.baseRevision,
+    task_revision: payload.taskRevision,
     operations: payload.operations.map((operation) => ({
       scope: operation.scope,
       field: operation.field,
@@ -822,7 +1296,13 @@ const toBackendImportJobCreatePayload = (payload: ImportJobCreatePayload) => ({
   batch_name: payload.batchName,
   source_mode: payload.sourceMode,
   source_uri: payload.sourceUri,
+  source_structure: payload.sourceStructure,
   description: payload.description,
+  source_file_count: payload.sourceFileCount,
+  image_count: payload.imageCount,
+  stage1_file_count: payload.stage1FileCount,
+  stage2_file_count: payload.stage2FileCount,
+  stage2_failure_file_count: payload.stage2FailureFileCount,
 });
 
 const normalizeLabelEditIssue = (value: unknown): LabelEditValidationIssue => {
@@ -912,11 +1392,14 @@ const normalizeLabelEditState = (value: unknown): LabelEditState | undefined => 
     editId,
     datasetId: stringValue(record.dataset_id ?? record.datasetId),
     sampleId,
+    userId: optionalString(record.user_id ?? record.userId),
     taskMode: stringValue(record.task_mode ?? record.taskMode, 'label_edit') as LabelEditState['taskMode'],
     submitAction: stringValue(record.submit_action ?? record.submitAction, 'save_draft') as LabelEditState['submitAction'],
     taskStatus: stringValue(record.task_status ?? record.taskStatus, 'annotation_draft') as LabelEditState['taskStatus'],
     labelConfigId: optionalString(record.label_config_id ?? record.labelConfigId),
     labelConfigVersion: optionalString(record.label_config_version ?? record.labelConfigVersion),
+    leaseId: optionalString(record.lease_id ?? record.leaseId),
+    taskRevision: maybeNumber(record.task_revision ?? record.taskRevision),
     operations: normalizeLabelEditOperations(record.operations),
     updatedAt: stringValue(record.updated_at ?? record.updatedAt),
   };
@@ -940,6 +1423,207 @@ const normalizeLabelEditSubmit = (
     updatedAt: state?.updatedAt ?? optionalString(record.updated_at ?? record.updatedAt),
     state,
     validation: validationValue ? normalizeLabelEditValidation(validationValue) : undefined,
+  };
+};
+
+const normalizeBatchAssignment = (value: unknown, datasetId: DatasetId): BatchQcAssignment | undefined => {
+  const wrapper = isRecord(value) ? value : {};
+  const record = firstRecord(wrapper.assignment, wrapper.batch_assignment, value);
+  if (!record) {
+    return undefined;
+  }
+  const assigneeUserId = stringValue(record.assigneeUserId ?? record.assignee_user_id);
+  const assignmentId = stringValue(record.assignmentId ?? record.assignment_id);
+  if (!assigneeUserId && !assignmentId) {
+    return undefined;
+  }
+  return {
+    assignmentId: assignmentId || `assignment-${datasetId}`,
+    qcQueueId: optionalString(record.qcQueueId ?? record.qc_queue_id),
+    datasetId: stringValue(record.datasetId ?? record.dataset_id, datasetId),
+    assigneeUserId,
+    assigneeDisplayName: optionalString(record.assigneeDisplayName ?? record.assignee_display_name),
+    assignedBy: optionalString(record.assignedBy ?? record.assigned_by),
+    assignedByDisplayName: optionalString(record.assignedByDisplayName ?? record.assigned_by_display_name),
+    status: stringValue(record.status, 'assigned') as BatchAssignmentStatus,
+    assignedAt: optionalString(record.assignedAt ?? record.assigned_at),
+    updatedAt: optionalString(record.updatedAt ?? record.updated_at),
+    submittedAt: optionalString(record.submittedAt ?? record.submitted_at),
+    confirmedAt: optionalString(record.confirmedAt ?? record.confirmed_at),
+    returnedAt: optionalString(record.returnedAt ?? record.returned_at),
+  };
+};
+
+const normalizeQcTask = (value: unknown, datasetId: DatasetId): QcTask => {
+  const record = isRecord(value) ? value : {};
+  const sampleId = stringValue(record.sampleId ?? record.sample_id);
+  return {
+    taskId: stringValue(record.taskId ?? record.task_id, `task-${sampleId}`),
+    qcQueueId: optionalString(record.qcQueueId ?? record.qc_queue_id),
+    datasetId: stringValue(record.datasetId ?? record.dataset_id, datasetId),
+    sampleId,
+    status: stringValue(record.status, 'queued') as QcTaskStatus,
+    assigneeUserId: optionalString(record.assigneeUserId ?? record.assignee_user_id),
+    assigneeDisplayName: optionalString(record.assigneeDisplayName ?? record.assignee_display_name),
+    claimedAt: optionalString(record.claimedAt ?? record.claimed_at),
+    submittedAt: optionalString(record.submittedAt ?? record.submitted_at),
+    completedAt: optionalString(record.completedAt ?? record.completed_at),
+    confirmedBy: optionalString(record.confirmedBy ?? record.confirmed_by),
+    confirmedAt: optionalString(record.confirmedAt ?? record.confirmed_at),
+    latestSubmissionId: optionalString(record.latestSubmissionId ?? record.latest_submission_id),
+    labelConfigId: optionalString(record.labelConfigId ?? record.label_config_id),
+    labelConfigVersion: optionalString(record.labelConfigVersion ?? record.label_config_version),
+    taskRevision: maybeNumber(record.taskRevision ?? record.task_revision),
+    updatedAt: optionalString(record.updatedAt ?? record.updated_at),
+  };
+};
+
+const normalizeSampleLease = (
+  value: unknown,
+  datasetId: DatasetId,
+  sampleId: SampleId,
+): SampleLease | undefined => {
+  const wrapper = isRecord(value) ? value : {};
+  const record = firstRecord(wrapper.sample_lease, wrapper.lease, value);
+  if (!record) {
+    return undefined;
+  }
+  const leaseId = stringValue(record.leaseId ?? record.lease_id);
+  if (!leaseId) {
+    return undefined;
+  }
+  return {
+    leaseId,
+    datasetId: stringValue(record.datasetId ?? record.dataset_id, datasetId),
+    sampleId: stringValue(record.sampleId ?? record.sample_id, sampleId),
+    taskId: optionalString(record.taskId ?? record.task_id),
+    userId: stringValue(record.userId ?? record.user_id),
+    userDisplayName: optionalString(record.userDisplayName ?? record.user_display_name),
+    status: stringValue(record.status, 'active') as LeaseStatus,
+    acquiredAt: optionalString(record.acquiredAt ?? record.acquired_at),
+    expiresAt: optionalString(record.expiresAt ?? record.expires_at),
+    heartbeatAt: optionalString(record.heartbeatAt ?? record.heartbeat_at),
+  };
+};
+
+const normalizeLabelEditDraft = (
+  value: unknown,
+  datasetId: DatasetId,
+  sampleId: SampleId,
+): LabelEditDraft | undefined => {
+  const wrapper = isRecord(value) ? value : {};
+  const record = firstRecord(wrapper.draft, wrapper.my_draft, value);
+  if (!record) {
+    return undefined;
+  }
+  const draftId = stringValue(record.draftId ?? record.draft_id ?? record.edit_id ?? record.editId);
+  if (!draftId) {
+    return undefined;
+  }
+  return {
+    draftId,
+    datasetId: stringValue(record.datasetId ?? record.dataset_id, datasetId),
+    sampleId: stringValue(record.sampleId ?? record.sample_id, sampleId),
+    userId: stringValue(record.userId ?? record.user_id),
+    operations: normalizeLabelEditOperations(record.operations),
+    labelConfigId: optionalString(record.labelConfigId ?? record.label_config_id),
+    labelConfigVersion: optionalString(record.labelConfigVersion ?? record.label_config_version),
+    leaseId: optionalString(record.leaseId ?? record.lease_id),
+    taskRevision: maybeNumber(record.taskRevision ?? record.task_revision),
+    updatedAt: optionalString(record.updatedAt ?? record.updated_at),
+  };
+};
+
+const normalizeLabelEditSubmission = (
+  value: unknown,
+  datasetId: DatasetId,
+  sampleId: SampleId,
+): LabelEditSubmission => {
+  const record = isRecord(value) ? value : {};
+  const validationValue = firstRecord(record.validation, record.field_validation);
+  return {
+    submissionId: stringValue(record.submissionId ?? record.submission_id ?? record.edit_id, `submission-${sampleId}`),
+    datasetId: stringValue(record.datasetId ?? record.dataset_id, datasetId),
+    sampleId: stringValue(record.sampleId ?? record.sample_id, sampleId),
+    userId: stringValue(record.userId ?? record.user_id),
+    userDisplayName: optionalString(record.userDisplayName ?? record.user_display_name),
+    status: stringValue(record.status ?? record.task_status, 'submitted') as LabelEditSubmission['status'],
+    operations: normalizeLabelEditOperations(record.operations),
+    validation: validationValue ? normalizeLabelEditValidation(validationValue) : undefined,
+    labelConfigId: optionalString(record.labelConfigId ?? record.label_config_id),
+    labelConfigVersion: optionalString(record.labelConfigVersion ?? record.label_config_version),
+    taskRevision: maybeNumber(record.taskRevision ?? record.task_revision),
+    submittedAt: optionalString(record.submittedAt ?? record.submitted_at ?? record.updated_at),
+    confirmedBy: optionalString(record.confirmedBy ?? record.confirmed_by),
+    confirmedAt: optionalString(record.confirmedAt ?? record.confirmed_at),
+    returnedAt: optionalString(record.returnedAt ?? record.returned_at),
+    returnReason: optionalString(record.returnReason ?? record.return_reason),
+  };
+};
+
+const normalizeAuditEvent = (value: unknown): AuditEvent => {
+  const record = isRecord(value) ? value : {};
+  return {
+    eventId: stringValue(record.eventId ?? record.event_id ?? record.id, 'audit-event'),
+    actorUserId: stringValue(record.actorUserId ?? record.actor_user_id),
+    actorDisplayName: optionalString(record.actorDisplayName ?? record.actor_display_name),
+    actorRole: normalizeRole(record.actorRole ?? record.actor_role),
+    action: stringValue(record.action),
+    entityType: stringValue(record.entityType ?? record.entity_type),
+    entityId: stringValue(record.entityId ?? record.entity_id),
+    datasetId: optionalString(record.datasetId ?? record.dataset_id),
+    sampleId: optionalString(record.sampleId ?? record.sample_id),
+    before: record.before,
+    after: record.after,
+    details: isRecord(record.details) ? record.details : undefined,
+    createdAt: stringValue(record.createdAt ?? record.created_at),
+  };
+};
+
+const normalizeQcProgressDetail = (value: unknown, datasetId: DatasetId): QcProgress => {
+  const record = isRecord(value) ? value : {};
+  const byStatusRecord = isRecord(record.byStatus ?? record.by_status) ? (record.byStatus ?? record.by_status) as Record<string, unknown> : record;
+  const byStatus = Object.fromEntries(
+    ['assigned', 'in_progress', 'draft_saved', 'skipped', 'submitted', 'confirmed', 'returned', 'queued', 'completed']
+      .map((status) => [status, maybeNumber(byStatusRecord[status]) ?? 0])
+      .filter(([, count]) => Number(count) > 0),
+  ) as QcProgress['byStatus'];
+  const byUser = listPayload(record.byUser ?? record.by_user, 'by_user').map((item) => {
+    const user = isRecord(item) ? item : {};
+    return {
+      userId: stringValue(user.userId ?? user.user_id),
+      displayName: optionalString(user.displayName ?? user.display_name),
+      draftSaved: numberValue(user.draftSaved ?? user.draft_saved),
+      submitted: numberValue(user.submitted),
+      returned: numberValue(user.returned),
+      confirmed: numberValue(user.confirmed),
+    };
+  });
+  return {
+    datasetId: stringValue(record.datasetId ?? record.dataset_id, datasetId),
+    byStatus,
+    byUser,
+    total: numberValue(record.total, Object.values(byStatus).reduce((sum, count) => sum + (count ?? 0), 0)),
+    updatedAt: optionalString(record.updatedAt ?? record.updated_at),
+  };
+};
+
+const normalizeQcWorkspace = (value: unknown, datasetId: DatasetId): QcWorkspace => {
+  const record = isRecord(value) ? value : {};
+  const queue = listPayload(value, 'queue').map((item) => normalizeQcQueueItem(item, datasetId));
+  const tasks = listPayload(record.tasks, 'tasks').map((item) => normalizeQcTask(item, datasetId));
+  const leases = listPayload(record.leases, 'leases')
+    .flatMap((item) => {
+      const lease = normalizeSampleLease(item, datasetId, stringValue(isRecord(item) ? item.sample_id ?? item.sampleId : ''));
+      return lease ? [lease] : [];
+    });
+  return {
+    datasetId,
+    assignment: normalizeBatchAssignment(record.assignment ?? record.batch_assignment, datasetId),
+    queue,
+    tasks,
+    leases,
+    progress: isRecord(record.progress) ? normalizeQcProgressDetail(record.progress, datasetId) : undefined,
   };
 };
 
@@ -1215,6 +1899,25 @@ const normalizeReviewSample = (payload: unknown, datasetId: DatasetId, sampleId:
     sampleId,
   );
   const humanReviewValue = record.humanReview ?? record.human_review;
+  const myDraft = normalizeLabelEditDraft(record.myDraft ?? record.my_draft, datasetId, sampleId);
+  const labelEditState = normalizeLabelEditState(record.labelEditState ?? record.label_edit_state) ?? (myDraft
+    ? {
+        editId: myDraft.draftId,
+        datasetId: myDraft.datasetId,
+        sampleId: myDraft.sampleId,
+        userId: myDraft.userId,
+        taskMode: 'label_edit',
+        submitAction: 'save_draft',
+        taskStatus: 'annotation_draft',
+        labelConfigId: myDraft.labelConfigId,
+        labelConfigVersion: myDraft.labelConfigVersion,
+        leaseId: myDraft.leaseId,
+        taskRevision: myDraft.taskRevision,
+        operations: myDraft.operations,
+        updatedAt: myDraft.updatedAt ?? '',
+      } satisfies LabelEditState
+    : undefined);
+  const latestSubmissionValue = firstRecord(record.latestSubmission, record.latest_submission);
 
   return {
     asset,
@@ -1223,18 +1926,31 @@ const normalizeReviewSample = (payload: unknown, datasetId: DatasetId, sampleId:
     stage2Failure: failure,
     humanReview: isRecord(humanReviewValue) ? normalizeHumanReview(humanReviewValue, sampleId) : undefined,
     auditArtifacts: normalizeAuditArtifacts(record.auditArtifacts ?? record.audit_artifacts),
-    labelEditState: normalizeLabelEditState(record.labelEditState ?? record.label_edit_state),
+    labelEditState,
     labelEditHistory: arrayValue<unknown>(record.labelEditHistory ?? record.label_edit_history)
       .flatMap((item) => {
         const state = normalizeLabelEditState(item);
         return state ? [state] : [];
       }),
+    currentUser: isRecord(record.currentUser ?? record.current_user)
+      ? normalizeCurrentUser(record.currentUser ?? record.current_user)
+      : undefined,
+    batchAssignment: normalizeBatchAssignment(record.batchAssignment ?? record.batch_assignment, datasetId),
+    qcTask: isRecord(record.qcTask ?? record.qc_task) ? normalizeQcTask(record.qcTask ?? record.qc_task, datasetId) : undefined,
+    sampleLease: normalizeSampleLease(record.sampleLease ?? record.sample_lease, datasetId, sampleId),
+    myDraft,
+    latestSubmission: latestSubmissionValue ? normalizeLabelEditSubmission(latestSubmissionValue, datasetId, sampleId) : undefined,
   };
 };
 
 const normalizeQcQueueItem = (value: unknown, datasetId: DatasetId): QcQueueItem => {
   const record = isRecord(value) ? value : {};
   if ('asset_id' in record || 'assetId' in record) {
+    const task = isRecord(record.task ?? record.qc_task)
+      ? normalizeQcTask(record.task ?? record.qc_task, datasetId)
+      : undefined;
+    const lease = normalizeSampleLease(record.lease ?? record.sample_lease, datasetId, stringValue(record.sampleId ?? record.sample_id));
+    const latestSubmissionValue = firstRecord(record.latestSubmission, record.latest_submission);
     return {
       sampleId: stringValue(record.sampleId ?? record.sample_id),
       assetId: stringValue(record.assetId ?? record.asset_id),
@@ -1244,10 +1960,25 @@ const normalizeQcQueueItem = (value: unknown, datasetId: DatasetId): QcQueueItem
       primaryCategory: stringValue(record.primaryCategory ?? record.primary_category, ''),
       stage2Failure: booleanValue(record.stage2Failure ?? record.stage2_failure),
       updatedAt: stringValue(record.updatedAt ?? record.updated_at, ''),
+      task,
+      taskStatus: (task?.status ?? optionalString(record.task_status)) as QcTaskStatus | undefined,
+      assigneeUserId: task?.assigneeUserId ?? optionalString(record.assigneeUserId ?? record.assignee_user_id),
+      assigneeDisplayName: task?.assigneeDisplayName ?? optionalString(record.assigneeDisplayName ?? record.assignee_display_name),
+      lease,
+      leaseStatus: (lease?.status ?? optionalString(record.lease_status)) as LeaseStatus | undefined,
+      latestSubmission: latestSubmissionValue
+        ? normalizeLabelEditSubmission(latestSubmissionValue, datasetId, stringValue(record.sampleId ?? record.sample_id))
+        : undefined,
+      labelConfigVersion: task?.labelConfigVersion ?? optionalDisplayString(record.labelConfigVersion ?? record.label_config_version),
     };
   }
 
   const asset = normalizeAssetItem(value, datasetId);
+  const task = isRecord(record.task ?? record.qc_task)
+    ? normalizeQcTask(record.task ?? record.qc_task, datasetId)
+    : undefined;
+  const lease = normalizeSampleLease(record.lease ?? record.sample_lease, datasetId, asset.sampleId);
+  const latestSubmissionValue = firstRecord(record.latestSubmission, record.latest_submission);
   return {
     sampleId: asset.sampleId,
     assetId: asset.id,
@@ -1257,6 +1988,16 @@ const normalizeQcQueueItem = (value: unknown, datasetId: DatasetId): QcQueueItem
     primaryCategory: asset.violationCategories[0],
     stage2Failure: asset.hasStage2Failure,
     updatedAt: asset.updatedAt,
+    task,
+    taskStatus: (task?.status ?? optionalString(record.task_status)) as QcTaskStatus | undefined,
+    assigneeUserId: task?.assigneeUserId ?? optionalString(record.assigneeUserId ?? record.assignee_user_id),
+    assigneeDisplayName: task?.assigneeDisplayName ?? optionalString(record.assigneeDisplayName ?? record.assignee_display_name),
+    lease,
+    leaseStatus: (lease?.status ?? optionalString(record.lease_status)) as LeaseStatus | undefined,
+    latestSubmission: latestSubmissionValue
+      ? normalizeLabelEditSubmission(latestSubmissionValue, datasetId, asset.sampleId)
+      : undefined,
+    labelConfigVersion: task?.labelConfigVersion ?? optionalDisplayString(record.labelConfigVersion ?? record.label_config_version),
   };
 };
 
@@ -1345,6 +2086,7 @@ const normalizeImportJob = (payload: unknown, datasetId: DatasetId, jobId: Impor
     title: optionalString(record.title ?? record.name),
     sourceMode: optionalString(record.sourceMode ?? record.source_mode) as ImportJobDetail['sourceMode'],
     sourceUri: optionalString(record.sourceUri ?? record.source_uri ?? record.source_root),
+    sourceStructure: optionalString(record.sourceStructure ?? record.source_structure) as ImportJobDetail['sourceStructure'],
     state,
     activeStep: numberValue(record.activeStep ?? record.active_step, importStateStep(state)),
     createdAt: stringValue(record.createdAt ?? record.created_at, ''),

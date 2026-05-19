@@ -23,9 +23,14 @@ LABEL_CONFIG_PATH = Path(
 
 
 @pytest.fixture
-def client() -> TestClient:
+def client(tmp_path: Path) -> TestClient:
     """Return an isolated API client with clean in-memory state."""
-    with TestClient(create_app()) as test_client:
+    with TestClient(
+        create_app(
+            label_config_store_root=tmp_path / "LABEL_CONFIG_STATE",
+            platform_state_root=tmp_path / "PLATFORM_STATE",
+        )
+    ) as test_client:
         yield test_client
 
 
@@ -96,6 +101,57 @@ def _build_valid_label_edit_payload() -> dict[str, Any]:
     }
 
 
+def _admin_headers() -> dict[str, str]:
+    return {"X-User-Id": "platform_admin", "X-User-Role": "platform_admin"}
+
+
+def _user_headers(user_id: str, role: str) -> dict[str, str]:
+    return {"X-User-Id": user_id, "X-User-Role": role}
+
+
+def _create_user(client: TestClient, user_id: str, role: str = "annotator") -> None:
+    response = client.post(
+        "/api/users",
+        json={
+            "user_id": user_id,
+            "display_name": user_id,
+            "email": f"{user_id}@example.local",
+            "password": "StrongPassw0rd!",
+        },
+        headers=_admin_headers(),
+    )
+    assert response.status_code == 201
+    binding = client.post(
+        "/api/role-bindings",
+        json={
+            "user_id": user_id,
+            "role": role,
+            "scope_type": "dataset_batch",
+            "scope_id": BATCH_DATASET_ID,
+        },
+        headers=_admin_headers(),
+    )
+    assert binding.status_code == 201
+
+
+def _assign_batch(client: TestClient, assignee_user_id: str) -> None:
+    response = client.post(
+        f"/api/datasets/{DATASET_ID}/qc/assignment",
+        json={"assignee_user_id": assignee_user_id},
+        headers=_admin_headers(),
+    )
+    assert response.status_code == 200
+
+
+def _acquire_lease(client: TestClient, user_id: str, sample_id: str = SUCCESS_SAMPLE_ID) -> str:
+    response = client.post(
+        f"/api/datasets/{DATASET_ID}/samples/{sample_id}/lease",
+        headers=_user_headers(user_id, "annotator"),
+    )
+    assert response.status_code == 200
+    return response.json()["lease"]["lease_id"]
+
+
 def test_health_and_dataset_summary(client: TestClient) -> None:
     health = client.get("/health")
     assert health.status_code == 200
@@ -120,6 +176,385 @@ def test_health_and_dataset_summary(client: TestClient) -> None:
     assert payload["stage1_count"] == 797
     assert payload["stage2_success_count"] == 780
     assert payload["stage2_failure_count"] == 19
+
+
+def test_dataset_type_registry_can_add_ares_detection(client: TestClient) -> None:
+    type_list = client.get("/api/dataset-types")
+    assert type_list.status_code == 200
+    type_payload = type_list.json()
+    assert type_payload[0]["dataset_type"] == DATASET_ID
+    assert type_payload[0]["batch_count"] == 1
+    assert type_payload[0]["batches"][0]["dataset_id"] == BATCH_DATASET_ID
+
+    created = client.post(
+        "/api/dataset-types",
+        json={
+            "dataset_type": "ares_detection",
+            "display_name": "Ares Detection",
+            "field_schema_version": "draft",
+        },
+    )
+    assert created.status_code == 201
+    created_payload = created.json()
+    assert created_payload["dataset_type"] == "ares_detection"
+    assert created_payload["batch_count"] == 0
+    assert created_payload["batches"] == []
+
+    listed = client.get("/api/dataset-types")
+    assert listed.status_code == 200
+    by_type = {item["dataset_type"]: item for item in listed.json()}
+    assert set(by_type) == {DATASET_ID, "ares_detection"}
+    assert by_type["ares_detection"]["batch_count"] == 0
+
+    duplicate = client.post(
+        "/api/dataset-types",
+        json={"dataset_type": "ares_detection", "display_name": "Duplicate"},
+    )
+    assert duplicate.status_code == 409
+
+
+def test_manual_batch_registration_supports_images_only_and_preannotation_counts(client: TestClient) -> None:
+    created_type = client.post(
+        "/api/dataset-types",
+        json={"dataset_type": "ares_detection", "display_name": "Ares Detection"},
+        headers=_admin_headers(),
+    )
+    assert created_type.status_code == 201
+
+    images_only = client.post(
+        "/api/datasets/ares_detection/import-jobs",
+        json={
+            "dataset_type": "ares_detection",
+            "batch_key": "20260518_images",
+            "batch_name": "2026-05-18 Images Only",
+            "source_mode": "local_directory",
+            "source_uri": "DATASET/ares_detection/20260518_images",
+            "source_structure": "images_only",
+            "source_file_count": 12,
+            "image_count": 12,
+        },
+        headers=_admin_headers(),
+    )
+    assert images_only.status_code == 201
+    images_payload = images_only.json()
+    assert images_payload["dataset_id"] == "ares_detection__20260518_images"
+    assert images_payload["source_structure"] == "images_only"
+    assert images_payload["expected_assets"] == 12
+
+    preannotated = client.post(
+        "/api/datasets/ares_detection/import-jobs",
+        json={
+            "dataset_type": "ares_detection",
+            "batch_key": "20260518_step",
+            "batch_name": "2026-05-18 With STEP Outputs",
+            "source_mode": "local_directory",
+            "source_uri": "DATASET/ares_detection/20260518_step",
+            "source_structure": "images_with_preannotations",
+            "source_file_count": 32,
+            "image_count": 10,
+            "stage1_file_count": 10,
+            "stage2_file_count": 10,
+            "stage2_failure_file_count": 2,
+        },
+        headers=_admin_headers(),
+    )
+    assert preannotated.status_code == 201
+    step_payload = preannotated.json()
+    assert step_payload["dataset_id"] == "ares_detection__20260518_step"
+    assert step_payload["stage2_success_count"] == 10
+    assert step_payload["failure_count"] == 2
+
+    listed = client.get("/api/dataset-types")
+    by_type = {item["dataset_type"]: item for item in listed.json()}
+    assert by_type["ares_detection"]["batch_count"] == 2
+    assert {
+        batch["dataset_id"]
+        for batch in by_type["ares_detection"]["batches"]
+    } == {"ares_detection__20260518_images", "ares_detection__20260518_step"}
+
+    summary = client.get("/api/datasets/ares_detection__20260518_step/summary")
+    assert summary.status_code == 200
+    summary_payload = summary.json()
+    assert summary_payload["total_assets"] == 10
+    assert summary_payload["stage1_count"] == 10
+    assert summary_payload["stage2_success_count"] == 10
+    assert summary_payload["stage2_failure_count"] == 2
+
+    validate = client.post(
+        f"/api/datasets/ares_detection__20260518_images/import-jobs/{images_payload['job_id']}/validate",
+        headers=_admin_headers(),
+    )
+    assert validate.status_code == 200
+    validate_payload = validate.json()
+    assert validate_payload["state"] == "ValidationPassed"
+    assert validate_payload["warning_count"] == 1
+    assert "pre-annotation is required" in validate_payload["warnings"][0]
+
+
+def test_manual_batch_creation_ingests_accessible_source_directory(client: TestClient) -> None:
+    created = client.post(
+        "/api/datasets/urban_violation/import-jobs",
+        json={
+            "dataset_type": "urban_violation",
+            "batch_key": "0518_imported",
+            "batch_name": "2026-05-18 Imported Batch",
+            "source_mode": "local_directory",
+            "source_uri": "DATASET/urban",
+            "source_structure": "images_with_preannotations",
+            "source_file_count": 2393,
+            "image_count": 797,
+            "stage1_file_count": 797,
+            "stage2_file_count": 780,
+            "stage2_failure_file_count": 19,
+        },
+        headers=_admin_headers(),
+    )
+    assert created.status_code == 201
+    job = created.json()
+    assert job["dataset_id"] == "urban_violation__0518_imported"
+    assert job["state"] == "Imported"
+    assert job["imported_assets"] == 797
+    assert job["stage1_file_count"] == 797
+    assert job["stage2_file_count"] == 780
+    assert job["stage2_failure_file_count"] == 19
+    assert job["failure_count"] == 19
+    assert len(job["validation_rows"]) == 797
+
+    listed = client.get("/api/dataset-types")
+    assert listed.status_code == 200
+    urban_type = {item["dataset_type"]: item for item in listed.json()}["urban_violation"]
+    batch = {
+        item["dataset_id"]: item
+        for item in urban_type["batches"]
+    }["urban_violation__0518_imported"]
+    assert batch["total_assets"] == 797
+    assert batch["stage2_success_count"] == 780
+    assert batch["stage2_failure_count"] == 19
+
+    assets = client.get("/api/datasets/urban_violation__0518_imported/assets")
+    assert assets.status_code == 200
+    asset_payload = assets.json()
+    assert asset_payload["total"] == 797
+    first_asset = asset_payload["items"][0]
+    assert first_asset["image_url"].startswith(
+        "/api/datasets/urban_violation__0518_imported/media/images/"
+    )
+
+    detail = client.get(
+        "/api/datasets/urban_violation__0518_imported/assets/000424_0_1762499124659",
+        headers=_admin_headers(),
+    )
+    assert detail.status_code == 200
+    detail_payload = detail.json()
+    assert detail_payload["dataset_id"] == "urban_violation__0518_imported"
+    assert detail_payload["stage1"]["sample_id"] == "000424_0_1762499124659"
+    assert detail_payload["stage2"]["sample_id"] == "000424_0_1762499124659"
+
+    image_response = client.get(first_asset["image_url"])
+    assert image_response.status_code == 200
+
+
+def test_preannotated_registered_batch_generates_batch_scoped_qc_queue(client: TestClient) -> None:
+    created = client.post(
+        "/api/datasets/urban_violation/import-jobs",
+        json={
+            "dataset_type": "urban_violation",
+            "batch_key": "0518_qc",
+            "batch_name": "2026-05-18 QC Batch",
+            "source_mode": "local_directory",
+            "source_uri": "DATASET/urban",
+            "source_structure": "images_with_preannotations",
+            "source_file_count": 2393,
+            "image_count": 797,
+            "stage1_file_count": 797,
+            "stage2_file_count": 780,
+            "stage2_failure_file_count": 19,
+        },
+        headers=_admin_headers(),
+    )
+    assert created.status_code == 201
+    batch_id = created.json()["dataset_id"]
+    sample_id = "000424_0_1762499124659"
+
+    empty_queue = client.get(f"/api/datasets/{batch_id}/qc", headers=_admin_headers())
+    assert empty_queue.status_code == 200
+    assert empty_queue.json()["total"] == 0
+
+    blocked_assignment = client.post(
+        f"/api/datasets/{batch_id}/qc/assignment",
+        json={"assignee_user_id": "platform_admin"},
+        headers=_admin_headers(),
+    )
+    assert blocked_assignment.status_code == 409
+    assert blocked_assignment.json()["code"] == "qc_queue_required"
+
+    blocked_generate = client.post(f"/api/datasets/{batch_id}/qc/generate", headers=_admin_headers())
+    assert blocked_generate.status_code == 409
+    assert blocked_generate.json()["code"] == "label_config_required"
+
+    _activate_label_config(client)
+    ready_summary = client.get(f"/api/datasets/{batch_id}/summary", headers=_admin_headers())
+    assert ready_summary.status_code == 200
+    ready_payload = ready_summary.json()
+    assert ready_payload["lifecycle_status"] == "preannotation_ready"
+    assert ready_payload["qc_queue_id"] is None
+
+    generated = client.post(f"/api/datasets/{batch_id}/qc/generate", headers=_admin_headers())
+    assert generated.status_code == 200
+    generated_payload = generated.json()
+    assert generated_payload["dataset_id"] == batch_id
+    assert generated_payload["qc_queue_id"] == "qcq_urban_violation_0518_qc"
+    assert generated_payload["total"] == 797
+    assert generated_payload["items"][0]["dataset_id"] == batch_id
+
+    tasks = client.get(f"/api/datasets/{batch_id}/qc/tasks", headers=_admin_headers())
+    assert tasks.status_code == 200
+    task_payload = tasks.json()
+    assert len(task_payload) == 797
+    assert {task["dataset_id"] for task in task_payload} == {batch_id}
+    assert {task["status"] for task in task_payload} == {"queued"}
+
+    queued_summary = client.get(f"/api/datasets/{batch_id}/summary", headers=_admin_headers())
+    assert queued_summary.status_code == 200
+    assert queued_summary.json()["lifecycle_status"] == "qc_ready"
+    assert queued_summary.json()["qc_queue_id"] == "qcq_urban_violation_0518_qc"
+
+    assignment = client.post(
+        f"/api/datasets/{batch_id}/qc/assignment",
+        json={"assignee_user_id": "platform_admin"},
+        headers=_admin_headers(),
+    )
+    assert assignment.status_code == 200
+    assert assignment.json()["dataset_id"] == batch_id
+    assert assignment.json()["qc_queue_id"] == "qcq_urban_violation_0518_qc"
+
+    progress = client.get(f"/api/datasets/{batch_id}/qc/progress", headers=_admin_headers())
+    assert progress.status_code == 200
+    assert progress.json()["dataset_id"] == batch_id
+    assert progress.json()["total_tasks"] == 797
+    assert progress.json()["assignment"]["dataset_id"] == batch_id
+
+    lease = client.post(
+        f"/api/datasets/{batch_id}/samples/{sample_id}/lease",
+        headers=_admin_headers(),
+    )
+    assert lease.status_code == 200
+    lease_id = lease.json()["lease"]["lease_id"]
+    assert lease.json()["lease"]["dataset_id"] == batch_id
+
+    draft_payload = _build_valid_label_edit_payload()
+    draft_payload["submit_action"] = "save_draft"
+    draft_payload["task_status"] = "annotation_draft"
+    draft_payload["lease_id"] = lease_id
+    draft_payload["base_revision"] = 0
+    draft = client.post(
+        f"/api/datasets/{batch_id}/samples/{sample_id}/label-edits",
+        json=draft_payload,
+        headers=_admin_headers(),
+    )
+    assert draft.status_code == 200
+    assert draft.json()["state"]["dataset_id"] == batch_id
+
+    my_draft = client.get(
+        f"/api/datasets/{batch_id}/samples/{sample_id}/label-edits/my-draft",
+        headers=_admin_headers(),
+    )
+    assert my_draft.status_code == 200
+    assert my_draft.json()["dataset_id"] == batch_id
+
+
+def test_manual_batch_registration_persists_across_app_restart(tmp_path: Path) -> None:
+    store_root = tmp_path / "LABEL_CONFIG_STATE"
+    state_root = tmp_path / "PLATFORM_STATE"
+    with TestClient(
+        create_app(label_config_store_root=store_root, platform_state_root=state_root)
+    ) as first_client:
+        created_type = first_client.post(
+            "/api/dataset-types",
+            json={"dataset_type": "ares_detection", "display_name": "Ares Detection"},
+            headers=_admin_headers(),
+        )
+        assert created_type.status_code == 201
+        created_batch = first_client.post(
+            "/api/datasets/ares_detection/import-jobs",
+            json={
+                "dataset_type": "ares_detection",
+                "batch_key": "20260518_images",
+                "batch_name": "2026-05-18 Images Only",
+                "source_mode": "local_directory",
+                "source_uri": "DATASET/ares_detection/20260518_images",
+                "source_structure": "images_only",
+                "source_file_count": 12,
+                "image_count": 12,
+            },
+            headers=_admin_headers(),
+        )
+        assert created_batch.status_code == 201
+
+    assert (store_root / "dataset_batches.json").is_file()
+    with TestClient(
+        create_app(label_config_store_root=store_root, platform_state_root=state_root)
+    ) as second_client:
+        listed = second_client.get("/api/dataset-types")
+        assert listed.status_code == 200
+        by_type = {item["dataset_type"]: item for item in listed.json()}
+        assert by_type["ares_detection"]["batch_count"] == 1
+        batch = by_type["ares_detection"]["batches"][0]
+        assert batch["dataset_id"] == "ares_detection__20260518_images"
+        assert batch["source_structure"] == "images_only"
+        assert batch["total_assets"] == 12
+
+
+def test_new_dataset_type_can_own_label_config_independently(client: TestClient) -> None:
+    created = client.post(
+        "/api/dataset-types",
+        json={"dataset_type": "ares_detection", "display_name": "Ares Detection"},
+    )
+    assert created.status_code == 201
+
+    ares_config = {
+        "schema_version": "label_config_v1",
+        "dataset_type": "ares_detection",
+        "version": "ares_detection_labels_v1",
+        "fields": [
+            {
+                "field": "target_type",
+                "mode": "closed_enum",
+                "label_zh": "目标类型",
+                "allow_custom": False,
+                "options": [{"code": "vehicle", "label_zh": "车辆"}],
+            },
+            {
+                "field": "scene_elements",
+                "mode": "open_tags",
+                "label_zh": "场景元素",
+                "allow_custom": True,
+                "options": [],
+            },
+            {
+                "field": "segmentation_targets",
+                "mode": "open_tags",
+                "label_zh": "分割目标",
+                "allow_custom": True,
+                "options": [],
+            },
+        ],
+    }
+    saved = client.post(
+        "/api/datasets/ares_detection/label-configs",
+        json={"file_name": "ares_label_config.json", "config": ares_config, "activate": True},
+    )
+    assert saved.status_code == 200
+    saved_payload = saved.json()
+    assert saved_payload["dataset_id"] == "ares_detection"
+    assert saved_payload["status"] == "active"
+
+    urban_active = client.get(f"/api/datasets/{DATASET_ID}/label-config/active")
+    assert urban_active.status_code == 404
+
+    ares_active = client.get("/api/datasets/ares_detection/label-config/active")
+    assert ares_active.status_code == 200
+    assert ares_active.json()["config"]["dataset_type"] == "ares_detection"
 
 
 def test_active_label_config_missing_returns_explicit_404(client: TestClient) -> None:
@@ -196,6 +631,53 @@ def test_save_with_activate_true_returns_active_version(client: TestClient) -> N
     active = client.get(f"/api/datasets/{DATASET_ID}/label-config/active")
     assert active.status_code == 200
     assert active.json()["config_id"] == saved["config_id"]
+
+    versions = client.get(f"/api/dataset-types/{DATASET_ID}/label-configs")
+    assert versions.status_code == 200
+    assert versions.json()[0]["config_id"] == saved["config_id"]
+
+    reload_active = client.post(f"/api/dataset-types/{DATASET_ID}/label-config/active/reload")
+    assert reload_active.status_code == 200
+    assert reload_active.json()["config_id"] == saved["config_id"]
+
+
+def test_active_label_config_persists_across_app_restart(tmp_path: Path) -> None:
+    store_root = tmp_path / "DATASET"
+    with TestClient(create_app(label_config_store_root=store_root)) as first_client:
+        saved = first_client.post(
+            f"/api/dataset-types/{DATASET_ID}/label-configs",
+            json={
+                "file_name": LABEL_CONFIG_PATH.name,
+                "config": _load_label_config_payload(),
+                "activate": True,
+            },
+        )
+        assert saved.status_code == 200
+        saved_payload = saved.json()
+
+    active_path = store_root / DATASET_ID / "label_configs" / "active.json"
+    registry_path = store_root / DATASET_ID / "label_configs" / "registry.json"
+    version_path = (
+        store_root
+        / DATASET_ID
+        / "label_configs"
+        / "versions"
+        / f"{saved_payload['config_id']}.json"
+    )
+    assert active_path.is_file()
+    assert registry_path.is_file()
+    assert version_path.is_file()
+
+    with TestClient(create_app(label_config_store_root=store_root)) as second_client:
+        active = second_client.get(f"/api/dataset-types/{DATASET_ID}/label-config/active")
+        assert active.status_code == 200
+        assert active.json()["config_id"] == saved_payload["config_id"]
+
+        reload_active = second_client.post(
+            f"/api/dataset-types/{DATASET_ID}/label-config/active/reload"
+        )
+        assert reload_active.status_code == 200
+        assert reload_active.json()["config_id"] == saved_payload["config_id"]
 
 
 def test_invalid_config_rules_and_save_rejection(client: TestClient) -> None:
@@ -397,13 +879,19 @@ def test_label_edit_validate_accepts_candidate_delete_operation(client: TestClie
 
 def test_label_edit_save_draft_persists_and_returns_in_review_detail(client: TestClient) -> None:
     _activate_label_config(client)
+    _create_user(client, "annotator_a")
+    _assign_batch(client, "annotator_a")
+    lease_id = _acquire_lease(client, "annotator_a")
     payload = _build_valid_label_edit_payload()
     payload["submit_action"] = "save_draft"
     payload["task_status"] = "annotation_draft"
+    payload["lease_id"] = lease_id
+    payload["base_revision"] = 0
 
     submit = client.post(
         f"/api/datasets/{DATASET_ID}/samples/{SUCCESS_SAMPLE_ID}/label-edits",
         json=payload,
+        headers=_user_headers("annotator_a", "annotator"),
     )
     assert submit.status_code == 200
     submit_body = submit.json()
@@ -420,14 +908,20 @@ def test_label_edit_save_draft_persists_and_returns_in_review_detail(client: Tes
 
 def test_label_edit_submit_changes_reuses_validation_and_persists(client: TestClient) -> None:
     _activate_label_config(client)
+    _create_user(client, "annotator_a")
+    _assign_batch(client, "annotator_a")
+    lease_id = _acquire_lease(client, "annotator_a")
     invalid_payload = _build_valid_label_edit_payload()
     invalid_payload["operations"][1]["after"] = 1.5
     invalid_payload["submit_action"] = "submit_changes"
     invalid_payload["task_status"] = "annotation_submitted"
+    invalid_payload["lease_id"] = lease_id
+    invalid_payload["base_revision"] = 0
 
     invalid_submit = client.post(
         f"/api/datasets/{DATASET_ID}/samples/{SUCCESS_SAMPLE_ID}/label-edits",
         json=invalid_payload,
+        headers=_user_headers("annotator_a", "annotator"),
     )
     assert invalid_submit.status_code == 422
     invalid_detail = invalid_submit.json()["detail"]
@@ -436,9 +930,12 @@ def test_label_edit_submit_changes_reuses_validation_and_persists(client: TestCl
     valid_payload = _build_valid_label_edit_payload()
     valid_payload["submit_action"] = "submit_changes"
     valid_payload["task_status"] = "annotation_submitted"
+    valid_payload["lease_id"] = lease_id
+    valid_payload["base_revision"] = 0
     submit = client.post(
         f"/api/datasets/{DATASET_ID}/samples/{SUCCESS_SAMPLE_ID}/label-edits",
         json=valid_payload,
+        headers=_user_headers("annotator_a", "annotator"),
     )
     assert submit.status_code == 200
     body = submit.json()
@@ -601,3 +1098,220 @@ def test_label_config_type_scope_with_batch_path(client: TestClient) -> None:
     active_payload = active.json()
     assert active_payload["dataset_id"] == BATCH_DATASET_ID
     assert active_payload["config_id"] == saved_payload["config_id"]
+
+
+def test_session_auth_401_structured_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("PLATFORM_AUTH_MODE", "session")
+    monkeypatch.setenv("PLATFORM_DEV_ANON", "0")
+    with TestClient(
+        create_app(
+            label_config_store_root=tmp_path / "LABEL_CONFIG_STATE",
+            platform_state_root=tmp_path / "PLATFORM_STATE",
+        )
+    ) as strict_client:
+        me = strict_client.get("/api/me")
+        assert me.status_code == 401
+        payload = me.json()
+        assert payload["code"] == "unauthorized"
+        assert "message" in payload
+
+        login = strict_client.post(
+            "/api/auth/login",
+            json={"user_id": "platform_admin", "password": "admin123456"},
+        )
+        assert login.status_code == 200
+        token = login.json()["token"]
+
+        me_ok = strict_client.get("/api/me", headers={"X-Session-Token": token})
+        assert me_ok.status_code == 200
+        assert me_ok.json()["user_id"] == "platform_admin"
+
+
+def test_account_me_rbac_audit_boundaries_for_core_roles(client: TestClient) -> None:
+    annotator_headers = _user_headers("annotator_account", "annotator")
+    annotator_me = client.get("/api/me", headers=annotator_headers)
+    assert annotator_me.status_code == 200
+    annotator_payload = annotator_me.json()
+    assert annotator_payload["user_id"] == "annotator_account"
+    assert annotator_payload["roles"][0]["role"] == "annotator"
+    assert annotator_payload["roles"][0]["scope_type"] == "platform"
+    assert annotator_payload["roles"][0]["scope_id"] == "*"
+    assert "label_edit:write" in annotator_payload["permissions"]
+    assert "users:manage" not in annotator_payload["permissions"]
+    assert "roles:manage" not in annotator_payload["permissions"]
+    assert "audit:read" not in annotator_payload["permissions"]
+    assert client.get("/api/users", headers=annotator_headers).status_code == 403
+    assert client.get("/api/role-bindings", headers=annotator_headers).status_code == 403
+    full_audit = client.get("/api/audit-events", headers=annotator_headers)
+    assert full_audit.status_code == 403
+    own_audit = client.get(
+        "/api/audit-events",
+        params={"actor_user_id": "annotator_account"},
+        headers=annotator_headers,
+    )
+    assert own_audit.status_code == 200
+
+    admin_me = client.get("/api/me", headers=_admin_headers())
+    assert admin_me.status_code == 200
+    admin_permissions = set(admin_me.json()["permissions"])
+    assert {"users:manage", "roles:manage", "audit:read"}.issubset(admin_permissions)
+    assert client.get("/api/users", headers=_admin_headers()).status_code == 200
+    assert client.get("/api/role-bindings", headers=_admin_headers()).status_code == 200
+    assert client.get("/api/audit-events", headers=_admin_headers()).status_code == 200
+
+    auditor_headers = _user_headers("auditor_account", "auditor")
+    auditor_me = client.get("/api/me", headers=auditor_headers)
+    assert auditor_me.status_code == 200
+    auditor_payload = auditor_me.json()
+    auditor_permissions = set(auditor_payload["permissions"])
+    assert auditor_payload["roles"][0]["role"] == "auditor"
+    assert auditor_payload["roles"][0]["scope_type"] == "platform"
+    assert "audit:read" in auditor_permissions
+    assert "users:manage" not in auditor_permissions
+    assert "roles:manage" not in auditor_permissions
+    assert client.get("/api/audit-events", headers=auditor_headers).status_code == 200
+    assert client.get("/api/users", headers=auditor_headers).status_code == 403
+    assert client.get("/api/role-bindings", headers=auditor_headers).status_code == 403
+
+
+def test_rbac_forbidden_for_annotator_label_config_activate(client: TestClient) -> None:
+    _create_user(client, "annotator_a", role="annotator")
+    saved = _save_label_config(client, activate=False)
+    forbidden_response = client.post(
+        f"/api/datasets/{DATASET_ID}/label-configs/{saved['config_id']}/activate",
+        headers=_user_headers("annotator_a", "annotator"),
+    )
+    assert forbidden_response.status_code == 403
+    payload = forbidden_response.json()
+    assert payload["code"] == "forbidden"
+
+
+def test_batch_assignment_and_lease_conflict_codes(client: TestClient) -> None:
+    _activate_label_config(client)
+    _create_user(client, "annotator_a", role="annotator")
+    _create_user(client, "annotator_b", role="annotator")
+    _assign_batch(client, "annotator_a")
+
+    duplicate_assign = client.post(
+        f"/api/datasets/{DATASET_ID}/qc/assignment",
+        json={"assignee_user_id": "annotator_b"},
+        headers=_admin_headers(),
+    )
+    assert duplicate_assign.status_code == 409
+    assert duplicate_assign.json()["code"] == "batch_assigned_to_other_user"
+
+    lease_a = _acquire_lease(client, "annotator_a")
+    lease_b = client.post(
+        f"/api/datasets/{DATASET_ID}/samples/{SUCCESS_SAMPLE_ID}/lease",
+        headers=_user_headers("annotator_b", "annotator"),
+    )
+    assert lease_b.status_code == 409
+    assert lease_b.json()["code"] in {"batch_assigned_to_other_user", "lease_owned_by_other_user"}
+
+    wrong_submit = _build_valid_label_edit_payload()
+    wrong_submit["submit_action"] = "save_draft"
+    wrong_submit["task_status"] = "annotation_draft"
+    wrong_submit["lease_id"] = lease_a
+    wrong_submit["base_revision"] = 0
+    denied = client.post(
+        f"/api/datasets/{DATASET_ID}/samples/{SUCCESS_SAMPLE_ID}/label-edits",
+        json=wrong_submit,
+        headers=_user_headers("annotator_b", "annotator"),
+    )
+    assert denied.status_code == 409
+    assert denied.json()["code"] in {"batch_assigned_to_other_user", "lease_owned_by_other_user"}
+
+
+def test_platform_admin_can_be_batch_assignee(client: TestClient) -> None:
+    response = client.post(
+        f"/api/datasets/{DATASET_ID}/qc/assignment",
+        json={"assignee_user_id": "platform_admin"},
+        headers=_admin_headers(),
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["assignee_user_id"] == "platform_admin"
+    assert payload["status"] == "assigned"
+
+
+def test_private_draft_confirm_return_audit_progress(client: TestClient) -> None:
+    _activate_label_config(client)
+    _create_user(client, "annotator_a", role="annotator")
+    _create_user(client, "qc_lead_a", role="qc_lead")
+    _assign_batch(client, "annotator_a")
+    lease_id = _acquire_lease(client, "annotator_a")
+
+    draft_payload = _build_valid_label_edit_payload()
+    draft_payload["submit_action"] = "save_draft"
+    draft_payload["task_status"] = "annotation_draft"
+    draft_payload["lease_id"] = lease_id
+    draft_payload["base_revision"] = 0
+    saved = client.post(
+        f"/api/datasets/{DATASET_ID}/samples/{SUCCESS_SAMPLE_ID}/label-edits",
+        json=draft_payload,
+        headers=_user_headers("annotator_a", "annotator"),
+    )
+    assert saved.status_code == 200
+
+    my_draft = client.get(
+        f"/api/datasets/{DATASET_ID}/samples/{SUCCESS_SAMPLE_ID}/label-edits/my-draft",
+        headers=_user_headers("annotator_a", "annotator"),
+    )
+    assert my_draft.status_code == 200
+    assert my_draft.json() is not None
+
+    other_draft = client.get(
+        f"/api/datasets/{DATASET_ID}/samples/{SUCCESS_SAMPLE_ID}/label-edits/my-draft",
+        headers=_user_headers("qc_lead_a", "qc_lead"),
+    )
+    assert other_draft.status_code == 200
+    assert other_draft.json() is None
+
+    submit_lease = _acquire_lease(client, "annotator_a")
+    submit_payload = _build_valid_label_edit_payload()
+    submit_payload["submit_action"] = "submit_changes"
+    submit_payload["task_status"] = "annotation_submitted"
+    submit_payload["lease_id"] = submit_lease
+    submit_payload["base_revision"] = 1
+    submitted = client.post(
+        f"/api/datasets/{DATASET_ID}/samples/{SUCCESS_SAMPLE_ID}/label-edits",
+        json=submit_payload,
+        headers=_user_headers("annotator_a", "annotator"),
+    )
+    assert submitted.status_code == 200
+
+    history = client.get(
+        f"/api/datasets/{DATASET_ID}/samples/{SUCCESS_SAMPLE_ID}/label-edits/history",
+        headers=_user_headers("qc_lead_a", "qc_lead"),
+    )
+    assert history.status_code == 200
+    submission_id = history.json()[-1]["submission_id"]
+
+    confirmed = client.post(
+        f"/api/datasets/{DATASET_ID}/samples/{SUCCESS_SAMPLE_ID}/label-edits/{submission_id}/confirm",
+        headers=_user_headers("qc_lead_a", "qc_lead"),
+    )
+    assert confirmed.status_code == 200
+
+    returned = client.post(
+        f"/api/datasets/{DATASET_ID}/samples/{SUCCESS_SAMPLE_ID}/label-edits/{submission_id}/return",
+        headers=_user_headers("qc_lead_a", "qc_lead"),
+    )
+    assert returned.status_code == 200
+
+    audit = client.get(
+        "/api/audit-events",
+        params={"dataset_id": BATCH_DATASET_ID},
+        headers=_admin_headers(),
+    )
+    assert audit.status_code == 200
+    actions = {item["action"] for item in audit.json()}
+    assert "label_edit.submit" in actions
+    assert "label_edit.confirm" in actions
+
+    progress = client.get(
+        f"/api/datasets/{DATASET_ID}/qc/progress",
+        headers=_admin_headers(),
+    )
+    assert progress.status_code == 200
+    assert progress.json()["dataset_id"] == BATCH_DATASET_ID

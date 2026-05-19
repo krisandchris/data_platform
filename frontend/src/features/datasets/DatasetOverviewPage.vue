@@ -10,6 +10,10 @@
         </p>
       </div>
       <div class="page-actions">
+        <RouterLink v-if="lifecycleStatus === 'label_config_required'" class="button" :to="typeConfigTarget">
+          <Settings2 :size="17" />
+          管理类型配置
+        </RouterLink>
         <RouterLink v-if="latestImportJobId" class="button" :to="`/datasets/${id}/import-jobs/${latestImportJobId}`">
           <FileSearch :size="17" />
           导入校验
@@ -18,12 +22,25 @@
           <Table2 :size="17" />
           查看资产
         </RouterLink>
-        <RouterLink class="button button--primary" :to="primaryAction.to">
+        <button
+          v-if="canGenerateQcQueue"
+          class="button button--primary"
+          type="button"
+          :disabled="generatingQcQueue"
+          @click="generateQcQueue"
+        >
+          <ShieldCheck :size="17" />
+          {{ generatingQcQueue ? '生成中...' : '生成质检队列' }}
+        </button>
+        <RouterLink v-else class="button button--primary" :to="primaryAction.to">
           <ShieldCheck :size="17" />
           {{ primaryAction.label }}
         </RouterLink>
       </div>
     </header>
+    <p v-if="actionMessage" class="overview-action-message" :class="{ error: actionMessageIsError }">
+      {{ actionMessage }}
+    </p>
 
     <div v-if="loading" class="loading-state">Loading dashboard...</div>
     <div v-else-if="error" class="error-state">{{ error }}</div>
@@ -47,8 +64,8 @@
           </div>
           <div>
             <span class="context-label">Active label config</span>
-            <strong>{{ summary.dataset.activeLabelConfigVersion ?? activeConfigLabel }}</strong>
-            <small>类型级共享配置</small>
+            <strong>{{ summary.dataset.activeLabelConfigVersion ?? '未激活' }}</strong>
+            <small>继承自数据集类型，批次内不可激活</small>
           </div>
           <div>
             <span class="context-label">Latest import job</span>
@@ -174,38 +191,42 @@
           </div>
         </dl>
       </section>
-
-      <div id="label-config-panel">
-        <LabelConfigUploadPanel :dataset-id="id" @saved="onLabelConfigSaved" />
-      </div>
     </template>
     <div v-else class="empty-state">No dataset overview returned by the backend.</div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { RouterLink } from 'vue-router';
-import { FileSearch, ShieldCheck, Table2, TriangleAlert } from 'lucide-vue-next';
+import { FileSearch, Settings2, ShieldCheck, Table2, TriangleAlert } from 'lucide-vue-next';
 import { apiClient } from '../../services/urbanViolationApi';
 import StatusChip from '../../shared/components/StatusChip.vue';
 import { useAsyncState } from '../../shared/composables/useAsyncState';
 import DatasetDashboardCards from './components/DatasetDashboardCards.vue';
 import DistributionPanel from './components/DistributionPanel.vue';
-import LabelConfigUploadPanel from './components/LabelConfigUploadPanel.vue';
-import type { LabelConfigSaveResult } from '../../shared/types/contract';
 
 const props = defineProps<{ id: string }>();
-const { data, loading, error } = useAsyncState(() => apiClient.getDatasetSummary(props.id));
+const { data, loading, error, reload } = useAsyncState(() => apiClient.getDatasetBatchSummary(props.id), {
+  watch: () => props.id,
+  resetOnExecute: true,
+});
 const summary = computed(() => data.value);
 const lifecycleStatus = computed(() => summary.value?.dataset.lifecycleStatus ?? summary.value?.dataset.status ?? 'draft');
 const latestImportJobId = computed(() => summary.value?.latestImportJob?.id ?? summary.value?.dataset.activeImportJobId);
-const activeConfigLabel = computed(() => summary.value?.assetSummary?.datasetType ? '未激活' : '未激活');
+const datasetType = computed(() => summary.value?.dataset.datasetType ?? summary.value?.assetSummary?.datasetType ?? props.id);
+const typeConfigTarget = computed(() => `/datasets#label-config-${encodeURIComponent(datasetType.value)}`);
+const generatingQcQueue = ref(false);
+const actionMessage = ref('');
+const actionMessageIsError = ref(false);
+const canGenerateQcQueue = computed(
+  () => lifecycleStatus.value === 'preannotation_ready' && !summary.value?.dataset.qcQueueId,
+);
 
 const primaryAction = computed(() => {
   const status = lifecycleStatus.value;
   if (status === 'label_config_required') {
-    return { label: '上传标签配置', to: '#label-config-panel' };
+    return { label: '管理类型配置', to: typeConfigTarget.value };
   }
   if (status === 'draft' || status === 'registered' || status === 'scanning' || status === 'validation_failed' || status === 'validated' || status === 'import_failed') {
     return {
@@ -216,8 +237,30 @@ const primaryAction = computed(() => {
   if (status === 'imported' || status === 'preannotation_pending' || status === 'preannotation_failed') {
     return { label: '查看资产', to: `/datasets/${props.id}/assets` };
   }
+  if (status === 'preannotation_ready' && !summary.value?.dataset.qcQueueId) {
+    return { label: '查看资产', to: `/datasets/${props.id}/assets` };
+  }
   return { label: '进入质检队列', to: `/datasets/${props.id}/qc` };
 });
+
+async function generateQcQueue() {
+  if (!canGenerateQcQueue.value || generatingQcQueue.value) {
+    return;
+  }
+  generatingQcQueue.value = true;
+  actionMessage.value = '';
+  actionMessageIsError.value = false;
+  try {
+    await apiClient.generateQcQueue(props.id);
+    actionMessage.value = '质检队列已生成';
+    await reload();
+  } catch (err) {
+    actionMessageIsError.value = true;
+    actionMessage.value = err instanceof Error ? err.message : '生成质检队列失败';
+  } finally {
+    generatingQcQueue.value = false;
+  }
+}
 
 const lifecycleHint = computed(() => {
   if (lifecycleStatus.value === 'qc_ready' || lifecycleStatus.value === 'qc_in_progress') {
@@ -237,15 +280,22 @@ const lifecycleSteps = [
   { status: 'qc_ready', label: '质检' },
   { status: 'qc_completed', label: '完成' },
 ];
-
-const onLabelConfigSaved = (_result: LabelConfigSaveResult) => {
-  // The upload panel refreshes its own active-config display; overview metrics are unchanged.
-};
 </script>
 
 <style scoped>
 .overview-grid {
   margin-top: 14px;
+}
+
+.overview-action-message {
+  margin: -6px 0 12px;
+  color: var(--green);
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.overview-action-message.error {
+  color: var(--red);
 }
 
 .batch-context {

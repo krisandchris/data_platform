@@ -175,6 +175,9 @@ const localFilters = reactive<AssetListFilters>({
 });
 
 const failedImages = ref(new Set<string>());
+const assetIdentityKey = computed(() =>
+  [props.datasetId, ...props.assets.map((asset) => `${asset.id}:${asset.imageUrl ?? ''}:${asset.thumbnailUrl ?? ''}`)].join('|'),
+);
 
 const categories = computed(() =>
   [...new Set(props.assets.flatMap((asset) => asset.violationCategories))].sort((a, b) => a.localeCompare(b)),
@@ -219,6 +222,9 @@ const filteredAssets = computed(() =>
 );
 
 watch(localFilters, () => emit('filtersChanged', { ...localFilters }), { deep: true });
+watch(assetIdentityKey, () => {
+  failedImages.value = new Set();
+});
 
 const resetFilters = () => {
   localFilters.judgeDecision = 'all';

@@ -6,10 +6,11 @@ build-backend = "hatchling.build"
 name = "urban-violation-backend"
 version = "0.1.0"
 description = "Backend contracts and dataset importer utilities for Urban Violation Platform"
-readme = "urban_violation_platform_markdown/README.md"
+readme = "docs/README.md"
 requires-python = ">=3.10"
 dependencies = [
   "fastapi>=0.116.0,<1.0.0",
+  "pwdlib[argon2]>=0.3.0",
   "pydantic>=2.11.0,<3.0.0",
   "uvicorn>=0.35.0,<1.0.0",
 ]

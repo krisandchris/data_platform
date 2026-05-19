@@ -3,18 +3,31 @@
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime, timezone
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+import json
+import os
 from pathlib import Path
 import re
 from typing import Any, Sequence
 
+from fastapi import Request
+
+from urban_violation_backend.auth import AuthContext, AuthService
 from urban_violation_backend.api_schemas import (
+    AuditEventResponse,
     AssetDetailResponse,
     AssetListItem,
     AssetListResponse,
     AssetSummaryMetrics,
     AssetSummaryResponse,
+    BatchAssignmentActionRequest,
+    BatchAssignmentRequest,
+    BatchQcAssignmentResponse,
     CountDistributionItem,
+    CurrentUserResponse,
+    DatasetTypeCreateRequest,
+    DatasetTypeResponse,
     DatasetSummaryResponse,
     ExportResponse,
     ImportJobCreateRequest,
@@ -22,21 +35,40 @@ from urban_violation_backend.api_schemas import (
     ImportJobStatusResponse,
     ImportValidationRow,
     LabelEditState,
+    LabelEditSubmissionResponse,
+    LabelEditOperation,
     LabelEditSubmitRequest,
     LabelEditSubmitResponse,
     LabelEditValidateRequest,
     LabelEditValidationIssue,
     LabelEditValidationResponse,
+    LabelEditDraftResponse,
     LabelConfigSaveRequest,
     LabelConfigValidateRequest,
+    LeaseAcquireResponse,
     QCQueueItem,
     QCQueueResponse,
+    QcProgressByStatus,
+    QcProgressByUser,
+    QcProgressResponse,
+    QcTaskResponse,
     ReviewSubmitRequest,
+    SampleLeaseResponse,
     SearchResponse,
     SearchResultItem,
+    UserAccountCreateRequest,
+    UserAccountPatchRequest,
+    UserAccountResponse,
+    LoginRequest,
+    LoginResponse,
+    LogoutResponse,
+    RoleBindingCreateRequest,
 )
+from urban_violation_backend.errors import ApiError, conflict, forbidden
 from urban_violation_backend.importer.parser import (
     FixtureSample,
+    PairedSample,
+    discover_stage_run_dir,
     import_fixture_samples,
     normalize_media_url,
     pair_stage_samples,
@@ -46,7 +78,9 @@ from urban_violation_backend.importer.parser import (
 from urban_violation_backend.labels import (
     ActiveLabelConfigNotFoundError,
     DatasetLabelConfig,
+    FileBackedLabelConfigRepository,
     InMemoryLabelConfigRepository,
+    LabelConfigPersistenceError,
     LabelFieldNotFoundError,
     LabelFieldConfig,
     LabelConfigValidationReport,
@@ -56,12 +90,30 @@ from urban_violation_backend.labels import (
     filter_label_suggestions,
     validate_label_config,
 )
+from urban_violation_backend.permissions import PermissionEvaluator
 from urban_violation_backend.schemas import (
+    AuditEvent,
+    BatchAssignmentStatus,
+    BatchQcAssignment,
     DatasetLifecycleStatus,
     HumanReview,
     ImportJob,
     ImportJobState,
+    LabelEditDraft,
+    LabelEditSubmission,
+    LeaseStatus,
+    QcTask,
+    QcTaskStatus,
+    RawAsset,
+    RoleBinding,
+    RoleScopeType,
+    SampleLease,
+    Stage1Preannotation,
+    UserAccount,
+    UserRole,
+    UserStatus,
 )
+from urban_violation_backend.state_store import PlatformStateStore
 
 
 class DatasetNotFoundError(ValueError):
@@ -100,12 +152,35 @@ class LabelConfigValidationFailedError(ValueError):
         self.report = report
 
 
+class LabelConfigPersistenceAccessError(ValueError):
+    """Raised when persisted label config files cannot be reloaded safely."""
+
+
 class LabelEditValidationFailedError(ValueError):
     """Raised when a submit_changes payload fails field-level validation."""
 
     def __init__(self, report: LabelEditValidationResponse) -> None:
         super().__init__("Label edit validation failed")
         self.report = report
+
+
+@dataclass(slots=True)
+class RegisteredBatchRuntime:
+    """Loaded source-directory data for a manually created dataset batch."""
+
+    dataset_id: str
+    dataset_type: str
+    batch_key: str
+    root: Path
+    image_dir: Path
+    visualizations_dir: Path | None
+    stage1_run_name: str | None
+    stage2_run_name: str | None
+    stage2_failure_artifact_count: int
+    samples: dict[str, FixtureSample] = field(default_factory=dict)
+    pairs: dict[str, PairedSample] = field(default_factory=dict)
+    reviews: dict[str, list[HumanReview]] = field(default_factory=dict)
+    label_edits: dict[str, list[LabelEditState]] = field(default_factory=dict)
 
 
 SCOPE_PATTERN = re.compile(r"^(stage1|relation:[A-Za-z0-9_-]+|verification:[A-Za-z0-9_-]+|candidate:[A-Za-z0-9_-]+)$")
@@ -158,16 +233,35 @@ class FixtureRuntimeService:
         sample_ids: Sequence[str] | None,
         dataset_id: str = "urban_violation",
         label_config_repo: InMemoryLabelConfigRepository | None = None,
+        label_config_store_root: Path | None = None,
+        platform_state_root: Path | None = None,
     ) -> None:
         self._dataset_root = dataset_root.resolve()
+        self._label_config_store_root = (
+            label_config_store_root.resolve()
+            if label_config_store_root is not None
+            else self._dataset_root.parent.resolve()
+        )
+        self._dataset_type_registry_path = self._label_config_store_root / "dataset_types.json"
+        self._batch_registry_path = self._label_config_store_root / "dataset_batches.json"
         self._dataset_type = dataset_id
         self._legacy_dataset_id = dataset_id
         self._batch_key = "0508_fixture"
         self._dataset_id = f"{self._dataset_type}__{self._batch_key}"
         self._accepted_dataset_ids = {self._dataset_id, self._legacy_dataset_id}
-        self._qc_queue_id = f"qcq_{self._dataset_type}_{self._batch_key}"
         self._field_schema_version = "2026-05-18"
-        self._label_config_repo = label_config_repo or InMemoryLabelConfigRepository()
+        self._dataset_type_display_names: dict[str, str] = {
+            self._dataset_type: "城市违规",
+        }
+        self._dataset_type_schema_versions: dict[str, str] = {
+            self._dataset_type: self._field_schema_version,
+        }
+        self._load_dataset_type_registry()
+        self._qc_queue_id = f"qcq_{self._dataset_type}_{self._batch_key}"
+        self._label_config_repo = label_config_repo or FileBackedLabelConfigRepository(
+            self._label_config_store_root
+        )
+        self._load_dataset_types_from_label_config_repo()
         self._bundle = import_fixture_samples(dataset_root=self._dataset_root, sample_ids=sample_ids)
         self._samples: dict[str, FixtureSample] = {
             sample.sample_id: sample for sample in self._bundle.samples
@@ -182,6 +276,7 @@ class FixtureRuntimeService:
             }
         )
         self._import_jobs: dict[str, ImportJob] = {fixture_import_job.job_id: fixture_import_job}
+        self._registered_batches: dict[str, DatasetSummaryResponse] = {}
         self._import_job = fixture_import_job
         self._active_import_job_id = fixture_import_job.job_id
         self._reviews: dict[str, list[HumanReview]] = {sample_id: [] for sample_id in self._samples}
@@ -191,10 +286,14 @@ class FixtureRuntimeService:
         self._review_counter = 0
         self._label_edit_counter = 0
         self._updated_at = datetime.now(timezone.utc)
+        self._registered_batch_runtimes: dict[str, RegisteredBatchRuntime] = {}
+        self._load_registered_batches()
         self._lifecycle_status = self._derive_lifecycle_status()
 
-        stage1_entries = read_stage1_manifest(self._dataset_root)
-        stage2_entries = read_stage2_manifest(self._dataset_root)
+        self._stage1_run_dir = discover_stage_run_dir(self._dataset_root, "stage1")
+        self._stage2_run_dir = discover_stage_run_dir(self._dataset_root, "stage2")
+        stage1_entries = read_stage1_manifest(self._dataset_root, stage1_run_dir=self._stage1_run_dir)
+        stage2_entries = read_stage2_manifest(self._dataset_root, stage2_run_dir=self._stage2_run_dir)
         self._pairs = {
             pair.sample_id: pair
             for pair in pair_stage_samples(
@@ -205,7 +304,347 @@ class FixtureRuntimeService:
         }
 
         self._image_dir = self._dataset_root / "images"
-        self._visualizations_dir = self._dataset_root / "stage1_run_0508" / "visualizations"
+        self._visualizations_dir = self._stage1_run_dir / "visualizations"
+
+        env_state_root = os.environ.get("PLATFORM_STATE_ROOT")
+        self._platform_state_root = (
+            platform_state_root.resolve()
+            if platform_state_root is not None
+            else (
+                Path(env_state_root).resolve()
+                if env_state_root
+                else (self._label_config_store_root / "platform_state").resolve()
+            )
+        )
+        self._state_store = PlatformStateStore(self._platform_state_root)
+        self._auth_service = AuthService(
+            store=self._state_store,
+            settings=AuthService.default_settings(),
+        )
+        self._auth_service.ensure_bootstrap_admin()
+        self._ensure_qc_tasks()
+
+    def _load_dataset_type_registry(self) -> None:
+        if not self._dataset_type_registry_path.is_file():
+            return
+        payload = json.loads(self._dataset_type_registry_path.read_text(encoding="utf-8"))
+        items = payload.get("dataset_types", []) if isinstance(payload, dict) else []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            dataset_type = item.get("dataset_type")
+            display_name = item.get("display_name")
+            if not isinstance(dataset_type, str) or not dataset_type:
+                continue
+            self._dataset_type_display_names[dataset_type] = (
+                display_name if isinstance(display_name, str) and display_name else dataset_type
+            )
+            field_schema_version = item.get("field_schema_version")
+            self._dataset_type_schema_versions[dataset_type] = (
+                field_schema_version
+                if isinstance(field_schema_version, str) and field_schema_version
+                else "draft"
+            )
+
+    def _load_dataset_types_from_label_config_repo(self) -> None:
+        for dataset_type in self._label_config_repo.list_dataset_ids():
+            self._dataset_type_display_names.setdefault(dataset_type, dataset_type)
+            self._dataset_type_schema_versions.setdefault(dataset_type, "draft")
+
+    def _persist_dataset_type_registry(self) -> None:
+        self._label_config_store_root.mkdir(parents=True, exist_ok=True)
+        items = [
+            {
+                "dataset_type": dataset_type,
+                "display_name": self._dataset_type_display_names[dataset_type],
+                "field_schema_version": self._dataset_type_schema_versions.get(dataset_type, "draft"),
+                "status": "active",
+            }
+            for dataset_type in sorted(self._dataset_type_display_names)
+        ]
+        tmp_path = self._dataset_type_registry_path.with_suffix(".json.tmp")
+        tmp_path.write_text(
+            json.dumps({"dataset_types": items}, ensure_ascii=False, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        tmp_path.replace(self._dataset_type_registry_path)
+
+    def _load_registered_batches(self) -> None:
+        if not self._batch_registry_path.is_file():
+            return
+        payload = json.loads(self._batch_registry_path.read_text(encoding="utf-8"))
+        items = payload.get("batches", []) if isinstance(payload, dict) else []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            try:
+                summary = DatasetSummaryResponse.model_validate(item.get("summary", item))
+                job_payload = item.get("import_job")
+                job = ImportJob.model_validate(job_payload) if isinstance(job_payload, dict) else None
+            except ValueError:
+                continue
+            self._registered_batches[summary.dataset_id] = summary
+            self._accepted_dataset_ids.add(summary.dataset_id)
+            self._dataset_type_display_names.setdefault(summary.dataset_type, summary.display_name)
+            self._dataset_type_schema_versions.setdefault(
+                summary.dataset_type,
+                summary.field_schema_version,
+            )
+            if job is not None:
+                self._import_jobs[job.job_id] = job
+                self._hydrate_registered_batch_runtime(summary=summary, job=job)
+
+    def _persist_registered_batches(self) -> None:
+        self._label_config_store_root.mkdir(parents=True, exist_ok=True)
+        items: list[dict[str, Any]] = []
+        for summary in sorted(self._registered_batches.values(), key=lambda item: item.dataset_id):
+            job = (
+                self._import_jobs.get(summary.active_import_job_id)
+                if summary.active_import_job_id is not None
+                else None
+            )
+            items.append(
+                {
+                    "summary": summary.model_dump(mode="json"),
+                    "import_job": job.model_dump(mode="json") if job is not None else None,
+                }
+            )
+        tmp_path = self._batch_registry_path.with_suffix(".json.tmp")
+        tmp_path.write_text(
+            json.dumps({"batches": items}, ensure_ascii=False, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        tmp_path.replace(self._batch_registry_path)
+
+    def _resolve_registered_source_root(self, source_uri: str | None) -> Path | None:
+        """Resolve a manual batch source URI against common server-side roots."""
+        if not source_uri:
+            return None
+        uri = source_uri.strip()
+        if not uri:
+            return None
+        if uri.startswith("file://"):
+            uri = uri.removeprefix("file://")
+
+        raw_path = Path(uri).expanduser()
+        candidates: list[Path]
+        if raw_path.is_absolute():
+            candidates = [raw_path]
+        else:
+            candidates = [
+                Path.cwd() / raw_path,
+                self._dataset_root.parent / raw_path,
+            ]
+
+        seen: set[Path] = set()
+        for candidate in candidates:
+            resolved = candidate.resolve(strict=False)
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            if resolved.is_dir():
+                return resolved
+        return None
+
+    def _runtime_media_base_url(self, dataset_id: str) -> str:
+        return f"/api/datasets/{dataset_id}/media/images"
+
+    def _image_root_for_source(self, source_root: Path) -> Path:
+        image_dir = source_root / "images"
+        return image_dir if image_dir.is_dir() else source_root
+
+    def _load_images_only_runtime(
+        self,
+        *,
+        summary: DatasetSummaryResponse,
+        source_root: Path,
+    ) -> RegisteredBatchRuntime:
+        image_dir = self._image_root_for_source(source_root)
+        image_files = sorted(
+            path
+            for path in image_dir.rglob("*")
+            if path.is_file() and path.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+        )
+        samples: dict[str, FixtureSample] = {}
+        for image_path in image_files:
+            sample_id = image_path.stem
+            raw_asset = RawAsset(
+                asset_id=sample_id,
+                sample_id=sample_id,
+                image_url=normalize_media_url(
+                    str(image_path),
+                    media_base_url=self._runtime_media_base_url(summary.dataset_id),
+                ),
+                width=1280,
+                height=720,
+                source_image_path_internal=str(image_path),
+            )
+            samples[sample_id] = FixtureSample(
+                sample_id=sample_id,
+                raw_asset=raw_asset,
+                stage1=Stage1Preannotation(
+                    sample_id=sample_id,
+                    environment_analysis="",
+                    scene_elements=[],
+                    key_anchors=[],
+                    key_relations=[],
+                    judge_decision="unknown",
+                ),
+                stage2=None,
+                stage2_failure=None,
+            )
+        return RegisteredBatchRuntime(
+            dataset_id=summary.dataset_id,
+            dataset_type=summary.dataset_type,
+            batch_key=summary.batch_key,
+            root=source_root,
+            image_dir=image_dir,
+            visualizations_dir=None,
+            stage1_run_name=None,
+            stage2_run_name=None,
+            stage2_failure_artifact_count=0,
+            samples=samples,
+            reviews={sample_id: [] for sample_id in samples},
+            label_edits={sample_id: [] for sample_id in samples},
+        )
+
+    def _load_preannotated_runtime(
+        self,
+        *,
+        summary: DatasetSummaryResponse,
+        source_root: Path,
+    ) -> RegisteredBatchRuntime:
+        stage1_run_dir = discover_stage_run_dir(source_root, "stage1")
+        stage2_run_dir = discover_stage_run_dir(source_root, "stage2")
+        bundle = import_fixture_samples(
+            dataset_root=source_root,
+            dataset_id=summary.dataset_id,
+            dataset_type=summary.dataset_type,
+            batch_key=summary.batch_key,
+            name=summary.name,
+            media_base_url=self._runtime_media_base_url(summary.dataset_id),
+        )
+        samples = {sample.sample_id: sample for sample in bundle.samples}
+        stage1_entries = read_stage1_manifest(source_root, stage1_run_dir=stage1_run_dir)
+        stage2_entries = read_stage2_manifest(source_root, stage2_run_dir=stage2_run_dir)
+        pairs = {
+            pair.sample_id: pair
+            for pair in pair_stage_samples(
+                stage1_entries,
+                stage2_entries,
+                sample_ids=list(samples.keys()),
+            )
+        }
+        return RegisteredBatchRuntime(
+            dataset_id=summary.dataset_id,
+            dataset_type=summary.dataset_type,
+            batch_key=summary.batch_key,
+            root=source_root,
+            image_dir=source_root / "images",
+            visualizations_dir=stage1_run_dir / "visualizations",
+            stage1_run_name=stage1_run_dir.name,
+            stage2_run_name=stage2_run_dir.name,
+            stage2_failure_artifact_count=bundle.dataset.stage2_failure_count,
+            samples=samples,
+            pairs=pairs,
+            reviews={sample_id: [] for sample_id in samples},
+            label_edits={sample_id: [] for sample_id in samples},
+        )
+
+    def _build_registered_batch_runtime(
+        self,
+        *,
+        summary: DatasetSummaryResponse,
+        job: ImportJob,
+    ) -> RegisteredBatchRuntime | None:
+        source_root = self._resolve_registered_source_root(job.source_uri or summary.source_uri)
+        if source_root is None:
+            return None
+        if (job.source_structure or summary.source_structure) == "images_with_preannotations":
+            return self._load_preannotated_runtime(summary=summary, source_root=source_root)
+        return self._load_images_only_runtime(summary=summary, source_root=source_root)
+
+    def _hydrate_registered_batch_runtime(
+        self,
+        *,
+        summary: DatasetSummaryResponse,
+        job: ImportJob,
+    ) -> RegisteredBatchRuntime | None:
+        try:
+            runtime = self._build_registered_batch_runtime(summary=summary, job=job)
+        except (FileNotFoundError, KeyError, ValueError, OSError):
+            return None
+        if runtime is not None:
+            self._registered_batch_runtimes[summary.dataset_id] = runtime
+        return runtime
+
+    def _is_fixture_dataset(self, dataset_id: str) -> bool:
+        return dataset_id in {self._dataset_id, self._legacy_dataset_id}
+
+    def _job_belongs_to_dataset(self, dataset_id: str, job: ImportJob) -> bool:
+        if self._is_fixture_dataset(dataset_id):
+            return job.dataset_id == self._dataset_id
+        if dataset_id in self._dataset_type_display_names:
+            return job.dataset_type == dataset_id
+        return job.dataset_id == dataset_id
+
+    def _registered_batch_lifecycle(self, job: ImportJob) -> DatasetLifecycleStatus:
+        if job.state in {ImportJobState.DRAFT, ImportJobState.UPLOADING, ImportJobState.UPLOADED}:
+            return DatasetLifecycleStatus.REGISTERED
+        if job.state in {ImportJobState.SCANNING, ImportJobState.VALIDATING}:
+            return DatasetLifecycleStatus.SCANNING
+        if job.state == ImportJobState.VALIDATION_FAILED:
+            return DatasetLifecycleStatus.VALIDATION_FAILED
+        if job.state in {ImportJobState.VALIDATION_PASSED, ImportJobState.PREVIEW_READY}:
+            return DatasetLifecycleStatus.VALIDATED
+        if job.state == ImportJobState.IMPORTED:
+            if job.source_structure == "images_only":
+                return DatasetLifecycleStatus.PREANNOTATION_PENDING
+            try:
+                self._label_config_repo.get_active(dataset_id=job.dataset_type)
+            except ActiveLabelConfigNotFoundError:
+                return DatasetLifecycleStatus.LABEL_CONFIG_REQUIRED
+            tasks = self._state_store.list_tasks(job.dataset_id)
+            if not tasks:
+                return DatasetLifecycleStatus.PREANNOTATION_READY
+            if all(task.status in {QcTaskStatus.COMPLETED, QcTaskStatus.CONFIRMED} for task in tasks):
+                return DatasetLifecycleStatus.QC_COMPLETED
+            if any(task.status != QcTaskStatus.QUEUED for task in tasks):
+                return DatasetLifecycleStatus.QC_IN_PROGRESS
+            return DatasetLifecycleStatus.QC_READY
+        if job.state == ImportJobState.IMPORT_FAILED:
+            return DatasetLifecycleStatus.IMPORT_FAILED
+        return DatasetLifecycleStatus.REGISTERED
+
+    def _update_registered_batch_from_job(self, job: ImportJob) -> None:
+        summary = self._registered_batches.get(job.dataset_id)
+        if summary is None:
+            return
+        runtime = self._registered_batch_runtimes.get(job.dataset_id)
+        total_assets = job.image_count or job.expected_assets
+        stage1_count = job.stage1_file_count
+        stage2_success_count = job.stage2_file_count
+        stage2_failure_count = job.stage2_failure_file_count or job.failure_count
+        if runtime is not None:
+            total_assets = len(runtime.samples)
+            stage1_count = total_assets if runtime.stage1_run_name is not None else 0
+            stage2_success_count = sum(
+                1 for sample in runtime.samples.values() if sample.stage2 is not None
+            )
+            stage2_failure_count = runtime.stage2_failure_artifact_count
+        updated = summary.model_copy(
+            update={
+                "lifecycle_status": self._registered_batch_lifecycle(job),
+                "active_import_job_id": job.job_id,
+                "total_assets": total_assets,
+                "stage1_count": stage1_count,
+                "stage2_success_count": stage2_success_count,
+                "stage2_failure_count": stage2_failure_count,
+                "active_label_config_version": self._current_active_label_config_version(job.dataset_type),
+            }
+        )
+        self._registered_batches[job.dataset_id] = updated
+        self._persist_registered_batches()
 
     @property
     def dataset_id(self) -> str:
@@ -214,17 +653,26 @@ class FixtureRuntimeService:
 
     def _resolve_dataset_type(self, dataset_id: str) -> str:
         """Resolve dataset type from legacy or batch dataset id."""
+        if dataset_id in self._dataset_type_display_names:
+            return dataset_id
+        if dataset_id in self._registered_batches:
+            return self._registered_batches[dataset_id].dataset_type
         self._require_dataset(dataset_id)
         return self._dataset_type
+
+    def _require_dataset_or_type(self, dataset_id: str) -> None:
+        if dataset_id in self._dataset_type_display_names:
+            return
+        self._require_dataset(dataset_id)
 
     def _require_dataset(self, dataset_id: str) -> None:
         if dataset_id not in self._accepted_dataset_ids:
             raise DatasetNotFoundError(f"Dataset not found: {dataset_id}")
 
-    def _current_active_label_config_version(self) -> int | None:
+    def _current_active_label_config_version(self, dataset_type: str | None = None) -> int | None:
         """Return active label config version number for current dataset type."""
         try:
-            active = self._label_config_repo.get_active(dataset_id=self._dataset_type)
+            active = self._label_config_repo.get_active(dataset_id=dataset_type or self._dataset_type)
         except ActiveLabelConfigNotFoundError:
             return None
         match = re.search(r"(\d+)$", active.version)
@@ -297,13 +745,338 @@ class FixtureRuntimeService:
 
     def _require_sample(self, dataset_id: str, sample_id: str) -> FixtureSample:
         self._require_dataset(dataset_id)
+        if dataset_id in self._registered_batches:
+            runtime = self._registered_batch_runtimes.get(dataset_id)
+            if runtime is None:
+                raise SampleNotFoundError(f"Sample not found: {sample_id}")
+            sample = runtime.samples.get(sample_id)
+            if sample is None:
+                raise SampleNotFoundError(f"Sample not found: {sample_id}")
+            return sample
         sample = self._samples.get(sample_id)
         if sample is None:
             raise SampleNotFoundError(f"Sample not found: {sample_id}")
         return sample
 
-    def _build_asset_item(self, sample: FixtureSample) -> AssetListItem:
-        reviews = self._reviews[sample.sample_id]
+    def _effective_batch_dataset_id(self, dataset_id: str) -> str:
+        """Return the concrete batch id used by state-store records."""
+        self._require_dataset(dataset_id)
+        if dataset_id in self._registered_batches:
+            return dataset_id
+        return self._dataset_id
+
+    def _queue_id_for_dataset(self, dataset_id: str) -> str:
+        if dataset_id in self._registered_batches:
+            summary = self._registered_batches[dataset_id]
+            return summary.qc_queue_id or f"qcq_{summary.dataset_type}_{summary.batch_key}"
+        return self._qc_queue_id
+
+    def _samples_for_dataset(self, dataset_id: str) -> dict[str, FixtureSample]:
+        if dataset_id in self._registered_batches:
+            runtime = self._registered_batch_runtimes.get(dataset_id)
+            return runtime.samples if runtime is not None else {}
+        return self._samples
+
+    def _reviews_for_dataset(self, dataset_id: str) -> dict[str, list[HumanReview]]:
+        runtime = self._registered_batch_runtimes.get(dataset_id)
+        return runtime.reviews if runtime is not None else self._reviews
+
+    def _label_edits_for_dataset(self, dataset_id: str) -> dict[str, list[LabelEditState]]:
+        runtime = self._registered_batch_runtimes.get(dataset_id)
+        return runtime.label_edits if runtime is not None else self._label_edits
+
+    def _ensure_qc_tasks_for_dataset(self, dataset_id: str) -> list[QcTask]:
+        """Create missing QC tasks for the concrete batch and return all tasks."""
+        active_dataset_id = self._effective_batch_dataset_id(dataset_id)
+        existing = self._state_store.list_tasks(active_dataset_id)
+        existing_by_sample = {task.sample_id: task for task in existing}
+        queue_id = self._queue_id_for_dataset(dataset_id)
+        created: list[QcTask] = []
+        for sample in sorted(self._samples_for_dataset(dataset_id).values(), key=lambda value: value.sample_id):
+            if sample.sample_id in existing_by_sample:
+                continue
+            created.append(
+                QcTask(
+                    task_id=self._state_store.new_id("task"),
+                    qc_queue_id=queue_id,
+                    dataset_id=active_dataset_id,
+                    sample_id=sample.sample_id,
+                    status=QcTaskStatus.QUEUED,
+                    assignee_user_id=None,
+                    claimed_at=None,
+                    submitted_at=None,
+                    completed_at=None,
+                    confirmed_by=None,
+                    confirmed_at=None,
+                    latest_submission_id=None,
+                    label_config_id=None,
+                    label_config_version=None,
+                    task_revision=0,
+                )
+            )
+        if created:
+            existing = [*existing, *created]
+            self._state_store.save_tasks(active_dataset_id, existing)
+        return existing
+
+    def generate_qc_queue(self, dataset_id: str, *, context: AuthContext) -> QCQueueResponse:
+        """Generate batch-scoped QC tasks once STEP outputs and label config are ready."""
+        self._require_dataset(dataset_id)
+        self._require_permission(context=context, action="batch_assignment:manage", dataset_id=dataset_id)
+        if dataset_id in self._registered_batches:
+            summary = self._registered_batches[dataset_id]
+            if summary.source_structure == "images_only":
+                raise conflict(
+                    "preannotation_required",
+                    "Images-only batch requires STEP1/STEP2 pre-annotation before QC queue generation.",
+                    dataset_id=dataset_id,
+                )
+            if dataset_id not in self._registered_batch_runtimes:
+                raise conflict(
+                    "source_not_ingested",
+                    "Batch source must be ingested before QC queue generation.",
+                    dataset_id=dataset_id,
+                )
+            try:
+                self._label_config_repo.get_active(dataset_id=summary.dataset_type)
+            except ActiveLabelConfigNotFoundError as exc:
+                raise conflict(
+                    "label_config_required",
+                    "Active label config is required before QC queue generation.",
+                    dataset_id=dataset_id,
+                    dataset_type=summary.dataset_type,
+                ) from exc
+            qc_queue_id = self._queue_id_for_dataset(dataset_id)
+            self._registered_batches[dataset_id] = summary.model_copy(
+                update={"qc_queue_id": qc_queue_id}
+            )
+            self._persist_registered_batches()
+        self._ensure_qc_tasks_for_dataset(dataset_id)
+        return self.list_qc_queue(dataset_id=dataset_id, context=context)
+
+    def resolve_auth_context(self, request: Request) -> AuthContext:
+        """Resolve request identity from session token or dev headers."""
+        return self._auth_service.resolve_context(request)
+
+    def _record_audit(
+        self,
+        *,
+        actor: AuthContext,
+        action: str,
+        entity: str,
+        dataset_id: str | None = None,
+        sample_id: str | None = None,
+        details: dict[str, Any] | None = None,
+        before: dict[str, Any] | None = None,
+        after: dict[str, Any] | None = None,
+    ) -> None:
+        roles = [binding.role for binding in actor.roles]
+        event = AuditEvent(
+            event_id=self._state_store.new_id("audit"),
+            actor_user_id=actor.user_id,
+            actor_roles=roles,
+            action=action,
+            entity=entity,
+            dataset_id=dataset_id,
+            sample_id=sample_id,
+            details=details or {},
+            before=before,
+            after=after,
+            created_at=self._state_store.now(),
+        )
+        self._state_store.append_audit_event(event)
+
+    def _resolve_dataset_scope(self, dataset_id: str | None) -> tuple[str | None, str | None]:
+        if dataset_id is None:
+            return None, None
+        if dataset_id in self._registered_batches:
+            return self._registered_batches[dataset_id].dataset_type, dataset_id
+        if dataset_id in self._accepted_dataset_ids:
+            return self._dataset_type, self._dataset_id
+        if dataset_id in self._dataset_type_display_names:
+            return dataset_id, None
+        return None, dataset_id
+
+    def _require_permission(
+        self,
+        *,
+        context: AuthContext,
+        action: str,
+        dataset_id: str | None = None,
+    ) -> None:
+        dataset_type, dataset_batch = self._resolve_dataset_scope(dataset_id)
+        decision = PermissionEvaluator.has_permission(
+            bindings=context.roles,
+            action=action,
+            dataset_type=dataset_type,
+            dataset_id=dataset_batch,
+        )
+        if not decision.allowed:
+            raise forbidden(
+                message="Insufficient permissions for this action.",
+                action=action,
+                dataset_id=dataset_id or "",
+            )
+
+    def require_permission_for_action(
+        self,
+        *,
+        context: AuthContext,
+        action: str,
+        dataset_id: str | None = None,
+    ) -> None:
+        """Public wrapper for route-level permission checks."""
+        self._require_permission(context=context, action=action, dataset_id=dataset_id)
+
+    def _to_user_response(self, user: UserAccount) -> UserAccountResponse:
+        return UserAccountResponse(
+            user_id=user.user_id,
+            display_name=user.display_name,
+            email=user.email,
+            status=user.status,
+            created_at=user.created_at,
+            updated_at=user.updated_at,
+            last_seen_at=user.last_seen_at,
+        )
+
+    def _ensure_qc_tasks(self) -> None:
+        tasks = self._state_store.list_tasks(self._dataset_id)
+        if tasks:
+            return
+        now = self._state_store.now()
+        created: list[QcTask] = []
+        for sample in sorted(self._samples.values(), key=lambda value: value.sample_id):
+            created.append(
+                QcTask(
+                    task_id=self._state_store.new_id("task"),
+                    qc_queue_id=self._qc_queue_id,
+                    dataset_id=self._dataset_id,
+                    sample_id=sample.sample_id,
+                    status=QcTaskStatus.QUEUED,
+                    assignee_user_id=None,
+                    claimed_at=None,
+                    submitted_at=None,
+                    completed_at=None,
+                    confirmed_by=None,
+                    confirmed_at=None,
+                    latest_submission_id=None,
+                    label_config_id=None,
+                    label_config_version=None,
+                    task_revision=0,
+                )
+            )
+        self._state_store.save_tasks(self._dataset_id, created)
+
+    def _task_map(self, dataset_id: str) -> dict[str, QcTask]:
+        return {
+            task.sample_id: task
+            for task in self._state_store.list_tasks(dataset_id)
+        }
+
+    def _get_task(self, dataset_id: str, sample_id: str) -> QcTask:
+        task = self._task_map(dataset_id).get(sample_id)
+        if task is None:
+            raise ApiError(
+                status_code=404,
+                code="not_found",
+                message=f"Task not found for sample: {sample_id}",
+            )
+        return task
+
+    def _save_task(self, dataset_id: str, task: QcTask) -> None:
+        tasks = self._state_store.list_tasks(dataset_id)
+        replaced = False
+        updated: list[QcTask] = []
+        for existing in tasks:
+            if existing.task_id == task.task_id:
+                updated.append(task)
+                replaced = True
+            else:
+                updated.append(existing)
+        if not replaced:
+            updated.append(task)
+        self._state_store.save_tasks(dataset_id, updated)
+
+    def _to_assignment_response(
+        self,
+        assignment: BatchQcAssignment,
+    ) -> BatchQcAssignmentResponse:
+        return BatchQcAssignmentResponse(**assignment.model_dump())
+
+    def _to_task_response(self, task: QcTask) -> QcTaskResponse:
+        return QcTaskResponse(**task.model_dump())
+
+    def _to_lease_response(self, lease: SampleLease) -> SampleLeaseResponse:
+        return SampleLeaseResponse(**lease.model_dump())
+
+    def _to_draft_response(self, draft: LabelEditDraft) -> LabelEditDraftResponse:
+        operations = [LabelEditOperation.model_validate(item) for item in draft.operations]
+        return LabelEditDraftResponse(
+            draft_id=draft.draft_id,
+            dataset_id=draft.dataset_id,
+            sample_id=draft.sample_id,
+            user_id=draft.user_id,
+            task_id=draft.task_id,
+            lease_id=draft.lease_id,
+            base_revision=draft.base_revision,
+            label_config_id=draft.label_config_id,
+            label_config_version=draft.label_config_version,
+            operations=operations,
+            created_at=draft.created_at,
+            updated_at=draft.updated_at,
+        )
+
+    def _to_submission_response(
+        self,
+        submission: LabelEditSubmission,
+    ) -> LabelEditSubmissionResponse:
+        operations = [LabelEditOperation.model_validate(item) for item in submission.operations]
+        return LabelEditSubmissionResponse(
+            submission_id=submission.submission_id,
+            dataset_id=submission.dataset_id,
+            sample_id=submission.sample_id,
+            user_id=submission.user_id,
+            task_id=submission.task_id,
+            lease_id=submission.lease_id,
+            base_revision=submission.base_revision,
+            label_config_id=submission.label_config_id,
+            label_config_version=submission.label_config_version,
+            operations=operations,
+            created_at=submission.created_at,
+        )
+
+    def _active_lease_for_sample(self, dataset_id: str, sample_id: str) -> SampleLease | None:
+        now = self._state_store.now()
+        leases = self._state_store.list_leases(dataset_id)
+        changed = False
+        active: SampleLease | None = None
+        updated: list[SampleLease] = []
+        for lease in leases:
+            current = lease
+            if (
+                lease.sample_id == sample_id
+                and lease.status == LeaseStatus.ACTIVE
+                and lease.expires_at <= now
+            ):
+                current = lease.model_copy(update={"status": LeaseStatus.EXPIRED})
+                changed = True
+            updated.append(current)
+            if (
+                current.sample_id == sample_id
+                and current.status == LeaseStatus.ACTIVE
+                and (active is None or current.expires_at > active.expires_at)
+            ):
+                active = current
+        if changed:
+            self._state_store.save_leases(dataset_id, updated)
+        return active
+
+    def _build_asset_item(
+        self,
+        sample: FixtureSample,
+        reviews: list[HumanReview] | None = None,
+    ) -> AssetListItem:
+        reviews = reviews if reviews is not None else self._reviews.get(sample.sample_id, [])
         qc_status = "reviewed" if reviews else "pending"
 
         categories: list[str] = []
@@ -344,13 +1117,378 @@ class FixtureRuntimeService:
             for key, count in sorted(counter.items(), key=lambda item: (-item[1], item[0]))
         ]
 
+    def _runtime_distribution_counters(
+        self,
+        runtime: RegisteredBatchRuntime,
+    ) -> tuple[Counter[str], Counter[str], Counter[str], Counter[str], Counter[str], Counter[str], int, int]:
+        judge_counter: Counter[str] = Counter()
+        category_counter: Counter[str] = Counter()
+        verification_counter: Counter[str] = Counter()
+        confidence_counter: Counter[str] = Counter()
+        visibility_counter: Counter[str] = Counter()
+        sample_category_counter: Counter[str] = Counter()
+        fact_verification_count = 0
+        candidate_count = 0
+
+        for sample in runtime.samples.values():
+            judge_counter[sample.stage1.judge_decision] += 1
+            if sample.stage2 is None:
+                continue
+            fact_verification_count += len(sample.stage2.fact_verifications)
+            candidate_count += len(sample.stage2.candidates)
+            for verification in sample.stage2.fact_verifications:
+                verification_counter[verification.verification_result] += 1
+                visibility_counter[verification.visibility_level] += 1
+            for candidate in sample.stage2.candidates:
+                sample_category_counter[candidate.sample_category] += 1
+                if candidate.confidence >= 0.9:
+                    confidence_counter[">=0.90"] += 1
+                elif candidate.confidence >= 0.75:
+                    confidence_counter["0.75-0.89"] += 1
+                else:
+                    confidence_counter["<0.75"] += 1
+                for category in candidate.violation_category:
+                    category_counter[category] += 1
+
+        return (
+            judge_counter,
+            category_counter,
+            verification_counter,
+            confidence_counter,
+            visibility_counter,
+            sample_category_counter,
+            fact_verification_count,
+            candidate_count,
+        )
+
+    def _build_registered_dataset_summary(
+        self,
+        summary: DatasetSummaryResponse,
+        runtime: RegisteredBatchRuntime,
+    ) -> DatasetSummaryResponse:
+        total = len(runtime.samples)
+        stage1_count = total if runtime.stage1_run_name is not None else 0
+        stage2_success_count = sum(1 for sample in runtime.samples.values() if sample.stage2 is not None)
+        reviewed_count = sum(1 for history in runtime.reviews.values() if history)
+        (
+            judge_counter,
+            category_counter,
+            verification_counter,
+            confidence_counter,
+            visibility_counter,
+            sample_category_counter,
+            fact_verification_count,
+            candidate_count,
+        ) = self._runtime_distribution_counters(runtime)
+        job = (
+            self._import_jobs.get(summary.active_import_job_id)
+            if summary.active_import_job_id is not None
+            else None
+        )
+        return summary.model_copy(
+            update={
+                "lifecycle_status": (
+                    self._registered_batch_lifecycle(job)
+                    if job is not None
+                    else summary.lifecycle_status
+                ),
+                "active_label_config_version": self._current_active_label_config_version(
+                    summary.dataset_type
+                ),
+                "total_assets": total,
+                "stage1_count": stage1_count,
+                "stage2_success_count": stage2_success_count,
+                "stage2_failure_count": runtime.stage2_failure_artifact_count,
+                "reviewed_count": reviewed_count,
+                "fact_verification_count": fact_verification_count,
+                "candidate_count": candidate_count,
+                "judge_decision_distribution": self._distribution(judge_counter, total),
+                "category_distribution": self._distribution(category_counter),
+                "verification_distribution": self._distribution(
+                    verification_counter,
+                    fact_verification_count,
+                ),
+                "confidence_distribution": self._distribution(confidence_counter, candidate_count),
+                "visibility_distribution": self._distribution(
+                    visibility_counter,
+                    fact_verification_count,
+                ),
+                "sample_category_distribution": self._distribution(
+                    sample_category_counter,
+                    candidate_count,
+                ),
+            }
+        )
+
     def list_datasets(self) -> list[DatasetSummaryResponse]:
         """Return available batch datasets for current dataset type."""
-        return [self.get_dataset_summary(self._dataset_id)]
+        registered = [
+            self._build_registered_dataset_summary(summary, runtime)
+            if (runtime := self._registered_batch_runtimes.get(summary.dataset_id)) is not None
+            else summary
+            for summary in self._registered_batches.values()
+        ]
+        return [
+            self.get_dataset_summary(self._dataset_id),
+            *sorted(registered, key=lambda item: item.dataset_id),
+        ]
+
+    def list_dataset_types(self) -> list[DatasetTypeResponse]:
+        """Return registered dataset types and their concrete batches."""
+        responses: list[DatasetTypeResponse] = []
+        for dataset_type in sorted(self._dataset_type_display_names):
+            batches = []
+            if dataset_type == self._dataset_type:
+                batches.append(self.get_dataset_summary(self._dataset_id))
+            batches.extend(
+                sorted(
+                    (
+                        self._build_registered_dataset_summary(summary, runtime)
+                        if (runtime := self._registered_batch_runtimes.get(summary.dataset_id)) is not None
+                        else summary.model_copy(
+                            update={
+                                "active_label_config_version": self._current_active_label_config_version(
+                                    summary.dataset_type
+                                )
+                            }
+                        )
+                        for summary in self._registered_batches.values()
+                        if summary.dataset_type == dataset_type
+                    ),
+                    key=lambda item: item.dataset_id,
+                )
+            )
+            responses.append(
+                DatasetTypeResponse(
+                    dataset_type=dataset_type,
+                    display_name=self._dataset_type_display_names[dataset_type],
+                    field_schema_version=self._dataset_type_schema_versions.get(dataset_type, "draft"),
+                    active_label_config_version=self._current_active_label_config_version(dataset_type),
+                    status="active",
+                    batch_count=len(batches),
+                    batches=batches,
+                )
+            )
+        return responses
+
+    def create_dataset_type(self, request: DatasetTypeCreateRequest) -> DatasetTypeResponse:
+        """Register an empty dataset type; batches are created under the type later."""
+        if request.dataset_type in self._dataset_type_display_names:
+            raise ValueError(f"Dataset type already exists: {request.dataset_type}")
+        self._dataset_type_display_names[request.dataset_type] = request.display_name
+        self._dataset_type_schema_versions[request.dataset_type] = request.field_schema_version
+        self._persist_dataset_type_registry()
+        return DatasetTypeResponse(
+            dataset_type=request.dataset_type,
+            display_name=request.display_name,
+            field_schema_version=request.field_schema_version,
+            active_label_config_version=None,
+            status="active",
+            batch_count=0,
+            batches=[],
+        )
+
+    def login(self, request: LoginRequest) -> LoginResponse:
+        """Authenticate one internal account and issue a session token."""
+        user = self._auth_service.get_user(request.user_id)
+        if user is None or user.status != UserStatus.ACTIVE:
+            raise ApiError(
+                status_code=401,
+                code="unauthorized",
+                message="Invalid credentials.",
+            )
+        if not self._auth_service.verify_password(request.password, user.password_hash):
+            raise ApiError(
+                status_code=401,
+                code="unauthorized",
+                message="Invalid credentials.",
+            )
+        session = self._auth_service.create_session(user)
+        context = AuthContext(
+            auth_mode="session",
+            user=user,
+            roles=[binding for binding in self._state_store.list_role_bindings() if binding.user_id == user.user_id],
+        )
+        self._record_audit(
+            actor=context,
+            action="user.login",
+            entity="session",
+            details={"auth_mode": "session", "session_id": session.session_id},
+        )
+        return LoginResponse(
+            token=session.token,
+            expires_at=session.expires_at,
+            auth_mode="session",
+            user=self._to_user_response(user),
+        )
+
+    def logout(self, context: AuthContext, token: str | None) -> LogoutResponse:
+        if not token:
+            return LogoutResponse(logged_out=False)
+        result = self._auth_service.revoke_session(token)
+        if result:
+            self._record_audit(
+                actor=context,
+                action="user.logout",
+                entity="session",
+                details={"token_revoked": True},
+            )
+        return LogoutResponse(logged_out=result)
+
+    def get_me(self, context: AuthContext) -> CurrentUserResponse:
+        return context.to_current_user_response()
+
+    def list_users(self, context: AuthContext) -> list[UserAccountResponse]:
+        self._require_permission(context=context, action="users:manage")
+        return [self._to_user_response(user) for user in self._state_store.list_users()]
+
+    def create_user(self, context: AuthContext, request: UserAccountCreateRequest) -> UserAccountResponse:
+        self._require_permission(context=context, action="users:manage")
+        if self._auth_service.get_user(request.user_id) is not None:
+            raise conflict(
+                "user_conflict",
+                "User already exists.",
+                user_id=request.user_id,
+            )
+        now = self._state_store.now()
+        user = UserAccount(
+            user_id=request.user_id,
+            display_name=request.display_name,
+            email=request.email,
+            password_hash=self._auth_service.hash_password(request.password),
+            status=request.status,
+            created_at=now,
+            updated_at=now,
+            last_seen_at=None,
+        )
+        self._auth_service.save_user(user)
+        self._record_audit(
+            actor=context,
+            action="user.create",
+            entity="user",
+            details={"user_id": request.user_id},
+            after=self._to_user_response(user).model_dump(mode="json"),
+        )
+        return self._to_user_response(user)
+
+    def patch_user(
+        self,
+        context: AuthContext,
+        user_id: str,
+        request: UserAccountPatchRequest,
+    ) -> UserAccountResponse:
+        self._require_permission(context=context, action="users:manage")
+        user = self._auth_service.get_user(user_id)
+        if user is None:
+            raise ApiError(status_code=404, code="not_found", message=f"User not found: {user_id}")
+        before = self._to_user_response(user).model_dump(mode="json")
+        updates: dict[str, Any] = {"updated_at": self._state_store.now()}
+        if request.display_name is not None:
+            updates["display_name"] = request.display_name
+        if request.email is not None:
+            updates["email"] = request.email
+        if request.status is not None:
+            updates["status"] = request.status
+        if request.password is not None:
+            updates["password_hash"] = self._auth_service.hash_password(request.password)
+        patched = user.model_copy(update=updates)
+        self._auth_service.save_user(patched)
+        self._record_audit(
+            actor=context,
+            action="user.patch",
+            entity="user",
+            details={"user_id": user_id},
+            before=before,
+            after=self._to_user_response(patched).model_dump(mode="json"),
+        )
+        return self._to_user_response(patched)
+
+    def list_role_bindings(self, context: AuthContext) -> list[RoleBinding]:
+        self._require_permission(context=context, action="roles:manage")
+        return self._state_store.list_role_bindings()
+
+    def create_role_binding(
+        self,
+        context: AuthContext,
+        request: RoleBindingCreateRequest,
+    ) -> RoleBinding:
+        self._require_permission(context=context, action="roles:manage")
+        if self._auth_service.get_user(request.user_id) is None:
+            raise ApiError(
+                status_code=404,
+                code="not_found",
+                message=f"User not found: {request.user_id}",
+            )
+        bindings = self._state_store.list_role_bindings()
+        for binding in bindings:
+            if (
+                binding.user_id == request.user_id
+                and binding.role == request.role
+                and binding.scope_type == request.scope_type
+                and binding.scope_id == request.scope_id
+            ):
+                raise conflict(
+                    "role_binding_conflict",
+                    "Role binding already exists.",
+                    user_id=request.user_id,
+                )
+        new_binding = RoleBinding(
+            binding_id=self._state_store.new_id("rb"),
+            user_id=request.user_id,
+            role=request.role,
+            scope_type=request.scope_type,
+            scope_id=request.scope_id,
+            created_by=context.user_id,
+            created_at=self._state_store.now(),
+        )
+        bindings.append(new_binding)
+        self._state_store.save_role_bindings(bindings)
+        self._record_audit(
+            actor=context,
+            action="role_binding.create",
+            entity="role_binding",
+            details={"binding_id": new_binding.binding_id},
+            after=new_binding.model_dump(mode="json"),
+        )
+        return new_binding
+
+    def delete_role_binding(self, context: AuthContext, binding_id: str) -> bool:
+        self._require_permission(context=context, action="roles:manage")
+        bindings = self._state_store.list_role_bindings()
+        kept: list[RoleBinding] = []
+        removed: RoleBinding | None = None
+        for binding in bindings:
+            if binding.binding_id == binding_id:
+                removed = binding
+            else:
+                kept.append(binding)
+        if removed is None:
+            return False
+        self._state_store.save_role_bindings(kept)
+        self._record_audit(
+            actor=context,
+            action="role_binding.delete",
+            entity="role_binding",
+            details={"binding_id": binding_id},
+            before=removed.model_dump(mode="json"),
+        )
+        return True
 
     def get_dataset_summary(self, dataset_id: str) -> DatasetSummaryResponse:
         """Return aggregate dataset counters."""
         self._require_dataset(dataset_id)
+        if dataset_id in self._registered_batches:
+            summary = self._registered_batches[dataset_id]
+            runtime = self._registered_batch_runtimes.get(dataset_id)
+            if runtime is not None:
+                return self._build_registered_dataset_summary(summary, runtime)
+            return summary.model_copy(
+                update={
+                    "active_label_config_version": self._current_active_label_config_version(
+                        summary.dataset_type
+                    )
+                }
+            )
         reviewed_count = sum(1 for history in self._reviews.values() if history)
         dataset = self._bundle.dataset
         judge_counter: Counter[str] = Counter()
@@ -385,7 +1523,7 @@ class FixtureRuntimeService:
         return DatasetSummaryResponse(
             dataset_id=self._dataset_id,
             dataset_type=self._dataset_type,
-            display_name="城市违规",
+            display_name=self._dataset_type_display_names[self._dataset_type],
             field_schema_version=self._field_schema_version,
             active_label_config_version=self._current_active_label_config_version(),
             batch_key=self._batch_key,
@@ -416,7 +1554,7 @@ class FixtureRuntimeService:
         request: LabelConfigValidateRequest,
     ) -> LabelConfigValidationReport:
         """Validate one uploaded label config without persisting it."""
-        self._require_dataset(dataset_id)
+        self._require_dataset_or_type(dataset_id)
         dataset_type = self._resolve_dataset_type(dataset_id)
         report, _ = validate_label_config(dataset_id=dataset_type, payload=request.config)
         return report.model_copy(update={"dataset_id": dataset_id})
@@ -427,7 +1565,7 @@ class FixtureRuntimeService:
         request: LabelConfigSaveRequest,
     ) -> StoredLabelConfig:
         """Validate and save one uploaded label config version."""
-        self._require_dataset(dataset_id)
+        self._require_dataset_or_type(dataset_id)
         dataset_type = self._resolve_dataset_type(dataset_id)
         report, config = validate_label_config(dataset_id=dataset_type, payload=request.config)
         if not report.valid or config is None:
@@ -445,7 +1583,7 @@ class FixtureRuntimeService:
 
     def activate_label_config(self, dataset_id: str, config_id: str) -> StoredLabelConfig:
         """Activate a previously saved label config version."""
-        self._require_dataset(dataset_id)
+        self._require_dataset_or_type(dataset_id)
         dataset_type = self._resolve_dataset_type(dataset_id)
         try:
             stored = self._label_config_repo.activate(dataset_id=dataset_type, config_id=config_id)
@@ -453,16 +1591,42 @@ class FixtureRuntimeService:
             return self._bind_label_config_to_dataset(stored=stored, dataset_id=dataset_id)
         except LabelConfigVersionNotFoundError as exc:
             raise LabelConfigVersionAccessError(str(exc)) from exc
+        except LabelConfigPersistenceError as exc:
+            raise LabelConfigPersistenceAccessError(str(exc)) from exc
 
     def get_active_label_config(self, dataset_id: str) -> StoredLabelConfig:
         """Return the currently active label config for one dataset."""
-        self._require_dataset(dataset_id)
+        self._require_dataset_or_type(dataset_id)
         dataset_type = self._resolve_dataset_type(dataset_id)
         try:
             stored = self._label_config_repo.get_active(dataset_id=dataset_type)
             return self._bind_label_config_to_dataset(stored=stored, dataset_id=dataset_id)
         except ActiveLabelConfigNotFoundError as exc:
             raise ActiveLabelConfigAccessError(str(exc)) from exc
+        except (LabelConfigPersistenceError, LabelConfigVersionNotFoundError) as exc:
+            raise LabelConfigPersistenceAccessError(str(exc)) from exc
+
+    def list_label_configs(self, dataset_id: str) -> list[StoredLabelConfig]:
+        """Return all saved label config versions for one dataset type."""
+        self._require_dataset_or_type(dataset_id)
+        dataset_type = self._resolve_dataset_type(dataset_id)
+        return [
+            self._bind_label_config_to_dataset(stored=stored, dataset_id=dataset_id)
+            for stored in self._label_config_repo.list_configs(dataset_type)
+        ]
+
+    def reload_active_label_config(self, dataset_id: str) -> StoredLabelConfig:
+        """Reload the active label config from persistent storage into runtime cache."""
+        self._require_dataset_or_type(dataset_id)
+        dataset_type = self._resolve_dataset_type(dataset_id)
+        try:
+            stored = self._label_config_repo.reload_active(dataset_type)
+            self._lifecycle_status = self._derive_lifecycle_status()
+            return self._bind_label_config_to_dataset(stored=stored, dataset_id=dataset_id)
+        except ActiveLabelConfigNotFoundError as exc:
+            raise ActiveLabelConfigAccessError(str(exc)) from exc
+        except (LabelConfigPersistenceError, LabelConfigVersionNotFoundError) as exc:
+            raise LabelConfigPersistenceAccessError(str(exc)) from exc
 
     def get_label_suggestions(
         self,
@@ -471,7 +1635,7 @@ class FixtureRuntimeService:
         query: str = "",
     ) -> LabelSuggestionResponse:
         """Return filtered options from the active label config only."""
-        self._require_dataset(dataset_id)
+        self._require_dataset_or_type(dataset_id)
         dataset_type = self._resolve_dataset_type(dataset_id)
         try:
             active = self._label_config_repo.get_active(dataset_id=dataset_type)
@@ -762,9 +1926,83 @@ class FixtureRuntimeService:
         dataset_id: str,
         sample_id: str,
         request: LabelEditSubmitRequest,
+        *,
+        context: AuthContext,
     ) -> LabelEditSubmitResponse:
         """Save reviewDraft patch as draft or submitted label-edit state."""
         self._require_sample(dataset_id, sample_id)
+        self._require_permission(context=context, action="label_edit:write", dataset_id=dataset_id)
+        active_dataset_id = self._effective_batch_dataset_id(dataset_id)
+        label_edits = self._label_edits_for_dataset(dataset_id)
+
+        assignment = self._state_store.get_assignment(active_dataset_id)
+        if assignment is None:
+            raise conflict(
+                "batch_assignment_required",
+                "Batch assignment is required before editing.",
+                dataset_id=active_dataset_id,
+            )
+        if assignment.assignee_user_id != context.user_id:
+            raise conflict(
+                "batch_assigned_to_other_user",
+                "Batch is assigned to another user.",
+                dataset_id=active_dataset_id,
+                assignee_user_id=assignment.assignee_user_id,
+            )
+
+        if request.lease_id is None:
+            raise conflict(
+                "lease_required",
+                "Active sample lease is required.",
+                dataset_id=active_dataset_id,
+                sample_id=sample_id,
+            )
+
+        active_lease = self._active_lease_for_sample(active_dataset_id, sample_id)
+        if active_lease is None:
+            raise conflict(
+                "lease_required",
+                "Active sample lease is required.",
+                dataset_id=active_dataset_id,
+                sample_id=sample_id,
+            )
+        if active_lease.lease_id != request.lease_id:
+            raise conflict(
+                "lease_required",
+                "Lease id does not match active lease.",
+                lease_id=request.lease_id,
+            )
+        if active_lease.user_id != context.user_id:
+            raise conflict(
+                "lease_owned_by_other_user",
+                "Lease is owned by another user.",
+                lease_user_id=active_lease.user_id,
+            )
+        if active_lease.status != LeaseStatus.ACTIVE:
+            raise conflict(
+                "lease_expired",
+                "Lease is not active.",
+                lease_id=active_lease.lease_id,
+            )
+
+        task = self._get_task(active_dataset_id, sample_id)
+        base_revision = request.base_revision if request.base_revision is not None else task.task_revision
+        if base_revision != task.task_revision:
+            raise conflict(
+                "base_revision_conflict",
+                "Base revision is stale.",
+                expected_revision=task.task_revision,
+                actual_revision=base_revision,
+            )
+
+        if task.label_config_version and request.label_config_version:
+            if task.label_config_version != request.label_config_version:
+                raise conflict(
+                    "label_config_changed",
+                    "Task label config version changed.",
+                    expected=task.label_config_version,
+                    actual=request.label_config_version,
+                )
 
         validation: LabelEditValidationResponse | None = None
         if request.submit_action == "submit_changes":
@@ -789,21 +2027,664 @@ class FixtureRuntimeService:
                 f"task_status mismatch for {request.submit_action}: expected {task_status}, got {request.task_status}"
             )
 
+        now = self._state_store.now()
+        next_revision = task.task_revision + 1
+        label_config_id = request.label_config_id or task.label_config_id
+        label_config_version = request.label_config_version or task.label_config_version
+
         self._label_edit_counter += 1
         state = LabelEditState(
             edit_id=f"label-edit-{self._label_edit_counter}",
             dataset_id=dataset_id,
             sample_id=sample_id,
+            user_id=context.user_id,
             task_mode=request.task_mode,
             submit_action=request.submit_action,
             task_status=task_status,
-            label_config_id=request.label_config_id,
-            label_config_version=request.label_config_version,
+            label_config_id=label_config_id,
+            label_config_version=label_config_version,
             operations=request.operations,
-            updated_at=datetime.now(timezone.utc),
+            updated_at=now,
         )
-        self._label_edits[sample_id].append(state)
+        label_edits.setdefault(sample_id, []).append(state)
+
+        if request.submit_action == "save_draft":
+            draft = LabelEditDraft(
+                draft_id=self._state_store.new_id("draft"),
+                dataset_id=active_dataset_id,
+                sample_id=sample_id,
+                user_id=context.user_id,
+                task_id=task.task_id,
+                lease_id=active_lease.lease_id,
+                base_revision=base_revision,
+                label_config_id=label_config_id,
+                label_config_version=label_config_version,
+                operations=[op.model_dump(mode="json") for op in request.operations],
+                created_at=now,
+                updated_at=now,
+            )
+            self._state_store.save_draft(draft)
+            updated_task = task.model_copy(
+                update={
+                    "status": QcTaskStatus.DRAFT_SAVED,
+                    "claimed_at": task.claimed_at or now,
+                    "task_revision": next_revision,
+                    "label_config_id": label_config_id,
+                    "label_config_version": label_config_version,
+                }
+            )
+            self._save_task(active_dataset_id, updated_task)
+            self._record_audit(
+                actor=context,
+                action="label_edit.save_draft",
+                entity="label_edit_draft",
+                dataset_id=active_dataset_id,
+                sample_id=sample_id,
+                details={"task_id": task.task_id, "draft_id": draft.draft_id},
+            )
+        else:
+            submission = LabelEditSubmission(
+                submission_id=self._state_store.new_id("subm"),
+                dataset_id=active_dataset_id,
+                sample_id=sample_id,
+                user_id=context.user_id,
+                task_id=task.task_id,
+                lease_id=active_lease.lease_id,
+                base_revision=base_revision,
+                label_config_id=label_config_id,
+                label_config_version=label_config_version,
+                operations=[op.model_dump(mode="json") for op in request.operations],
+                created_at=now,
+            )
+            self._state_store.save_submission(submission)
+            updated_task = task.model_copy(
+                update={
+                    "status": QcTaskStatus.SUBMITTED,
+                    "submitted_at": now,
+                    "latest_submission_id": submission.submission_id,
+                    "task_revision": next_revision,
+                    "label_config_id": label_config_id,
+                    "label_config_version": label_config_version,
+                }
+            )
+            self._save_task(active_dataset_id, updated_task)
+            leases = self._state_store.list_leases(active_dataset_id)
+            normalized: list[SampleLease] = []
+            for lease in leases:
+                if lease.lease_id == active_lease.lease_id:
+                    normalized.append(
+                        lease.model_copy(
+                            update={
+                                "status": LeaseStatus.RELEASED,
+                                "released_at": now,
+                            }
+                        )
+                    )
+                else:
+                    normalized.append(lease)
+            self._state_store.save_leases(active_dataset_id, normalized)
+            self._record_audit(
+                actor=context,
+                action="label_edit.submit",
+                entity="label_edit_submission",
+                dataset_id=active_dataset_id,
+                sample_id=sample_id,
+                details={"task_id": task.task_id, "submission_id": submission.submission_id},
+            )
+
         return LabelEditSubmitResponse(saved=True, state=state, validation=validation)
+
+    def get_batch_assignment(
+        self,
+        dataset_id: str,
+        *,
+        context: AuthContext,
+    ) -> BatchQcAssignmentResponse | None:
+        self._require_dataset(dataset_id)
+        self._require_permission(context=context, action="qc_queue:read", dataset_id=dataset_id)
+        assignment = self._state_store.get_assignment(self._effective_batch_dataset_id(dataset_id))
+        if assignment is None:
+            return None
+        return self._to_assignment_response(assignment)
+
+    def assign_batch(
+        self,
+        dataset_id: str,
+        request: BatchAssignmentRequest,
+        *,
+        context: AuthContext,
+        allow_reassign: bool,
+    ) -> BatchQcAssignmentResponse:
+        self._require_dataset(dataset_id)
+        self._require_permission(context=context, action="batch_assignment:manage", dataset_id=dataset_id)
+        if dataset_id in self._registered_batches and self._registered_batches[dataset_id].qc_queue_id is None:
+            raise conflict(
+                "qc_queue_required",
+                "Generate QC queue before assigning this batch.",
+                dataset_id=dataset_id,
+            )
+        self._ensure_qc_tasks_for_dataset(dataset_id)
+        active_dataset_id = self._effective_batch_dataset_id(dataset_id)
+        qc_queue_id = self._queue_id_for_dataset(dataset_id)
+        assignee = self._auth_service.get_user(request.assignee_user_id)
+        if assignee is None or assignee.status != UserStatus.ACTIVE:
+            raise conflict(
+                "batch_assignment_required",
+                "Assignee user does not exist or is disabled.",
+                assignee_user_id=request.assignee_user_id,
+            )
+
+        current = self._state_store.get_assignment(active_dataset_id)
+        active_statuses = {
+            BatchAssignmentStatus.ASSIGNED,
+            BatchAssignmentStatus.IN_PROGRESS,
+            BatchAssignmentStatus.SUBMITTED,
+            BatchAssignmentStatus.RETURNED,
+        }
+        now = self._state_store.now()
+        if current is not None and current.status in active_statuses and not allow_reassign:
+            raise conflict(
+                "batch_assigned_to_other_user",
+                "Batch already assigned.",
+                dataset_id=active_dataset_id,
+                assignee_user_id=current.assignee_user_id,
+            )
+
+        if current is not None and current.status in active_statuses and allow_reassign:
+            self._revoke_all_active_leases(dataset_id=active_dataset_id, revoked_by=context)
+            current = current.model_copy(
+                update={
+                    "status": BatchAssignmentStatus.REVOKED,
+                    "revoked_at": now,
+                }
+            )
+
+        assignment = BatchQcAssignment(
+            assignment_id=self._state_store.new_id("assign"),
+            qc_queue_id=qc_queue_id,
+            dataset_id=active_dataset_id,
+            assignee_user_id=request.assignee_user_id,
+            assigned_by=context.user_id,
+            status=BatchAssignmentStatus.ASSIGNED,
+            assigned_at=now,
+            submitted_at=None,
+            confirmed_at=None,
+            returned_at=None,
+            revoked_at=None,
+        )
+        self._state_store.save_assignment(assignment)
+        tasks = self._state_store.list_tasks(active_dataset_id)
+        updated_tasks = [
+            task.model_copy(
+                update={
+                    "assignee_user_id": request.assignee_user_id,
+                    "status": (
+                        QcTaskStatus.COMPLETED
+                        if task.status == QcTaskStatus.COMPLETED
+                        else QcTaskStatus.ASSIGNED
+                    ),
+                }
+            )
+            for task in tasks
+        ]
+        self._state_store.save_tasks(active_dataset_id, updated_tasks)
+        self._record_audit(
+            actor=context,
+            action=("batch_assignment.reassign" if allow_reassign else "batch_assignment.assign"),
+            entity="batch_assignment",
+            dataset_id=active_dataset_id,
+            details={"assignee_user_id": request.assignee_user_id},
+            after=assignment.model_dump(mode="json"),
+        )
+        return self._to_assignment_response(assignment)
+
+    def release_batch_assignment(
+        self,
+        dataset_id: str,
+        *,
+        context: AuthContext,
+        reason: str | None = None,
+    ) -> BatchQcAssignmentResponse:
+        self._require_dataset(dataset_id)
+        self._require_permission(context=context, action="batch_assignment:manage", dataset_id=dataset_id)
+        active_dataset_id = self._effective_batch_dataset_id(dataset_id)
+        current = self._state_store.get_assignment(active_dataset_id)
+        if current is None:
+            raise conflict(
+                "batch_assignment_required",
+                "No active assignment exists.",
+                dataset_id=active_dataset_id,
+            )
+        now = self._state_store.now()
+        released = current.model_copy(
+            update={
+                "status": BatchAssignmentStatus.REVOKED,
+                "revoked_at": now,
+            }
+        )
+        self._state_store.save_assignment(released)
+        tasks = self._state_store.list_tasks(active_dataset_id)
+        self._state_store.save_tasks(
+            active_dataset_id,
+            [
+                task.model_copy(
+                    update={
+                        "assignee_user_id": None,
+                        "status": (
+                            QcTaskStatus.COMPLETED
+                            if task.status == QcTaskStatus.COMPLETED
+                            else QcTaskStatus.QUEUED
+                        ),
+                    }
+                )
+                for task in tasks
+            ],
+        )
+        self._revoke_all_active_leases(dataset_id=active_dataset_id, revoked_by=context)
+        self._record_audit(
+            actor=context,
+            action="batch_assignment.release",
+            entity="batch_assignment",
+            dataset_id=active_dataset_id,
+            details={"reason": reason or ""},
+            before=current.model_dump(mode="json"),
+            after=released.model_dump(mode="json"),
+        )
+        return self._to_assignment_response(released)
+
+    def _revoke_all_active_leases(self, dataset_id: str, revoked_by: AuthContext) -> None:
+        now = self._state_store.now()
+        leases = self._state_store.list_leases(dataset_id)
+        changed = False
+        updated: list[SampleLease] = []
+        for lease in leases:
+            if lease.status == LeaseStatus.ACTIVE:
+                changed = True
+                updated.append(
+                    lease.model_copy(
+                        update={
+                            "status": LeaseStatus.REVOKED,
+                            "revoked_at": now,
+                        }
+                    )
+                )
+            else:
+                updated.append(lease)
+        if changed:
+            self._state_store.save_leases(dataset_id, updated)
+            self._record_audit(
+                actor=revoked_by,
+                action="sample_lease.revoke_all",
+                entity="sample_lease",
+                dataset_id=dataset_id,
+                details={"count": sum(1 for lease in leases if lease.status == LeaseStatus.ACTIVE)},
+            )
+
+    def acquire_sample_lease(
+        self,
+        dataset_id: str,
+        sample_id: str,
+        *,
+        context: AuthContext,
+    ) -> LeaseAcquireResponse:
+        self._require_sample(dataset_id, sample_id)
+        self._require_permission(context=context, action="label_edit:write", dataset_id=dataset_id)
+        active_dataset_id = self._effective_batch_dataset_id(dataset_id)
+
+        assignment = self._state_store.get_assignment(active_dataset_id)
+        if assignment is None:
+            raise conflict(
+                "batch_assignment_required",
+                "Batch assignment is required before lease acquire.",
+                dataset_id=active_dataset_id,
+            )
+        if assignment.assignee_user_id != context.user_id:
+            raise conflict(
+                "batch_assigned_to_other_user",
+                "Batch is assigned to another user.",
+                dataset_id=active_dataset_id,
+                assignee_user_id=assignment.assignee_user_id,
+            )
+
+        task = self._get_task(active_dataset_id, sample_id)
+        active = self._active_lease_for_sample(active_dataset_id, sample_id)
+        now = self._state_store.now()
+        if active is not None and active.user_id != context.user_id:
+            raise conflict(
+                "lease_owned_by_other_user",
+                "Active lease is owned by another user.",
+                sample_id=sample_id,
+                lease_user_id=active.user_id,
+            )
+        if active is not None and active.user_id == context.user_id:
+            extended = active.model_copy(
+                update={
+                    "heartbeat_at": now,
+                    "expires_at": now + timedelta(minutes=10),
+                }
+            )
+            leases = [
+                extended if lease.lease_id == active.lease_id else lease
+                for lease in self._state_store.list_leases(active_dataset_id)
+            ]
+            self._state_store.save_leases(active_dataset_id, leases)
+            return LeaseAcquireResponse(editable=True, lease=self._to_lease_response(extended))
+
+        lease = SampleLease(
+            lease_id=self._state_store.new_id("lease"),
+            dataset_id=active_dataset_id,
+            sample_id=sample_id,
+            task_id=task.task_id,
+            user_id=context.user_id,
+            status=LeaseStatus.ACTIVE,
+            acquired_at=now,
+            expires_at=now + timedelta(minutes=10),
+            heartbeat_at=now,
+            released_at=None,
+            revoked_at=None,
+        )
+        leases = self._state_store.list_leases(active_dataset_id)
+        leases.append(lease)
+        self._state_store.save_leases(active_dataset_id, leases)
+        updated_task = task.model_copy(update={"status": QcTaskStatus.IN_PROGRESS, "claimed_at": now})
+        self._save_task(active_dataset_id, updated_task)
+        self._record_audit(
+            actor=context,
+            action="sample_lease.acquire",
+            entity="sample_lease",
+            dataset_id=active_dataset_id,
+            sample_id=sample_id,
+            details={"lease_id": lease.lease_id},
+        )
+        return LeaseAcquireResponse(editable=True, lease=self._to_lease_response(lease))
+
+    def heartbeat_sample_lease(
+        self,
+        dataset_id: str,
+        sample_id: str,
+        lease_id: str,
+        *,
+        context: AuthContext,
+    ) -> SampleLeaseResponse:
+        self._require_sample(dataset_id, sample_id)
+        active_dataset_id = self._effective_batch_dataset_id(dataset_id)
+        leases = self._state_store.list_leases(active_dataset_id)
+        now = self._state_store.now()
+        updated: list[SampleLease] = []
+        matched: SampleLease | None = None
+        for lease in leases:
+            current = lease
+            if lease.lease_id == lease_id:
+                if lease.user_id != context.user_id:
+                    raise conflict(
+                        "lease_owned_by_other_user",
+                        "Cannot heartbeat lease owned by another user.",
+                        lease_id=lease_id,
+                    )
+                if lease.status != LeaseStatus.ACTIVE or lease.expires_at <= now:
+                    raise conflict(
+                        "lease_expired",
+                        "Lease is expired.",
+                        lease_id=lease_id,
+                    )
+                current = lease.model_copy(
+                    update={
+                        "heartbeat_at": now,
+                        "expires_at": now + timedelta(minutes=10),
+                    }
+                )
+                matched = current
+            updated.append(current)
+        if matched is None:
+            raise conflict("lease_required", "Lease not found.", lease_id=lease_id)
+        self._state_store.save_leases(active_dataset_id, updated)
+        self._record_audit(
+            actor=context,
+            action="sample_lease.heartbeat",
+            entity="sample_lease",
+            dataset_id=active_dataset_id,
+            sample_id=sample_id,
+            details={"lease_id": lease_id},
+        )
+        return self._to_lease_response(matched)
+
+    def release_sample_lease(
+        self,
+        dataset_id: str,
+        sample_id: str,
+        lease_id: str,
+        *,
+        context: AuthContext,
+    ) -> SampleLeaseResponse:
+        self._require_sample(dataset_id, sample_id)
+        active_dataset_id = self._effective_batch_dataset_id(dataset_id)
+        leases = self._state_store.list_leases(active_dataset_id)
+        now = self._state_store.now()
+        updated: list[SampleLease] = []
+        matched: SampleLease | None = None
+        for lease in leases:
+            current = lease
+            if lease.lease_id == lease_id:
+                if lease.user_id != context.user_id:
+                    self._require_permission(context=context, action="lease:force_release", dataset_id=dataset_id)
+                current = lease.model_copy(
+                    update={
+                        "status": LeaseStatus.RELEASED,
+                        "released_at": now,
+                    }
+                )
+                matched = current
+            updated.append(current)
+        if matched is None:
+            raise conflict("lease_required", "Lease not found.", lease_id=lease_id)
+        self._state_store.save_leases(active_dataset_id, updated)
+        self._record_audit(
+            actor=context,
+            action="sample_lease.release",
+            entity="sample_lease",
+            dataset_id=active_dataset_id,
+            sample_id=sample_id,
+            details={"lease_id": lease_id},
+        )
+        return self._to_lease_response(matched)
+
+    def get_my_draft(
+        self,
+        dataset_id: str,
+        sample_id: str,
+        *,
+        context: AuthContext,
+    ) -> LabelEditDraftResponse | None:
+        self._require_sample(dataset_id, sample_id)
+        active_dataset_id = self._effective_batch_dataset_id(dataset_id)
+        draft = self._state_store.get_draft(active_dataset_id, sample_id, context.user_id)
+        if draft is None:
+            return None
+        return self._to_draft_response(draft)
+
+    def get_label_edit_history(
+        self,
+        dataset_id: str,
+        sample_id: str,
+        *,
+        context: AuthContext,
+    ) -> list[LabelEditSubmissionResponse]:
+        self._require_sample(dataset_id, sample_id)
+        self._require_permission(context=context, action="dataset:read", dataset_id=dataset_id)
+        active_dataset_id = self._effective_batch_dataset_id(dataset_id)
+        return [
+            self._to_submission_response(item)
+            for item in self._state_store.list_submissions(active_dataset_id, sample_id)
+        ]
+
+    def confirm_submission(
+        self,
+        dataset_id: str,
+        sample_id: str,
+        submission_id: str,
+        *,
+        context: AuthContext,
+    ) -> LabelEditSubmissionResponse:
+        self._require_sample(dataset_id, sample_id)
+        self._require_permission(context=context, action="label_edit:confirm", dataset_id=dataset_id)
+        active_dataset_id = self._effective_batch_dataset_id(dataset_id)
+        submission = self._state_store.get_submission(active_dataset_id, sample_id, submission_id)
+        if submission is None:
+            raise ApiError(
+                status_code=404,
+                code="not_found",
+                message=f"Submission not found: {submission_id}",
+            )
+        task = self._get_task(active_dataset_id, sample_id)
+        if task.status != QcTaskStatus.SUBMITTED:
+            raise conflict(
+                "submission_not_submitted",
+                "Task is not in submitted status.",
+                task_status=task.status.value,
+            )
+        now = self._state_store.now()
+        updated_task = task.model_copy(
+            update={
+                "status": QcTaskStatus.COMPLETED,
+                "confirmed_by": context.user_id,
+                "confirmed_at": now,
+                "completed_at": now,
+            }
+        )
+        self._save_task(active_dataset_id, updated_task)
+        self._record_audit(
+            actor=context,
+            action="label_edit.confirm",
+            entity="label_edit_submission",
+            dataset_id=active_dataset_id,
+            sample_id=sample_id,
+            details={"submission_id": submission_id},
+        )
+        return self._to_submission_response(submission)
+
+    def return_submission(
+        self,
+        dataset_id: str,
+        sample_id: str,
+        submission_id: str,
+        *,
+        context: AuthContext,
+    ) -> LabelEditSubmissionResponse:
+        self._require_sample(dataset_id, sample_id)
+        self._require_permission(context=context, action="label_edit:confirm", dataset_id=dataset_id)
+        active_dataset_id = self._effective_batch_dataset_id(dataset_id)
+        submission = self._state_store.get_submission(active_dataset_id, sample_id, submission_id)
+        if submission is None:
+            raise ApiError(
+                status_code=404,
+                code="not_found",
+                message=f"Submission not found: {submission_id}",
+            )
+        task = self._get_task(active_dataset_id, sample_id)
+        if task.status not in {QcTaskStatus.SUBMITTED, QcTaskStatus.COMPLETED}:
+            raise conflict(
+                "submission_not_submitted",
+                "Task is not in submitted/confirmed status.",
+                task_status=task.status.value,
+            )
+        now = self._state_store.now()
+        updated_task = task.model_copy(
+            update={
+                "status": QcTaskStatus.RETURNED,
+                "confirmed_by": context.user_id,
+                "confirmed_at": now,
+            }
+        )
+        self._save_task(active_dataset_id, updated_task)
+        self._record_audit(
+            actor=context,
+            action="label_edit.returned",
+            entity="label_edit_submission",
+            dataset_id=active_dataset_id,
+            sample_id=sample_id,
+            details={"submission_id": submission_id},
+        )
+        return self._to_submission_response(submission)
+
+    def list_audit_events(
+        self,
+        *,
+        context: AuthContext,
+        dataset_id: str | None = None,
+        sample_id: str | None = None,
+        actor_user_id: str | None = None,
+        action: str | None = None,
+    ) -> list[AuditEventResponse]:
+        try:
+            self._require_permission(context=context, action="audit:read", dataset_id=dataset_id)
+            restrict_to_self = False
+        except ApiError:
+            self._require_permission(context=context, action="audit:read_own", dataset_id=dataset_id)
+            if actor_user_id != context.user_id:
+                raise forbidden(
+                    message="Self audit access requires actor_user_id to match current user.",
+                    action="audit:read_own",
+                    actor_user_id=actor_user_id,
+                )
+            restrict_to_self = True
+        events = self._state_store.list_audit_events()
+        filtered: list[AuditEventResponse] = []
+        for event in events:
+            if dataset_id and event.dataset_id != dataset_id:
+                continue
+            if sample_id and event.sample_id != sample_id:
+                continue
+            if actor_user_id and event.actor_user_id != actor_user_id:
+                continue
+            if action and event.action != action:
+                continue
+            if restrict_to_self and event.actor_user_id != context.user_id:
+                continue
+            filtered.append(AuditEventResponse(**event.model_dump()))
+        return filtered
+
+    def get_qc_progress(self, dataset_id: str, *, context: AuthContext) -> QcProgressResponse:
+        self._require_dataset(dataset_id)
+        try:
+            self._require_permission(context=context, action="qc_progress:read", dataset_id=dataset_id)
+            restrict_to_self = False
+        except ApiError:
+            self._require_permission(context=context, action="qc_progress:read_own", dataset_id=dataset_id)
+            restrict_to_self = True
+        active_dataset_id = self._effective_batch_dataset_id(dataset_id)
+        tasks = self._state_store.list_tasks(active_dataset_id)
+        if restrict_to_self:
+            tasks = [task for task in tasks if task.assignee_user_id == context.user_id]
+        status_counter: Counter[QcTaskStatus] = Counter(task.status for task in tasks)
+        user_counter: Counter[str] = Counter(
+            task.assignee_user_id for task in tasks if task.assignee_user_id is not None
+        )
+        assignment = self._state_store.get_assignment(active_dataset_id)
+        return QcProgressResponse(
+            dataset_id=active_dataset_id,
+            assignment=(self._to_assignment_response(assignment) if assignment else None),
+            total_tasks=len(tasks),
+            by_status=[
+                QcProgressByStatus(status=status, count=count)
+                for status, count in sorted(status_counter.items(), key=lambda item: item[0].value)
+            ],
+            by_user=[
+                QcProgressByUser(user_id=user_id, count=count)
+                for user_id, count in sorted(user_counter.items(), key=lambda item: item[0])
+            ],
+        )
+
+    def list_qc_tasks(self, dataset_id: str, *, context: AuthContext) -> list[QcTaskResponse]:
+        self._require_dataset(dataset_id)
+        self._require_permission(context=context, action="qc_queue:read", dataset_id=dataset_id)
+        active_dataset_id = self._effective_batch_dataset_id(dataset_id)
+        return [
+            self._to_task_response(task)
+            for task in sorted(
+                self._state_store.list_tasks(active_dataset_id),
+                key=lambda item: item.sample_id,
+            )
+        ]
 
     def list_assets(
         self,
@@ -823,8 +2704,33 @@ class FixtureRuntimeService:
     ) -> AssetListResponse:
         """List assets with query filter support."""
         self._require_dataset(dataset_id)
-
-        items = [self._build_asset_item(sample) for sample in self._samples.values()]
+        edited_histories = self._label_edits
+        response_dataset_id = self._dataset_id
+        response_dataset_type = self._dataset_type
+        response_batch_key = self._batch_key
+        has_stage1_payload = True
+        if dataset_id in self._registered_batches:
+            summary = self._registered_batches[dataset_id]
+            runtime = self._registered_batch_runtimes.get(dataset_id)
+            if runtime is None:
+                return AssetListResponse(
+                    dataset_id=summary.dataset_id,
+                    dataset_type=summary.dataset_type,
+                    batch_key=summary.batch_key,
+                    total=0,
+                    items=[],
+                )
+            edited_histories = runtime.label_edits
+            response_dataset_id = summary.dataset_id
+            response_dataset_type = summary.dataset_type
+            response_batch_key = summary.batch_key
+            has_stage1_payload = runtime.stage1_run_name is not None
+            items = [
+                self._build_asset_item(sample, runtime.reviews.get(sample.sample_id, []))
+                for sample in runtime.samples.values()
+            ]
+        else:
+            items = [self._build_asset_item(sample) for sample in self._samples.values()]
 
         if category:
             items = [item for item in items if category in item.violation_categories]
@@ -841,9 +2747,11 @@ class FixtureRuntimeService:
             items = [item for item in items if sample_category in item.sample_categories]
         if step1_status:
             if step1_status == "available":
-                pass
+                if not has_stage1_payload:
+                    items = []
             elif step1_status == "missing":
-                items = []
+                if has_stage1_payload:
+                    items = []
         if step2_status:
             items = [item for item in items if item.stage2_status == step2_status]
         if model_decision:
@@ -866,7 +2774,7 @@ class FixtureRuntimeService:
             elif media_status != "valid":
                 items = []
         if edited_status:
-            edited_sample_ids = {sample_id for sample_id, history in self._label_edits.items() if history}
+            edited_sample_ids = {sample_id for sample_id, history in edited_histories.items() if history}
             if edited_status == "edited":
                 items = [item for item in items if item.sample_id in edited_sample_ids]
             elif edited_status == "unedited":
@@ -874,9 +2782,9 @@ class FixtureRuntimeService:
 
         items.sort(key=lambda item: item.sample_id)
         return AssetListResponse(
-            dataset_id=self._dataset_id,
-            dataset_type=self._dataset_type,
-            batch_key=self._batch_key,
+            dataset_id=response_dataset_id,
+            dataset_type=response_dataset_type,
+            batch_key=response_batch_key,
             total=len(items),
             items=items,
         )
@@ -884,6 +2792,68 @@ class FixtureRuntimeService:
     def get_asset_summary(self, dataset_id: str) -> AssetSummaryResponse:
         """Return batch-scoped summary metrics for asset browsing."""
         self._require_dataset(dataset_id)
+        if dataset_id in self._registered_batches:
+            summary = self._registered_batches[dataset_id]
+            runtime = self._registered_batch_runtimes.get(dataset_id)
+            if runtime is not None:
+                items = [
+                    self._build_asset_item(sample, runtime.reviews.get(sample.sample_id, []))
+                    for sample in runtime.samples.values()
+                ]
+                total = len(items)
+                review_submitted = sum(1 for item in items if item.qc_status == "reviewed")
+                stage2_success = sum(1 for item in items if item.stage2_status == "success")
+                judge_counter: Counter[str] = Counter(item.judge_decision for item in items)
+                category_counter: Counter[str] = Counter()
+                sample_category_counter: Counter[str] = Counter()
+                qc_status_counter: Counter[str] = Counter(item.qc_status for item in items)
+                for item in items:
+                    category_counter.update(item.violation_categories)
+                    sample_category_counter.update(item.sample_categories)
+                return AssetSummaryResponse(
+                    dataset_id=summary.dataset_id,
+                    dataset_type=summary.dataset_type,
+                    batch_key=summary.batch_key,
+                    lifecycle_status=summary.lifecycle_status,
+                    metrics=AssetSummaryMetrics(
+                        total_assets=total,
+                        media_valid_total=total,
+                        media_invalid_total=0,
+                        stage1_total=total if runtime.stage1_run_name is not None else 0,
+                        stage2_success_total=stage2_success,
+                        stage2_failure_total=runtime.stage2_failure_artifact_count,
+                        review_pending_total=total - review_submitted,
+                        review_submitted_total=review_submitted,
+                        manual_edit_sample_total=sum(
+                            1 for history in runtime.label_edits.values() if history
+                        ),
+                    ),
+                    judge_decision_distribution=self._distribution(judge_counter, total),
+                    category_distribution=self._distribution(category_counter),
+                    sample_category_distribution=self._distribution(sample_category_counter),
+                    qc_status_distribution=self._distribution(qc_status_counter, total),
+                )
+            return AssetSummaryResponse(
+                dataset_id=summary.dataset_id,
+                dataset_type=summary.dataset_type,
+                batch_key=summary.batch_key,
+                lifecycle_status=summary.lifecycle_status,
+                metrics=AssetSummaryMetrics(
+                    total_assets=summary.total_assets,
+                    media_valid_total=summary.total_assets,
+                    media_invalid_total=0,
+                    stage1_total=summary.stage1_count,
+                    stage2_success_total=summary.stage2_success_count,
+                    stage2_failure_total=summary.stage2_failure_count,
+                    review_pending_total=0,
+                    review_submitted_total=0,
+                    manual_edit_sample_total=0,
+                ),
+                judge_decision_distribution=[],
+                category_distribution=[],
+                sample_category_distribution=[],
+                qc_status_distribution=[],
+            )
         items = [self._build_asset_item(sample) for sample in self._samples.values()]
         total = len(items)
         review_submitted = sum(1 for item in items if item.qc_status == "reviewed")
@@ -922,24 +2892,65 @@ class FixtureRuntimeService:
             qc_status_distribution=self._distribution(qc_status_counter, total),
         )
 
-    def get_asset_detail(self, dataset_id: str, sample_id: str) -> AssetDetailResponse:
+    def get_asset_detail(
+        self,
+        dataset_id: str,
+        sample_id: str,
+        *,
+        context: AuthContext | None = None,
+    ) -> AssetDetailResponse:
         """Return detailed sample view including stage outputs and review history."""
         sample = self._require_sample(dataset_id, sample_id)
-        reviews = self._reviews[sample_id]
-        label_edits = self._label_edits[sample_id]
+        runtime = self._registered_batch_runtimes.get(dataset_id)
+        active_dataset_id = self._dataset_id
+        response_dataset_id = self._dataset_id
+        response_dataset_type = self._dataset_type
+        response_batch_key = self._batch_key
+        if runtime is not None:
+            active_dataset_id = runtime.dataset_id
+            response_dataset_id = runtime.dataset_id
+            response_dataset_type = runtime.dataset_type
+            response_batch_key = runtime.batch_key
+            reviews = runtime.reviews.get(sample_id, [])
+            label_edits = runtime.label_edits.get(sample_id, [])
+        else:
+            reviews = self._reviews[sample_id]
+            label_edits = self._label_edits[sample_id]
         latest_review = reviews[-1] if reviews else None
         latest_label_edit = label_edits[-1] if label_edits else None
+        assignment = self._state_store.get_assignment(active_dataset_id)
+        task = self._task_map(active_dataset_id).get(sample_id)
+        active_lease = self._active_lease_for_sample(active_dataset_id, sample_id)
+        my_draft: LabelEditDraftResponse | None = None
+        latest_submission: LabelEditSubmissionResponse | None = None
+        current_user: CurrentUserResponse | None = None
+        if context is not None:
+            current_user = context.to_current_user_response()
+            draft = self._state_store.get_draft(active_dataset_id, sample_id, context.user_id)
+            if draft is not None:
+                my_draft = self._to_draft_response(draft)
+            submissions = self._state_store.list_submissions(active_dataset_id, sample_id)
+            if submissions:
+                latest_submission = self._to_submission_response(submissions[-1])
         return AssetDetailResponse(
-            dataset_id=self._dataset_id,
-            dataset_type=self._dataset_type,
-            batch_key=self._batch_key,
+            dataset_id=response_dataset_id,
+            dataset_type=response_dataset_type,
+            batch_key=response_batch_key,
             sample_id=sample_id,
-            asset=self._build_asset_item(sample),
+            asset=self._build_asset_item(sample, reviews),
             stage1=sample.stage1,
             stage2=sample.stage2,
             stage2_failure=sample.stage2_failure,
             label_edit_state=latest_label_edit,
             label_edit_history=label_edits,
+            current_user=current_user,
+            batch_assignment=(
+                self._to_assignment_response(assignment) if assignment is not None else None
+            ),
+            qc_task=self._to_task_response(task) if task is not None else None,
+            sample_lease=self._to_lease_response(active_lease) if active_lease is not None else None,
+            my_draft=my_draft,
+            latest_submission=latest_submission,
             latest_review=latest_review,
             review_history=reviews,
         )
@@ -968,13 +2979,44 @@ class FixtureRuntimeService:
         return review
 
     def _get_import_job(self, dataset_id: str, job_id: str) -> ImportJob:
-        self._require_dataset(dataset_id)
+        self._require_dataset_or_type(dataset_id)
         job = self._import_jobs.get(job_id)
         if job is None:
+            raise ImportJobNotFoundError(f"Import job not found: {job_id}")
+        if not self._job_belongs_to_dataset(dataset_id, job):
             raise ImportJobNotFoundError(f"Import job not found: {job_id}")
         return job
 
     def _build_mapping_steps(self, job: ImportJob) -> list[ImportMappingStep]:
+        if job.dataset_id != self._dataset_id:
+            return [
+                ImportMappingStep(id="raw", label="Raw assets", count=job.image_count, entity="RawAsset"),
+                ImportMappingStep(
+                    id="stage1",
+                    label="Stage1 records",
+                    count=job.stage1_file_count,
+                    entity="PreAnnotationStep1",
+                ),
+                ImportMappingStep(
+                    id="stage2",
+                    label="Stage2 records",
+                    count=job.stage2_file_count,
+                    entity="PreAnnotationStep2",
+                ),
+                ImportMappingStep(
+                    id="failures",
+                    label="Stage2 failures",
+                    count=job.stage2_failure_file_count or job.failure_count,
+                    entity="PreAnnotationFailure",
+                ),
+                ImportMappingStep(
+                    id="audit",
+                    label="Import diagnostics",
+                    count=len(job.warnings),
+                    entity="AuditArtifact",
+                ),
+            ]
+
         stage2_success_count = sum(1 for sample in self._samples.values() if sample.stage2 is not None)
         return [
             ImportMappingStep(id="raw", label="Raw assets", count=job.imported_assets, entity="RawAsset"),
@@ -995,18 +3037,39 @@ class FixtureRuntimeService:
         ]
 
     def _build_import_job_status(self, job: ImportJob) -> ImportJobStatusResponse:
-        stage2_success_count = sum(1 for sample in self._samples.values() if sample.stage2 is not None)
+        fixture_job = job.dataset_id == self._dataset_id
+        runtime = self._registered_batch_runtimes.get(job.dataset_id)
+        stage2_success_count = (
+            sum(1 for sample in self._samples.values() if sample.stage2 is not None)
+            if fixture_job
+            else sum(1 for sample in runtime.samples.values() if sample.stage2 is not None)
+            if runtime is not None
+            else job.stage2_file_count
+        )
+        lifecycle_status = (
+            self._lifecycle_status
+            if fixture_job
+            else self._registered_batches.get(job.dataset_id, None).lifecycle_status
+            if job.dataset_id in self._registered_batches
+            else self._registered_batch_lifecycle(job)
+        )
+        if fixture_job:
+            validation_rows = self._build_validation_rows()
+        elif runtime is not None:
+            validation_rows = self._build_registered_validation_rows(runtime)
+        else:
+            validation_rows = []
         payload = job.model_dump()
         payload.update(
             {
-                "dataset_id": self._dataset_id,
-                "dataset_type": self._dataset_type,
-                "batch_key": self._batch_key,
-                "lifecycle_status": self._lifecycle_status,
+                "dataset_id": job.dataset_id,
+                "dataset_type": job.dataset_type,
+                "batch_key": job.batch_key,
+                "lifecycle_status": lifecycle_status,
                 "stage2_success_count": stage2_success_count,
                 "warning_count": len(job.warnings),
                 "warnings": job.warnings,
-                "validation_rows": self._build_validation_rows(),
+                "validation_rows": validation_rows,
                 "mapping_steps": self._build_mapping_steps(job),
             }
         )
@@ -1016,8 +3079,11 @@ class FixtureRuntimeService:
 
     def list_import_jobs(self, dataset_id: str) -> list[ImportJobStatusResponse]:
         """List all import jobs for the current batch."""
-        self._require_dataset(dataset_id)
-        jobs = sorted(self._import_jobs.values(), key=lambda value: value.job_id)
+        self._require_dataset_or_type(dataset_id)
+        jobs = sorted(
+            (job for job in self._import_jobs.values() if self._job_belongs_to_dataset(dataset_id, job)),
+            key=lambda value: value.job_id,
+        )
         return [self._build_import_job_status(job) for job in jobs]
 
     def create_import_job(
@@ -1025,8 +3091,11 @@ class FixtureRuntimeService:
         dataset_id: str,
         request: ImportJobCreateRequest,
     ) -> ImportJobStatusResponse:
-        """Create a draft import job in memory for the current batch."""
-        self._require_dataset(dataset_id)
+        """Create a draft import job or register a manual batch in memory and registry."""
+        self._require_dataset_or_type(dataset_id)
+        if request.batch_key:
+            return self._create_registered_batch_import_job(dataset_id=dataset_id, request=request)
+
         self._import_job_counter += 1
         requested_sample_ids = request.requested_sample_ids or sorted(self._samples.keys())
         job = ImportJob(
@@ -1045,6 +3114,139 @@ class FixtureRuntimeService:
         self._set_import_job(job)
         return self._build_import_job_status(job)
 
+    def _create_registered_batch_import_job(
+        self,
+        *,
+        dataset_id: str,
+        request: ImportJobCreateRequest,
+    ) -> ImportJobStatusResponse:
+        dataset_type = request.dataset_type or (
+            dataset_id if dataset_id in self._dataset_type_display_names else self._resolve_dataset_type(dataset_id)
+        )
+        if dataset_type not in self._dataset_type_display_names:
+            raise DatasetNotFoundError(f"Dataset type not found: {dataset_type}")
+        batch_key = request.batch_key or ""
+        batch_dataset_id = f"{dataset_type}__{batch_key}"
+        if batch_dataset_id == self._dataset_id or batch_dataset_id in self._registered_batches:
+            raise ValueError(f"Dataset batch already exists: {batch_dataset_id}")
+
+        self._import_job_counter += 1
+        image_count = request.image_count or len(request.requested_sample_ids)
+        job = ImportJob(
+            job_id=f"manual-import-{dataset_type}-{batch_key}-{self._import_job_counter}",
+            dataset_id=batch_dataset_id,
+            dataset_type=dataset_type,
+            batch_key=batch_key,
+            batch_name=request.batch_name,
+            source_mode=request.source_mode,
+            source_uri=request.source_uri,
+            source_structure=request.source_structure,
+            description=request.description,
+            source_file_count=request.source_file_count,
+            image_count=image_count,
+            stage1_file_count=request.stage1_file_count,
+            stage2_file_count=request.stage2_file_count,
+            stage2_failure_file_count=request.stage2_failure_file_count,
+            state=ImportJobState.DRAFT,
+            expected_assets=image_count,
+            imported_assets=0,
+            failure_count=request.stage2_failure_file_count,
+            requested_sample_ids=request.requested_sample_ids,
+            validation_errors=[],
+            warnings=[],
+        )
+        now = datetime.now(timezone.utc)
+        summary = DatasetSummaryResponse(
+            dataset_id=batch_dataset_id,
+            dataset_type=dataset_type,
+            display_name=self._dataset_type_display_names[dataset_type],
+            field_schema_version=self._dataset_type_schema_versions.get(dataset_type, "draft"),
+            active_label_config_version=self._current_active_label_config_version(dataset_type),
+            batch_key=batch_key,
+            lifecycle_status=DatasetLifecycleStatus.REGISTERED,
+            active_import_job_id=job.job_id,
+            qc_queue_id=None,
+            legacy_dataset_id=None,
+            source_mode=request.source_mode,
+            source_uri=request.source_uri,
+            source_structure=request.source_structure,
+            source_file_count=request.source_file_count,
+            name=request.batch_name or batch_key,
+            total_assets=image_count,
+            stage1_count=request.stage1_file_count,
+            stage2_success_count=request.stage2_file_count,
+            stage2_failure_count=request.stage2_failure_file_count,
+            reviewed_count=0,
+            created_at=now,
+            fact_verification_count=0,
+            candidate_count=0,
+            judge_decision_distribution=[],
+            category_distribution=[],
+            verification_distribution=[],
+            confidence_distribution=[],
+            visibility_distribution=[],
+            sample_category_distribution=[],
+        )
+        runtime: RegisteredBatchRuntime | None = None
+        runtime_warnings: list[str] = []
+        try:
+            runtime = self._build_registered_batch_runtime(summary=summary, job=job)
+        except (FileNotFoundError, KeyError, ValueError, OSError) as exc:
+            runtime_warnings.append(f"Source directory could not be ingested: {exc}")
+
+        if runtime is not None:
+            actual_total = len(runtime.samples)
+            actual_stage1 = actual_total if runtime.stage1_run_name is not None else 0
+            actual_stage2_success = sum(
+                1 for sample in runtime.samples.values() if sample.stage2 is not None
+            )
+            actual_stage2_failures = runtime.stage2_failure_artifact_count
+            if request.source_structure == "images_only":
+                runtime_warnings.append(
+                    "Batch contains images only; STEP1/STEP2 pre-annotation is required before QC."
+                )
+            elif actual_stage2_failures:
+                runtime_warnings.append(
+                    f"Detected {actual_stage2_failures} STEP2 failure artifacts; preserved as import diagnostics."
+                )
+            job = job.model_copy(
+                update={
+                    "state": ImportJobState.IMPORTED,
+                    "expected_assets": actual_total,
+                    "imported_assets": actual_total,
+                    "image_count": actual_total,
+                    "stage1_file_count": actual_stage1,
+                    "stage2_file_count": actual_stage2_success,
+                    "stage2_failure_file_count": actual_stage2_failures,
+                    "failure_count": actual_stage2_failures,
+                    "warnings": runtime_warnings,
+                    "validation_errors": [],
+                }
+            )
+            summary = summary.model_copy(
+                update={
+                    "lifecycle_status": self._registered_batch_lifecycle(job),
+                    "total_assets": actual_total,
+                    "stage1_count": actual_stage1,
+                    "stage2_success_count": actual_stage2_success,
+                    "stage2_failure_count": actual_stage2_failures,
+                }
+            )
+        elif request.source_uri and not runtime_warnings:
+            runtime_warnings.append(
+                "Source directory was registered but is not readable by the backend; "
+                "asset ingestion will remain pending until the server can access it."
+            )
+            job = job.model_copy(update={"warnings": runtime_warnings})
+
+        self._accepted_dataset_ids.add(batch_dataset_id)
+        self._registered_batches[batch_dataset_id] = summary
+        if runtime is not None:
+            self._registered_batch_runtimes[batch_dataset_id] = runtime
+        self._import_jobs[job.job_id] = job
+        self._persist_registered_batches()
+        return self._build_import_job_status(job)
+
     def get_import_job(self, dataset_id: str, job_id: str) -> ImportJobStatusResponse:
         """Fetch one import job state for current batch."""
         job = self._get_import_job(dataset_id=dataset_id, job_id=job_id)
@@ -1054,12 +3256,36 @@ class FixtureRuntimeService:
         """Execute scan phase; records interim state only."""
         job = self._get_import_job(dataset_id=dataset_id, job_id=job_id)
         scanned = job.model_copy(update={"state": ImportJobState.SCANNING, "imported_assets": 0})
-        self._set_import_job(scanned)
+        if scanned.dataset_id == self._dataset_id:
+            self._set_import_job(scanned)
+        else:
+            self._import_jobs[scanned.job_id] = scanned
+            self._update_registered_batch_from_job(scanned)
         return self._build_import_job_status(scanned)
 
     def validate_import_job(self, dataset_id: str, job_id: str) -> ImportJobStatusResponse:
         """Execute validate phase; STEP2 failures are non-blocking warnings."""
         job = self._get_import_job(dataset_id=dataset_id, job_id=job_id)
+        if job.dataset_id != self._dataset_id:
+            warnings: list[str] = []
+            if job.source_structure == "images_only":
+                warnings.append("Batch contains images only; STEP1/STEP2 pre-annotation is required before QC.")
+            elif job.stage2_failure_file_count:
+                warnings.append(
+                    f"Detected {job.stage2_failure_file_count} STEP2 failure artifacts; preserved as import diagnostics."
+                )
+            validated = job.model_copy(
+                update={
+                    "state": ImportJobState.VALIDATION_PASSED,
+                    "failure_count": job.stage2_failure_file_count,
+                    "warnings": warnings,
+                    "validation_errors": [],
+                }
+            )
+            self._import_jobs[validated.job_id] = validated
+            self._update_registered_batch_from_job(validated)
+            return self._build_import_job_status(validated)
+
         validated = job.model_copy(
             update={
                 "state": ImportJobState.VALIDATION_PASSED,
@@ -1074,6 +3300,19 @@ class FixtureRuntimeService:
     def confirm_import_job(self, dataset_id: str, job_id: str) -> ImportJobStatusResponse:
         """Execute confirm/import phase and persist as latest batch import."""
         job = self._get_import_job(dataset_id=dataset_id, job_id=job_id)
+        if job.dataset_id != self._dataset_id:
+            confirmed = job.model_copy(
+                update={
+                    "state": ImportJobState.IMPORTED,
+                    "imported_assets": job.image_count or job.expected_assets,
+                    "failure_count": job.stage2_failure_file_count,
+                    "validation_errors": [],
+                }
+            )
+            self._import_jobs[confirmed.job_id] = confirmed
+            self._update_registered_batch_from_job(confirmed)
+            return self._build_import_job_status(confirmed)
+
         confirmed = job.model_copy(
             update={
                 "state": ImportJobState.IMPORTED,
@@ -1097,7 +3336,11 @@ class FixtureRuntimeService:
                 "validation_errors": [],
             }
         )
-        self._set_import_job(retried)
+        if retried.dataset_id == self._dataset_id:
+            self._set_import_job(retried)
+        else:
+            self._import_jobs[retried.job_id] = retried
+            self._update_registered_batch_from_job(retried)
         return self._build_import_job_status(retried)
 
     def _build_validation_rows(self) -> list[ImportValidationRow]:
@@ -1110,16 +3353,16 @@ class FixtureRuntimeService:
             failure_path: str | None = None
             status = "stage2_missing"
             if pair.stage2 is not None and hasattr(pair.stage2, "parsed_path"):
-                stage2_path = f"stage2_run_0508/{pair.stage2.parsed_path}"
+                stage2_path = f"{self._stage2_run_dir.name}/{pair.stage2.parsed_path}"
                 status = "ready"
             elif pair.stage2 is not None and hasattr(pair.stage2, "failure_path"):
-                failure_path = f"stage2_run_0508/{pair.stage2.failure_path}"
+                failure_path = f"{self._stage2_run_dir.name}/{pair.stage2.failure_path}"
                 status = "stage2_failed"
             rows.append(
                 ImportValidationRow(
                     sample_id=sample.sample_id,
                     image_path=f"images/{image_name}",
-                    stage1_path=f"stage1_run_0508/{pair.stage1.parsed_path}",
+                    stage1_path=f"{self._stage1_run_dir.name}/{pair.stage1.parsed_path}",
                     stage2_path=stage2_path,
                     failure_path=failure_path,
                     status=status,
@@ -1127,9 +3370,110 @@ class FixtureRuntimeService:
             )
         return rows
 
-    def list_qc_queue(self, dataset_id: str) -> QCQueueResponse:
+    def _build_registered_validation_rows(
+        self,
+        runtime: RegisteredBatchRuntime,
+    ) -> list[ImportValidationRow]:
+        """Build import validation rows for a manually ingested batch."""
+        rows: list[ImportValidationRow] = []
+        for sample in sorted(runtime.samples.values(), key=lambda value: value.sample_id):
+            image_name = Path(sample.raw_asset.source_image_path_internal).name
+            pair = runtime.pairs.get(sample.sample_id)
+            stage1_path: str | None = None
+            stage2_path: str | None = None
+            failure_path: str | None = None
+            status: str = "stage2_missing"
+            if pair is not None and runtime.stage1_run_name is not None:
+                stage1_path = f"{runtime.stage1_run_name}/{pair.stage1.parsed_path}"
+            if pair is not None and runtime.stage2_run_name is not None:
+                if pair.stage2 is not None and hasattr(pair.stage2, "parsed_path"):
+                    stage2_path = f"{runtime.stage2_run_name}/{pair.stage2.parsed_path}"
+                    status = "ready"
+                elif pair.stage2 is not None and hasattr(pair.stage2, "failure_path"):
+                    failure_path = f"{runtime.stage2_run_name}/{pair.stage2.failure_path}"
+                    status = "stage2_failed"
+            rows.append(
+                ImportValidationRow(
+                    sample_id=sample.sample_id,
+                    image_path=f"images/{image_name}",
+                    stage1_path=stage1_path,
+                    stage2_path=stage2_path,
+                    failure_path=failure_path,
+                    status=status,  # type: ignore[arg-type]
+                )
+            )
+        return rows
+
+    def list_qc_queue(
+        self,
+        dataset_id: str,
+        *,
+        context: AuthContext | None = None,
+    ) -> QCQueueResponse:
         """Return QC queue built from loaded fixture samples."""
         self._require_dataset(dataset_id)
+        if context is not None:
+            self._require_permission(context=context, action="qc_queue:read", dataset_id=dataset_id)
+        if dataset_id in self._registered_batches:
+            summary = self._registered_batches[dataset_id]
+            runtime = self._registered_batch_runtimes.get(dataset_id)
+            if summary.qc_queue_id is None:
+                return QCQueueResponse(
+                    dataset_id=summary.dataset_id,
+                    dataset_type=summary.dataset_type,
+                    batch_key=summary.batch_key,
+                    qc_queue_id=self._queue_id_for_dataset(dataset_id),
+                    assignment=None,
+                    total=0,
+                    items=[],
+                )
+            active_dataset_id = self._effective_batch_dataset_id(dataset_id)
+            task_map = self._task_map(active_dataset_id)
+            assignment = self._state_store.get_assignment(active_dataset_id)
+            label_config_version: str | None = None
+            try:
+                label_config_version = self._label_config_repo.get_active(
+                    dataset_id=summary.dataset_type
+                ).version
+            except ActiveLabelConfigNotFoundError:
+                label_config_version = None
+            items: list[QCQueueItem] = []
+            if runtime is not None:
+                for sample in sorted(runtime.samples.values(), key=lambda value: value.sample_id):
+                    asset = self._build_asset_item(sample, runtime.reviews.get(sample.sample_id, []))
+                    task = task_map.get(sample.sample_id)
+                    active_lease = self._active_lease_for_sample(active_dataset_id, sample.sample_id)
+                    items.append(
+                        QCQueueItem(
+                            qc_queue_id=summary.qc_queue_id or self._queue_id_for_dataset(dataset_id),
+                            dataset_id=active_dataset_id,
+                            dataset_type=summary.dataset_type,
+                            batch_key=summary.batch_key,
+                            label_config_version=label_config_version,
+                            sample_id=sample.sample_id,
+                            asset_id=sample.raw_asset.asset_id,
+                            judge_decision=sample.stage1.judge_decision,
+                            stage2_status="success" if sample.stage2 is not None else "failure",
+                            qc_status="reviewed" if runtime.reviews.get(sample.sample_id) else "pending",
+                            primary_category=asset.violation_categories[0] if asset.violation_categories else "",
+                            highest_confidence=asset.highest_confidence,
+                            stage2_failure=sample.stage2 is None,
+                            updated_at=asset.updated_at,
+                            task_status=task.status if task is not None else QcTaskStatus.QUEUED,
+                            assignee_user_id=task.assignee_user_id if task is not None else None,
+                            active_lease_user_id=active_lease.user_id if active_lease is not None else None,
+                            latest_submission_id=(task.latest_submission_id if task is not None else None),
+                        )
+                    )
+            return QCQueueResponse(
+                dataset_id=summary.dataset_id,
+                dataset_type=summary.dataset_type,
+                batch_key=summary.batch_key,
+                qc_queue_id=summary.qc_queue_id or f"qcq_{summary.dataset_type}_{summary.batch_key}",
+                assignment=(self._to_assignment_response(assignment) if assignment else None),
+                total=len(items),
+                items=items,
+            )
         label_config_version: str | None = None
         try:
             label_config_version = self._label_config_repo.get_active(
@@ -1137,9 +3481,13 @@ class FixtureRuntimeService:
             ).version
         except ActiveLabelConfigNotFoundError:
             label_config_version = None
+        task_map = self._task_map(self._dataset_id)
+        assignment = self._state_store.get_assignment(self._dataset_id)
         items: list[QCQueueItem] = []
         for sample in sorted(self._samples.values(), key=lambda value: value.sample_id):
             asset = self._build_asset_item(sample)
+            task = task_map.get(sample.sample_id)
+            active_lease = self._active_lease_for_sample(self._dataset_id, sample.sample_id)
             items.append(
                 QCQueueItem(
                     qc_queue_id=self._qc_queue_id,
@@ -1156,6 +3504,10 @@ class FixtureRuntimeService:
                     highest_confidence=asset.highest_confidence,
                     stage2_failure=sample.stage2 is None,
                     updated_at=asset.updated_at,
+                    task_status=task.status if task is not None else QcTaskStatus.QUEUED,
+                    assignee_user_id=task.assignee_user_id if task is not None else None,
+                    active_lease_user_id=active_lease.user_id if active_lease is not None else None,
+                    latest_submission_id=(task.latest_submission_id if task is not None else None),
                 )
             )
         return QCQueueResponse(
@@ -1163,6 +3515,7 @@ class FixtureRuntimeService:
             dataset_type=self._dataset_type,
             batch_key=self._batch_key,
             qc_queue_id=self._qc_queue_id,
+            assignment=(self._to_assignment_response(assignment) if assignment else None),
             total=len(items),
             items=items,
         )
@@ -1228,18 +3581,28 @@ class FixtureRuntimeService:
             sample_ids=selected_ids,
         )
 
-    def resolve_media_file(self, media_kind: str, file_name: str) -> Path:
+    def resolve_media_file(
+        self,
+        media_kind: str,
+        file_name: str,
+        dataset_id: str | None = None,
+    ) -> Path:
         """Resolve a requested media file path with traversal-safe constraints."""
         if not file_name or Path(file_name).name != file_name:
             raise MediaAccessError("Invalid media filename")
 
+        runtime = self._registered_batch_runtimes.get(dataset_id or "")
         if media_kind == "images":
-            root = self._image_dir
+            root = runtime.image_dir if runtime is not None else self._image_dir
             candidate = root / file_name
         elif media_kind == "visualizations":
-            root = self._visualizations_dir
+            root = (
+                runtime.visualizations_dir
+                if runtime is not None and runtime.visualizations_dir is not None
+                else self._visualizations_dir
+            )
             sample_id = Path(file_name).stem
-            pair = self._pairs.get(sample_id)
+            pair = runtime.pairs.get(sample_id) if runtime is not None else self._pairs.get(sample_id)
             if pair is None:
                 raise MediaAccessError("Unknown sample for visualization")
             shard = Path(pair.stage1.record_path).parent.name
@@ -1268,6 +3631,15 @@ DEFAULT_FIXTURE_SAMPLE_IDS = (
 def build_fixture_service(
     dataset_root: Path = DEFAULT_DATASET_ROOT,
     sample_ids: Sequence[str] | None = None,
+    label_config_store_root: Path | None = None,
+    platform_state_root: Path | None = None,
 ) -> FixtureRuntimeService:
     """Factory for runtime service with deterministic defaults."""
-    return FixtureRuntimeService(dataset_root=dataset_root, sample_ids=sample_ids)
+    env_store_root = os.environ.get("LABEL_CONFIG_STORE_ROOT")
+    resolved_store_root = label_config_store_root or (Path(env_store_root) if env_store_root else None)
+    return FixtureRuntimeService(
+        dataset_root=dataset_root,
+        sample_ids=sample_ids,
+        label_config_store_root=resolved_store_root,
+        platform_state_root=platform_state_root,
+    )

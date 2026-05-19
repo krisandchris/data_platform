@@ -1,23 +1,45 @@
-import { onMounted, ref } from 'vue';
+import { onMounted, ref, watch, type WatchSource } from 'vue';
 
-export function useAsyncState<T>(loader: () => Promise<T>) {
+interface UseAsyncStateOptions {
+  watch?: WatchSource | WatchSource[];
+  resetOnExecute?: boolean;
+}
+
+export function useAsyncState<T>(loader: () => Promise<T>, options: UseAsyncStateOptions = {}) {
   const data = ref<T>();
   const loading = ref(true);
   const error = ref<string>();
+  let executionId = 0;
 
   const execute = async () => {
+    const currentExecutionId = ++executionId;
     loading.value = true;
     error.value = undefined;
+    if (options.resetOnExecute) {
+      data.value = undefined;
+    }
     try {
-      data.value = await loader();
+      const nextData = await loader();
+      if (currentExecutionId === executionId) {
+        data.value = nextData;
+      }
     } catch (err) {
-      error.value = err instanceof Error ? err.message : 'Unknown error';
+      if (currentExecutionId === executionId) {
+        error.value = err instanceof Error ? err.message : 'Unknown error';
+      }
     } finally {
-      loading.value = false;
+      if (currentExecutionId === executionId) {
+        loading.value = false;
+      }
     }
   };
 
   onMounted(execute);
+  if (options.watch) {
+    watch(options.watch, () => {
+      void execute();
+    });
+  }
 
   return {
     data,

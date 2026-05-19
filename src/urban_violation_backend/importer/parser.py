@@ -20,6 +20,8 @@ from urban_violation_backend.schemas import (
     Stage2PreannotationFailure,
 )
 
+IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+
 
 class StrictModel(BaseModel):
     """Parser-side strict model that rejects unknown fields."""
@@ -84,6 +86,35 @@ class FixtureImportBundle(StrictModel):
     samples: list[FixtureSample] = Field(default_factory=list)
 
 
+def discover_stage_run_dir(dataset_root: Path, stage_prefix: str) -> Path:
+    """Return the newest stage run directory that contains a manifest."""
+    candidates = sorted(
+        (
+            path
+            for path in dataset_root.iterdir()
+            if path.is_dir()
+            and path.name.startswith(f"{stage_prefix}_run_")
+            and (path / "meta" / "manifest.jsonl").is_file()
+        ),
+        key=lambda path: path.name,
+    )
+    if not candidates:
+        raise FileNotFoundError(
+            f"Missing {stage_prefix} run manifest under {dataset_root}"
+        )
+    return candidates[-1]
+
+
+def _resolve_stage_run_dir(
+    dataset_root: Path,
+    stage_prefix: str,
+    stage_run_dir: Path | None = None,
+) -> Path:
+    if stage_run_dir is None:
+        return discover_stage_run_dir(dataset_root, stage_prefix)
+    return stage_run_dir if stage_run_dir.is_absolute() else dataset_root / stage_run_dir
+
+
 def _manifest_line_iter(manifest_path: Path) -> Iterable[tuple[int, str]]:
     """Yield non-empty manifest lines with one-based line numbers."""
     with manifest_path.open("r", encoding="utf-8") as handle:
@@ -93,9 +124,13 @@ def _manifest_line_iter(manifest_path: Path) -> Iterable[tuple[int, str]]:
                 yield idx, stripped
 
 
-def read_stage1_manifest(dataset_root: Path) -> dict[str, Stage1ManifestEntry]:
+def read_stage1_manifest(
+    dataset_root: Path,
+    stage1_run_dir: Path | None = None,
+) -> dict[str, Stage1ManifestEntry]:
     """Read stage1 manifest as a map keyed by sample id."""
-    manifest_path = dataset_root / "stage1_run_0508" / "meta" / "manifest.jsonl"
+    stage_dir = _resolve_stage_run_dir(dataset_root, "stage1", stage1_run_dir)
+    manifest_path = stage_dir / "meta" / "manifest.jsonl"
     entries: dict[str, Stage1ManifestEntry] = {}
     for line_no, line in _manifest_line_iter(manifest_path):
         try:
@@ -108,9 +143,11 @@ def read_stage1_manifest(dataset_root: Path) -> dict[str, Stage1ManifestEntry]:
 
 def read_stage2_manifest(
     dataset_root: Path,
+    stage2_run_dir: Path | None = None,
 ) -> dict[str, Stage2ManifestSuccessEntry | Stage2ManifestFailureEntry]:
     """Read stage2 manifest with deterministic last-write-wins for duplicate ids."""
-    manifest_path = dataset_root / "stage2_run_0508" / "meta" / "manifest.jsonl"
+    stage_dir = _resolve_stage_run_dir(dataset_root, "stage2", stage2_run_dir)
+    manifest_path = stage_dir / "meta" / "manifest.jsonl"
     entries: dict[str, Stage2ManifestSuccessEntry | Stage2ManifestFailureEntry] = {}
     for line_no, line in _manifest_line_iter(manifest_path):
         try:
@@ -161,10 +198,15 @@ def _read_json_file(path: Path) -> dict:
         return json.load(handle)
 
 
-def _load_stage1_preannotation(dataset_root: Path, entry: Stage1ManifestEntry) -> Stage1Preannotation:
+def _load_stage1_preannotation(
+    dataset_root: Path,
+    entry: Stage1ManifestEntry,
+    stage1_run_dir: Path | None = None,
+) -> Stage1Preannotation:
     """Load stage1 parsed + record files into normalized contract schema."""
-    parsed_payload = _read_json_file(dataset_root / "stage1_run_0508" / entry.parsed_path)
-    record_payload = _read_json_file(dataset_root / "stage1_run_0508" / entry.record_path)
+    stage_dir = _resolve_stage_run_dir(dataset_root, "stage1", stage1_run_dir)
+    parsed_payload = _read_json_file(stage_dir / entry.parsed_path)
+    record_payload = _read_json_file(stage_dir / entry.record_path)
 
     metadata = record_payload.get("metadata", {})
     judge_report = metadata.get("judge_report", {}) if isinstance(metadata, dict) else {}
@@ -182,14 +224,22 @@ def _load_stage1_preannotation(dataset_root: Path, entry: Stage1ManifestEntry) -
     )
 
 
-def _extract_source_image_path(dataset_root: Path, stage1_record_path: str, stage2_input_path: str) -> str:
+def _extract_source_image_path(
+    dataset_root: Path,
+    stage1_record_path: str,
+    stage2_input_path: str,
+    stage1_run_dir: Path | None = None,
+    stage2_run_dir: Path | None = None,
+) -> str:
     """Extract source image path from stage1 record and fall back to stage2 input."""
-    stage1_record = _read_json_file(dataset_root / "stage1_run_0508" / stage1_record_path)
+    stage1_dir = _resolve_stage_run_dir(dataset_root, "stage1", stage1_run_dir)
+    stage2_dir = _resolve_stage_run_dir(dataset_root, "stage2", stage2_run_dir)
+    stage1_record = _read_json_file(stage1_dir / stage1_record_path)
     images = stage1_record.get("images", []) if isinstance(stage1_record, dict) else []
     if images and isinstance(images[0], str):
         return images[0]
 
-    stage2_input = _read_json_file(dataset_root / "stage2_run_0508" / stage2_input_path)
+    stage2_input = _read_json_file(stage2_dir / stage2_input_path)
     image_path = stage2_input.get("image_path") if isinstance(stage2_input, dict) else None
     if isinstance(image_path, str) and image_path:
         return image_path
@@ -199,10 +249,12 @@ def _extract_source_image_path(dataset_root: Path, stage1_record_path: str, stag
 def _load_stage2(
     dataset_root: Path,
     entry: Stage2ManifestSuccessEntry | Stage2ManifestFailureEntry,
+    stage2_run_dir: Path | None = None,
 ) -> tuple[Stage2Preannotation | None, Stage2PreannotationFailure | None]:
     """Load stage2 success or failure payload from manifest entry."""
+    stage_dir = _resolve_stage_run_dir(dataset_root, "stage2", stage2_run_dir)
     if isinstance(entry, Stage2ManifestFailureEntry):
-        failure_payload = _read_json_file(dataset_root / "stage2_run_0508" / entry.failure_path)
+        failure_payload = _read_json_file(stage_dir / entry.failure_path)
         failure = Stage2PreannotationFailure(
             sample_id=entry.id,
             error_type=failure_payload.get("error_type", "UnknownError"),
@@ -210,25 +262,47 @@ def _load_stage2(
         )
         return None, failure
 
-    parsed_payload = _read_json_file(dataset_root / "stage2_run_0508" / entry.parsed_path)
+    parsed_payload = _read_json_file(stage_dir / entry.parsed_path)
     parsed_payload = {
         key: parsed_payload[key]
         for key in ("sample_id", "fact_verifications", "candidates")
         if key in parsed_payload
     }
+    for verification in parsed_payload.get("fact_verifications", []):
+        if not isinstance(verification, dict):
+            continue
+        verification_result = verification.get("verification_result")
+        inferred_visible = verification_result not in {"unsupported", "unclear"}
+        verification.setdefault("subject_visible", inferred_visible)
+        verification.setdefault("subject_match", inferred_visible)
     stage2 = Stage2Preannotation.model_validate(parsed_payload)
     return stage2, None
 
 
-def count_stage2_failure_artifacts(dataset_root: Path) -> int:
+def count_stage2_failure_artifacts(
+    dataset_root: Path,
+    stage2_run_dir: Path | None = None,
+) -> int:
     """Count preserved stage2 failure artifacts on disk, including retry history."""
-    return len(list((dataset_root / "stage2_run_0508" / "failures").glob("*/*.json")))
+    stage_dir = _resolve_stage_run_dir(dataset_root, "stage2", stage2_run_dir)
+    return len(list((stage_dir / "failures").glob("*/*.json")))
 
 
-def import_fixture_samples(dataset_root: Path, sample_ids: Sequence[str] | None = None) -> FixtureImportBundle:
+def import_fixture_samples(
+    dataset_root: Path,
+    sample_ids: Sequence[str] | None = None,
+    *,
+    dataset_id: str = "urban_violation",
+    dataset_type: str = "urban_violation",
+    batch_key: str = "0508_fixture",
+    name: str = "Urban Violation",
+    media_base_url: str = "/media/images",
+) -> FixtureImportBundle:
     """Import all dataset samples, or a deterministic subset when sample ids are provided."""
-    stage1_entries = read_stage1_manifest(dataset_root)
-    stage2_entries = read_stage2_manifest(dataset_root)
+    stage1_run_dir = discover_stage_run_dir(dataset_root, "stage1")
+    stage2_run_dir = discover_stage_run_dir(dataset_root, "stage2")
+    stage1_entries = read_stage1_manifest(dataset_root, stage1_run_dir=stage1_run_dir)
+    stage2_entries = read_stage2_manifest(dataset_root, stage2_run_dir=stage2_run_dir)
     target_sample_ids = list(sample_ids) if sample_ids is not None else sorted(stage1_entries)
     pairs = pair_stage_samples(stage1_entries, stage2_entries, sample_ids=target_sample_ids)
 
@@ -237,18 +311,28 @@ def import_fixture_samples(dataset_root: Path, sample_ids: Sequence[str] | None 
         if pair.stage2 is None:
             raise KeyError(f"Sample {pair.sample_id} missing in stage2 manifest")
 
-        stage1 = _load_stage1_preannotation(dataset_root, pair.stage1)
-        stage2, stage2_failure = _load_stage2(dataset_root, pair.stage2)
+        stage1 = _load_stage1_preannotation(
+            dataset_root,
+            pair.stage1,
+            stage1_run_dir=stage1_run_dir,
+        )
+        stage2, stage2_failure = _load_stage2(
+            dataset_root,
+            pair.stage2,
+            stage2_run_dir=stage2_run_dir,
+        )
 
         source_image_path = _extract_source_image_path(
             dataset_root,
             stage1_record_path=pair.stage1.record_path,
             stage2_input_path=pair.stage2.input_path,
+            stage1_run_dir=stage1_run_dir,
+            stage2_run_dir=stage2_run_dir,
         )
         raw_asset = RawAsset(
             asset_id=pair.sample_id,
             sample_id=pair.sample_id,
-            image_url=normalize_media_url(source_image_path),
+            image_url=normalize_media_url(source_image_path, media_base_url=media_base_url),
             width=1280,
             height=720,
             source_image_path_internal=source_image_path,
@@ -264,7 +348,7 @@ def import_fixture_samples(dataset_root: Path, sample_ids: Sequence[str] | None 
         )
 
     failure_count = (
-        count_stage2_failure_artifacts(dataset_root)
+        count_stage2_failure_artifacts(dataset_root, stage2_run_dir=stage2_run_dir)
         if sample_ids is None
         else sum(1 for item in fixtures if item.stage2_failure is not None)
     )
@@ -272,8 +356,10 @@ def import_fixture_samples(dataset_root: Path, sample_ids: Sequence[str] | None 
     now = datetime.now(tz=timezone.utc)
 
     dataset = Dataset(
-        dataset_id="urban_violation",
-        name="Urban Violation",
+        dataset_id=dataset_id,
+        dataset_type=dataset_type,
+        batch_key=batch_key,
+        name=name,
         root_path=str(dataset_root),
         total_assets=len(fixtures),
         stage1_count=len(fixtures),
@@ -281,9 +367,16 @@ def import_fixture_samples(dataset_root: Path, sample_ids: Sequence[str] | None 
         stage2_failure_count=failure_count,
         created_at=now,
     )
+    import_job_id = (
+        "fixture-import-urban-violation"
+        if dataset_id == "urban_violation"
+        else f"fixture-import-{dataset_id}"
+    )
     import_job = ImportJob(
-        job_id="fixture-import-urban-violation",
+        job_id=import_job_id,
         dataset_id=dataset.dataset_id,
+        dataset_type=dataset_type,
+        batch_key=batch_key,
         state=ImportJobState.IMPORTED,
         expected_assets=len(target_sample_ids),
         imported_assets=len(fixtures),

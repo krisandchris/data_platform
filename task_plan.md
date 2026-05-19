@@ -1,1151 +1,201 @@
-# Urban Violation Platform Agent Work Plan
+# Urban Violation Platform Task Plan
 
-## Goal
+Last compacted: 2026-05-19
 
-Analyze `urban_violation_platform_markdown/` and the dataset layout under `DATASET/` to define execution tasks and acceptance criteria for three implementation agents:
+## Objective
 
-- Frontend implementation agent
-- Backend implementation agent
-- Integration testing agent
+Build and validate a local urban-violation dataset management and QC platform around the real `DATASET/` inputs. The platform must support dataset type and batch management, manual batch import, label-config upload/activation, preannotation/QC lifecycle, multi-user assignment, and a focused sample review workbench.
 
-## Status
+## Workspace Rule
 
-- Phase 0: Planning files initialized - complete
-- Phase 1: Documentation inventory and product scope analysis - complete
-- Phase 2: Dataset structure and schema sampling - complete
-- Phase 3: Frontend/backend/integration task split - complete
-- Phase 4: Acceptance criteria and handoff checklist - complete
-- Phase 5: Git repository and agent worktree setup - complete
-- Phase 6: Shared contract/bootstrap execution - in_progress (first slices complete)
-- Phase 7: Remaining task backlog and execution order - complete
-- Phase 8: P0 contract/API/frontend/integration execution cycle - complete
-- Phase 9: Full DATASET registration for product preview - complete
-- Phase 10: Immersive QC sample review redesign - complete
-- Phase 11: Reference-aligned Sample Detail workbench redesign - complete
-- Phase 12: Sample review non-blocking refresh mode - complete
-- Phase 13: Review workbench layout and bbox editing refinement - complete
-- Phase 14: Direct image-stage bbox editing and fill-area alignment fix - complete
-- Phase 15: Sample review focused chrome reduction - complete
-- Phase 16: Minimal bbox preview styling - complete
-- Phase 17: Quantized bbox coordinate projection fix - complete
-- Phase 18: Bbox color and selected-state styling rule - complete
-- Phase 19: Review bottom dock and panel height expansion - complete
-- Phase 20: QC label field editing design document - complete
-- Phase 21: Frontend uploaded label config flow - complete
-- Phase 22: Label config upload subagent execution - complete
-- Phase 23: Label config validate runtime 404 fix - complete
-- Phase 24: STEP1/STEP2 review field and two-zone layout design - complete
-- Phase 25: STEP1/STEP2 review layout HTML preview - complete
-- Phase 26: Corrected 50/50 right rail and full-width verdict dock - complete
-- Phase 27: Relation editor text overlap fix - complete
-- Phase 28: Label edit bottom bar semantics - complete
-- Phase 29: Relation index-only left rail - complete
-- Phase 30: Relation reference fields and Candidate index rail - complete
-- Phase 31: Field-only validate action semantics - complete
-- Phase 32: Frontend/backend implementation delegation - complete
-- Phase 33: Local frontend/backend one-command dev stack - complete
-- Phase 34: Review workbench zoom and Candidate deletion tweaks - complete
-- Phase 35: Review bbox color semantics correction - complete
-- Phase 36: Review bbox selected-state source correction - complete
+The main workspace is now the orchestration, documentation, integration-review, and accepted-code sync surface.
 
-## Phase 1 - Documentation Inventory
+Product frontend/backend development must happen in the dedicated agent worktrees first:
 
-Tasks:
-- Read the markdown files under `urban_violation_platform_markdown/`.
-- Extract product modules, user workflows, UI screens, backend boundaries, API/data expectations, and nonfunctional constraints.
-- Record findings in `findings.md`.
+- Frontend agent: `../data_platform_frontend_agent`
+- Backend agent: `../data_platform_backend_agent`
+- Integration agent: `../data_platform_integration_agent`
 
-Acceptance:
-- Every markdown file has been accounted for.
-- Product scope and implementation surfaces are summarized with source file references.
+After human review and verification, accepted changes are synchronized into the main workspace. The main workspace may still maintain docs, plans, scripts, and integration evidence.
 
-## Phase 2 - Dataset Structure and Schema Sampling
+## Current Source Of Truth
 
-Tasks:
-- Inspect `DATASET/urban_violation` directory structure without enumerating every file manually.
-- Sample JSON files from stage outputs and inspect image/visualization naming conventions.
-- Identify fields needed by backend ingestion APIs and frontend views.
+- General project governance: `AGENTS.md`
+- Current documentation map: `docs/README.md`
+- Frontend architecture: `docs/frontend/README.md`
+- Backend architecture: `docs/backend/README.md`
+- Overall architecture: `docs/architecture/README.md`
+- Historical architecture inputs: consolidated into `docs/`
+- Dataset fixture and test data: `DATASET/`
+- Agent-stack launcher from main: `scripts/agent-dev-stack.sh`
+- Main-stack launcher for accepted code: `scripts/dev-stack.sh`
 
-Acceptance:
-- Dataset directory layers, file pairing rules, and representative JSON schemas are summarized.
-- Unknowns or risky assumptions are listed explicitly.
+## Product Boundaries
 
-## Phase 3 - Agent Task Split
+- Dataset type is the shared schema/config boundary, for example `urban_violation` and future `ares_detection`.
+- Dataset batch is the execution boundary for import, assets, preannotations, QC queue, assignment, leases, drafts, submissions, and progress.
+- Label config is type-scoped and inherited by batches.
+- QC queues are generated explicitly per concrete batch after import/preannotation readiness and active label config availability.
+- The current sample review workbench layout and bbox behavior are protected unless the user explicitly asks to modify it.
+- Raw `DATASET/` files should remain readonly. Runtime state should use `PLATFORM_STATE_ROOT` or another platform state root.
 
-Tasks:
-- Convert documentation and dataset findings into work packages for frontend, backend, and integration testing agents.
-- Define dependencies and sequencing between agents.
-- Keep tasks implementation-ready and scoped to observable deliverables.
+## Current Phase Status
 
-Acceptance:
-- Each agent has clear responsibilities, inputs, outputs, and blocked-by relationships.
-- Cross-agent contracts are explicit enough for parallel work.
-
-### Shared Contract First
-
-Before implementation agents diverge, freeze a minimal API/schema contract:
-
-- Dataset: `Dataset`, `DatasetSummary`, `DatasetImportStatus`.
-- Asset: `RawAsset`, stable `asset_id`, `sample_id`, `image_url`, dimensions, source paths, import status.
-- Stage1: `PreAnnotationStep1`, `key_relations[]`, bbox coordinates, judge report, visualization URL.
-- Stage2: `PreAnnotationStep2`, `fact_verifications[]`, `candidates[]`, candidate category/confidence/sample category, failure state.
-- QC: queue item, review decision, human edits to bbox/category/reasoning, audit history.
-- Import job: state machine from `Draft` through `QCQueueGenerated`, including `ValidationFailed` and `ImportFailed`.
-
-The backend agent owns the canonical OpenAPI/Pydantic schema; the frontend agent consumes generated or manually mirrored TypeScript types; the integration testing agent validates the contract against sample fixtures.
-
-### Backend Implementation Agent
-
-Inputs:
-- `urban_violation_platform_markdown/backend_architecture.md`
-- `DATASET/urban_violation/images`
-- `DATASET/urban_violation/stage1_run_0508`
-- `DATASET/urban_violation/stage2_run_0508`
-- `findings.md`
-
-Execution tasks:
-1. Scaffold FastAPI service with `uv`, async SQLAlchemy, PostgreSQL-compatible models, and local file/minio-compatible asset abstraction.
-2. Implement database entities: `RawAsset`, `PreAnnotationStep1`, `PreAnnotationStep2`, `HumanReview`, `AuditArtifact`, plus `Dataset` and `ImportJob` if absent from the architecture draft.
-3. Implement dataset importer that reads `meta/manifest.jsonl` as the pairing source, imports original images, stage1 records/parsed/visualizations, stage2 records/parsed/inputs/failures, and preserves raw request/response artifacts.
-4. Normalize absolute source image paths into stable browser-safe asset URLs; store original paths only as internal provenance fields.
-5. Implement import job state machine and validation:
-   - Count expected assets.
-   - Verify referenced files exist.
-   - Verify bbox coordinate arrays are valid 0-1000 quantized coordinates with ordered corners.
-   - Detect stage2 success/failure split.
-6. Implement APIs:
-   - Dataset list/detail/summary.
-   - Import job create/status/validation preview.
-   - Asset list with filters for category, judge decision, QC status, failure status, sample category.
-   - Asset detail with image URL, stage1 relations, stage2 fact verifications/candidates, audit artifacts.
-   - QC queue list, review detail, submit/update review.
-   - Search endpoint over sample id, category, relation text, reasoning text.
-   - Export job endpoint for reviewed/filtered samples.
-7. Add backend tests for parser, importer, validation, state transitions, API responses, and failure handling.
-
-Deliverables:
-- Backend app entrypoint and reproducible `uv` environment.
-- Pydantic schemas and OpenAPI docs.
-- Importer with deterministic fixture support.
-- Database migrations or schema initialization path.
-- Unit/integration tests and seed/import command.
-
-Acceptance criteria:
-- `uv sync` and backend test command pass in a clean environment.
-- Importing the provided dataset creates 797 raw assets, 797 stage1 records, 780 successful stage2 records, and records the stage2 failure set without crashing.
-- Stage1 summary API reports 797 succeeded, 0 failed, 797 bbox-valid.
-- Stage2 summary API reports 780 successful parsed records and exposes 19 failure records; rerun summary nuance is documented.
-- Sample `000142_0_1762483003246` returns original image URL, stage1 relation bbox, stage2 fact verification, and candidate category.
-- API never returns raw local absolute image paths as browser image sources.
-- OpenAPI schema includes all frontend-needed fields and error responses.
-
-### Frontend Implementation Agent
-
-Inputs:
-- `urban_violation_platform_markdown/frontend_architecture.md`
-- `urban_violation_platform_markdown/frontend_uiux.md`
-- UI mockups in `urban_violation_platform_markdown/images`
-- Backend OpenAPI/schema from backend agent
-- `findings.md`
-
-Execution tasks:
-1. Scaffold frontend using the repo-approved Node version and `npm`; add `.nvmrc` if a frontend project root is created and none exists.
-2. Implement feature structure:
-   - `app/`
-   - `services/`
-   - `features/datasets`
-   - `features/import`
-   - `features/review-workbench`
-   - `features/qc`
-   - `features/exports`
-   - `shared/components`, `shared/composables`, `shared/types`
-3. Implement routes:
-   - `/datasets`
-   - `/datasets/:id/overview`
-   - `/datasets/:id/assets`
-   - `/datasets/:id/import-jobs/:jobId`
-   - `/datasets/:id/preannotations`
-   - `/datasets/:id/qc`
-   - `/datasets/:id/samples/:sampleId/review`
-4. Build UI workflows:
-   - Dataset dashboard with total counts, stage1/stage2 status, pass/soft-fail distribution, category distribution, and failure count.
-   - Dataset registration/upload/import wizard with validation preview and state-machine status.
-   - Import job validation view showing manifest pairing, missing file issues, bbox validation, and success/failure split.
-   - Asset list with thumbnail, sample id, categories, judge decision, QC status, and filters.
-   - Review workbench with image viewer, bbox overlays, stage1 relations, stage2 fact verifications, candidates, confidence/category chips, failure banner, and human review controls.
-5. Implement typed API client and error/loading/empty states for all routes.
-6. Add UI tests for routing, table filtering, import status display, review decision submission, and bbox overlay rendering.
-
-Deliverables:
-- Runnable frontend app.
-- Typed service layer matching backend contract.
-- Reusable components for asset table, status chips, bbox overlay, JSON/audit viewer, review form, import stepper.
-- Tests and build scripts in `package.json`.
-
-Acceptance criteria:
-- `npm ci`, `npm run build`, and available test/lint commands pass.
-- Frontend can render dashboard from backend fixture data without mock-only dependencies.
-- Asset list can filter `pass`, `soft_fail`, stage2 failure, and violation categories.
-- Review page for `000142_0_1762483003246` shows the 1280x720 image proportionally, draws relation bbox overlays, and displays stage1/stage2 reasoning fields.
-- Stage2 failure samples show actionable failure state instead of a blank review panel.
-- UI does not expose filesystem absolute paths; all media loads through backend URLs.
-
-### Integration Testing Agent
-
-Inputs:
-- Backend API and frontend app from implementation agents.
-- `DATASET/urban_violation` fixture.
-- `findings.md`
-- Shared contract/OpenAPI schema.
-
-Execution tasks:
-1. Build a small deterministic fixture subset containing:
-   - One fully successful sample such as `000142_0_1762483003246`.
-   - At least one `soft_fail` sample.
-   - At least one stage2 failure sample such as `001710_0_1763108687181`.
-   - Multiple violation categories, including `no violation`, `nonmotor_vehicle_illegal_parking`, and `goods_blocking_road`.
-2. Run backend import against the subset and full dataset smoke import where feasible.
-3. Validate API contract with schema checks and sample response assertions.
-4. Run frontend E2E checks against the backend:
-   - Dataset list to overview.
-   - Import job status/validation.
-   - Asset list filters.
-   - Sample review page.
-   - Review submission and audit trail refresh.
-5. Add regression tests for known dataset edge cases:
-   - Stage2 manifest has both success and failure semantics.
-   - Candidate counts can exceed sample counts.
-   - `soft_fail` is not an import failure.
-   - Bbox coordinates are pixel coordinates and must scale in UI.
-
-Deliverables:
-- Test fixture manifest.
-- Backend API integration tests.
-- Frontend E2E tests.
-- Contract validation report.
-- Final acceptance checklist with commands and observed counts.
-
-Acceptance criteria:
-- A fresh environment can import the deterministic fixture and produce stable counts.
-- Contract tests verify required fields for dashboard, asset list, review detail, review submit, and failure detail.
-- E2E tests prove that media URLs load, overlays render, filters work, and review submission persists.
-- Full dataset smoke test confirms expected high-level counts or documents any environment-specific skip.
-- Test report separates product bugs, environment issues, and open questions.
-
-### Recommended Sequencing
-
-1. Backend agent freezes schema and importer on a 5-10 sample fixture.
-2. Frontend agent builds pages against the frozen schema, initially using recorded API fixtures if backend is still moving.
-3. Integration testing agent builds fixture pack and contract checks in parallel once schemas exist.
-4. Backend agent runs full dataset import and exposes summary metrics.
-5. Frontend agent removes any temporary fixture-only assumptions and points to live backend.
-6. Integration testing agent runs E2E and reports blockers.
-
-## Global Handoff Gates
-
-Contract gate:
-- Backend OpenAPI/Pydantic schema covers all dashboard, import, asset list, review, QC, search, and export fields.
-- Frontend type definitions match the backend schema.
-- Integration tests validate representative responses against the schema.
-
-Dataset gate:
-- Importer uses `meta/manifest.jsonl` as the primary pairing source.
-- Full dataset import or smoke import reports:
-  - 797 raw assets.
-  - 797 stage1 parsed/record entries.
-  - 780 successful stage2 parsed/record entries.
-  - 19 stage2 failure files preserved.
-- `soft_fail` is treated as review/QC signal, not an import failure.
-
-UI gate:
-- Routes listed in `frontend_architecture.md` are implemented.
-- Five UI surfaces from `frontend_uiux.md` exist and load backend data.
-- Review workbench displays original image, bbox overlays, stage1 relations, stage2 fact verifications, candidates, failure state, and human review form.
-
-Verification command gate:
-- Backend: `uv sync`, then the repo-defined backend test command via `uv run ...`.
-- Frontend: use `nvm` for the project Node version, then `npm ci`, `npm run build`, and repo-defined `npm run test` or `npm run lint`.
-- Integration: run backend API tests, frontend E2E tests, and contract/fixture validation against the deterministic fixture subset.
-
-Open-question gate:
-- Decide raw request/response storage policy.
-- Decide stage2 failure queue behavior.
-- Decide label dictionary/display language strategy.
-- Confirm actual frontend framework once code scaffolding starts.
-
-## Phase 5 - Git Repository And Agent Worktrees
-
-Tasks:
-- Initialize this directory as a Git repository.
-- Exclude large local dataset files from version control.
-- Commit the planning/documentation baseline.
-- Create separate Git worktrees for backend, frontend, and integration testing agents.
-- Add handoff instructions for each worktree.
-
-Acceptance:
-- `git status` in the main worktree is clean after baseline setup.
-- `git worktree list` shows one main worktree and three agent worktrees.
-- Each agent worktree is on its own branch with a task handoff file.
-- `DATASET/` remains ignored and available from the main absolute path.
-
-## Phase 6 - Shared Contract/Bootstrap Execution
-
-Tasks:
-- Start from backend schema/API contract and deterministic fixture definition.
-- Keep frontend and integration branches aligned through explicit contract files.
-- Reconcile the backend contract artifact with frontend TypeScript types and integration fixture checks.
-- Decide whether to merge backend contract into main before frontend contract consumption, or cherry-pick contract artifacts into frontend/integration branches.
-
-Acceptance:
-- Backend branch has the first canonical schema/contract artifact.
-- Frontend branch can consume the contract without inventing response shapes.
-- Integration branch has a fixture manifest that covers success, soft-fail, and failure samples.
-- First-slice status:
-  - Backend complete on `agent/backend-implementation` at `fc82b60`.
-  - Frontend complete on `agent/frontend-implementation` at `83f4501`.
-  - Integration complete on `agent/integration-testing` at `8344695`.
-
-## Phase 7 - Remaining Task Backlog
-
-Tasks:
-- Consolidate remaining unfinished work after the first agent slices.
-- Separate tasks by priority and owner.
-- Define acceptance criteria for the next execution cycle.
-
-Acceptance:
-- `REMAINING_TASKS.md` exists.
-- Remaining work is grouped into P0/P1/P2 priorities.
-- Next execution order is explicit.
-
-## Phase 8 - P0 Execution Cycle
-
-Goal:
-- Move from isolated first slices to a working fixture-backed vertical loop.
-
-Agent assignments:
-- Backend: implement runnable FastAPI API over fixture import, keep backend schema as canonical contract, and expose browser-safe media endpoints.
-- Frontend: replace fixture-only usage with live backend API integration while preserving fixture fallback for tests/dev.
-- Integration: convert skipped skeleton tests into URL-parameterized contract/E2E checks that run when backend/frontend URLs are provided.
-
-Acceptance:
-- Backend branch starts a local API server and passes API tests.
-- Frontend branch builds/tests and can point at backend URL without response shape patches.
-- Integration branch validates fixtures, runs contract tests against backend URL, and has E2E checks ready for frontend URL.
-- Main `progress.md` records each branch commit and validation result.
-
-Results:
-- Backend complete on `agent/backend-implementation` at `f6a76ee`.
-- Frontend complete on `agent/frontend-implementation` at `5d55505`.
-- Integration test harness complete on `agent/integration-testing` at `501578a`.
-- Integration product validation complete on `agent/integration-testing` at `ee3deb5`; it validated the backend and frontend worktree products as running services and published `docs/front_back_integration_report.md`.
-- Active backend contract against `http://127.0.0.1:8000`: 6 passed.
-- Active E2E against backend/frontend URLs: 3 passed, 1 skipped. The skipped review submit/audit refresh case remains under the P1 Review and Audit Workflow backlog.
-
-## Phase 9 - Full DATASET Registration For Product Preview
-
-Goal:
-- Replace the 2-sample runtime default with the real `DATASET/urban_violation` dataset so frontend pages can be judged against representative product data.
-
-Tasks:
-- Load all stage1 manifest samples into the backend runtime service by default.
-- Preserve deterministic subset import support for unit tests.
-- Normalize stage2 parsed payloads that include dataset-only extra fields.
-- Expose import validation rows and mapping counts for the import task page.
-- Expose dataset distributions and preannotation counts for overview/preannotation pages.
-- Expose asset/category/confidence fields for asset list and QC queue pages.
-- Re-run frontend/backend preview against live services.
-
-Acceptance:
-- Backend summary reports 797 raw assets, 797 stage1 records, 780 successful stage2 records, and 19 preserved stage2 failure artifacts.
-- Backend import job returns 797 validation rows.
-- Backend QC queue returns 797 samples.
-- Frontend pages render without route-level error state:
-  - `/datasets`
-  - `/datasets/urban_violation/overview`
-  - `/datasets/urban_violation/assets`
-  - `/datasets/urban_violation/import-jobs/fixture-import-urban-violation`
-  - `/datasets/urban_violation/preannotations`
-  - `/datasets/urban_violation/qc`
-  - `/datasets/urban_violation/samples/000142_0_1762483003246/review`
-  - `/datasets/urban_violation/samples/001710_0_1763108687181/review`
-
-Results:
-- Backend full registration verified with `uv run pytest`: 13 passed.
-- Frontend live adapter verified with `npm run build` and `npm run test`: build passed, 14 tests passed.
-- Integration validation after full registration: fixture validator passed, contract tests 6 passed, E2E smoke 3 passed and 1 skipped.
-- Local tmux preview services are running as `uvp-backend` and `uvp-frontend`.
-
-## Phase 10 - Immersive QC Sample Review Redesign
-
-Goal:
-- Redesign the sample review route around the actual evidence flow from STEP1 and STEP2.
-
-Analysis:
-- STEP1 is the spatial evidence layer: environment analysis, scene elements, anchors, relation text, and 0-1000 quantized bboxes.
-- STEP2 is the decision evidence layer: fact verification result/confidence, candidate category, evidence relation indices, and reasoning.
-- Stage2 failure samples must keep the image and STEP1 relation layer visible while showing the failure reason as a first-class remediation signal.
-
-Implementation:
-- Replaced the three-column table-like review shell with a single-screen evidence workbench.
-- Added a left QC queue rail, central image evidence canvas, relation timeline, right evidence inspector, and fixed decision dock.
-- Preserved review submission semantics and the existing backend/frontend API contract.
-
-Acceptance:
-- Success sample review route renders STEP1, STEP2, candidate, image, bbox, and review controls in one screen.
-- Stage2 failure sample route renders image, STEP1 evidence, failure reason, and review controls without a blank panel.
-- `npm run test` passes.
-- `npm run build` passes.
-
-## Phase 11 - Reference-Aligned Sample Detail Workbench Redesign
-
-Goal:
-- Align the live sample review route with `2026-05-13-qc-tool-ui-interaction-design.md` and `2026-05-13-qc-tool-ui-interaction-preview.html`.
-
-Implementation:
-- Reworked the review shell into the reference Sample Detail structure:
-  - Fixed top status/action bar with sample, progress, stage judge, draft state, Prev/Next/List, Save Patch, Pass, and Fail.
-  - Left image evidence panel with STEP1/STEP2/candidate bbox layer toggles, global facts, scene elements, anchors, and active relation summary.
-  - Middle relation review panel with active relation expansion, Step1 Core, Step2 Verification, orphan warnings, and stage2 failure warnings.
-  - Right candidate/verdict panel with evidence relation checklist, Pass gate, vote note, review decision buttons, and patch preview.
-- Preserved the existing review submission API contract while adding local Save Patch/draft-gate state for the current frontend surface.
-- Added route-prop reload handling so Prev/Next sample navigation reloads the review payload in the reused Vue route component.
-
-Acceptance:
-- Success sample route includes image evidence, relation review, candidate verdict, Pass gate, patch preview, and submit controls.
-- Stage2 failure sample route keeps image and STEP1 relation evidence visible and shows the STEP2 failure remediation state.
-- `npm run test` passes with 14 tests.
-- `npm run build` passes.
-- Headless browser checks pass for:
-  - `/datasets/urban_violation/samples/000142_0_1762483003246/review`
-  - `/datasets/urban_violation/samples/001710_0_1763108687181/review`
-
-## Phase 12 - Sample Review Non-Blocking Refresh Mode
-
-Goal:
-- Remove visible screen flicker when navigating between samples from the review workbench.
-
-Root Cause:
-- `ReviewWorkbenchPage.vue` reused the same route component for Prev/Next navigation, but the route watcher called the same `load()` path used for first entry.
-- That path set `loading=true`, causing the template to unmount `ReviewWorkbenchShell` and render the full-page loading state before the next sample detail returned.
-
-Implementation:
-- Split review loading into first-entry `initialLoading` and same-dataset `refreshing`.
-- Keep the current review workbench mounted while a new sample detail request is in flight.
-- Show a compact sticky refresh banner during sample switching instead of replacing the screen.
-- Fetch the QC queue during initial load; sample switches fetch only the review detail so the transition is shorter and less disruptive.
-- Guard async responses with a request sequence so stale sample responses cannot overwrite a newer navigation.
-
-Acceptance:
-- Switching from sample `000142_0_1762483003246` to the next sample does not show `Loading review sample...`.
-- During the pending request, the old review detail remains visible and a `正在切换到 ...` banner appears.
-- After the next sample detail resolves, the target sample replaces the old detail and the banner disappears.
-- `npm run test` passes with 15 tests.
-- `npm run build` passes.
-- Headless Chrome CDP navigation check verifies transition and final states.
-
-## Phase 13 - Review Workbench Layout And Bbox Editing Refinement
-
-Goal:
-- Apply the latest sample-review layout and interaction corrections requested after the non-blocking refresh pass.
-
-Implementation Order:
-1. Remove the visible sample-switch sticky refresh banner while keeping the non-blocking refresh model.
-2. Remove the bottom active-relation summary from the image evidence card.
-3. Add bbox selection and bbox coordinate editing.
-4. Reflow the workbench to a two-column layout:
-   - Left: image evidence, global facts, scene elements, anchors, bbox coordinate editor.
-   - Right: stacked Relation review card over Candidate/verdict card.
-   - Bottom: unified review action bar containing vote note, approve, reject, manual-label, and submit controls.
-5. Remove subtitle descriptions from panel headers so each card's left header contains only the primary title.
-
-Acceptance:
-- No visible `正在切换到 ...` banner appears while switching samples.
-- The image evidence card no longer renders the old active relation text block.
-- Clicking a bbox selects the corresponding relation and opens its Relation review row.
-- Editing bbox coordinates updates the selected relation display and patch preview.
-- Relation and Candidate cards stack vertically on the right side at desktop width.
-- `npm run test` passes with 16 tests.
-- `npm run build` passes.
-- Headless Chrome checks confirm no refresh banner/loading flash, bbox click opens R3, bbox edit writes `[400, 492, 452, 545]` into the relation/patch state, and the new layout screenshot is captured at `/tmp/uvp_review_layout_new.png`.
-
-## Phase 14 - Direct Image-Stage Bbox Editing And Fill-Area Alignment Fix
-
-Goal:
-- Replace manual bbox coordinate editing with direct manipulation inside the image preview.
-- Ensure bbox rendering and pointer math use the actual rendered image stage, not the black letterbox/pillarbox fill area.
-
-Implementation:
-- Refactored `BBoxOverlay` to split the black preview shell from the real image stage.
-- Measured the shell with `ResizeObserver` and sized `.bbox-shell__stage` to the actual image aspect ratio inside the shell.
-- Rendered overlay boxes inside the stage only, so boxes cannot drift into side fill areas.
-- Added direct editable overlays:
-  - Drag a box to move it.
-  - Drag the bottom-right handle to resize it.
-  - Clicking or editing a box selects the matching Relation row.
-- Removed the manual `BBox 坐标` editor from the image evidence card.
-- Changed the bottom review action bar to normal layout flow so it no longer overlays and intercepts lower image/box pointer events.
-- Kept bbox edits synchronized with relation display and Patch Preview through `draftRelationBboxes`.
-
-Acceptance:
-- Browser validation shows the shell can have side fill while the stage remains inside the shell and boxes remain inside the stage.
-- No manual bbox coordinate inputs or `BBox 坐标` editor are rendered.
-- No visible `正在切换到 ...` refresh banner is rendered.
-- Dragging R3 in the image preview selects R3, updates its relation bbox, and writes a `relation:R3` bbox entry into Patch Preview.
-- `npm run test` passes with 18 tests.
-- `npm run build` passes.
-- Updated screenshot captured at `/tmp/uvp_review_direct_bbox.png`.
-
-## Phase 15 - Sample Review Focused Chrome Reduction
-
-Goal:
-- Remove non-review chrome when entering the sample audit stage so the viewport is dedicated to review work.
-
-Root Cause:
-- The sample review route was rendering three stacked header/chrome layers:
-  - Global `AppShell` sidebar/topbar with platform navigation and search.
-  - `ReviewWorkbenchPage` page title/actions header.
-  - `ReviewWorkbenchShell` review-specific sample status/action topbar.
-
-Implementation:
-- Added review-focus mode to `AppShell` for `/datasets/:id/samples/:sampleId/review`.
-- In review-focus mode, hide the global sidebar and topbar and make the page surface full-width with compact dark padding.
-- Removed the page-level review header from `ReviewWorkbenchPage`.
-- Kept only the review-specific workbench header with sample state, progress, stage judge, draft state, Prev/Next, and List.
-
-Acceptance:
-- Sample review route no longer renders global sidebar, global search topbar, or the page-level `质检工作台 / 样本审阅` header.
-- Review workbench remains visible and starts near the top of the viewport.
-- Other non-review routes keep the normal platform shell.
-- `npm run test` passes with 19 tests.
-- `npm run build` passes.
-- Browser DOM check confirms `app-shell--review-focus`, no `.sidebar`, no `.topbar`, no `.page-header`, and workbench top at 10px.
-- Updated screenshot captured at `/tmp/uvp_review_focus_mode.png`.
-
-## Phase 16 - Minimal Bbox Preview Styling
-
-Goal:
-- Remove visible text labels from bbox overlays and make the image preview annotation layer visually minimal.
-
-Implementation:
-- Removed the visible `<span>` label from each bbox overlay.
-- Preserved each bbox label as `aria-label` so keyboard/screen-reader context is not lost.
-- Reworked bbox styling to use a restrained 1px line, transparent fill, subtle selected state, softer colors, and a small square resize handle.
-- Removed the review-shell override that positioned bbox label text above the image.
-
-Acceptance:
-- No bbox overlay renders visible text.
-- Bbox overlays still expose accessible names through `aria-label`.
-- Drag/resize and relation-selection interactions remain intact.
-- `npm run test` passes with 19 tests.
-- `npm run build` passes.
-- Browser DOM check confirms 8 bbox overlays, empty visible text, retained aria labels, and the simplified 1px selected border.
-- Updated screenshot captured at `/tmp/uvp_review_minimal_boxes.png`.
-
-## Phase 17 - Quantized Bbox Coordinate Projection Fix
-
-Goal:
-- Correct bbox projection so all overlay boxes use the dataset's 0-1000 quantized coordinate system instead of treating bbox values as source-image pixels.
-
-Root Cause:
-- `BBoxOverlay` divided bbox x values by `imageWidth` and y values by `imageHeight`.
-- For a 1280x720 image, a quantized bbox such as `[163, 362, 336, 632]` was incorrectly rendered as `left=12.7%`, `top=50.3%` instead of `left=16.3%`, `top=36.2%`.
-
-Implementation:
-- Added an explicit `BBOX_COORDINATE_MAX = 1000` coordinate space in `BBoxOverlay`.
-- Converted bbox placement to percentages with `value / 1000`.
-- Converted pointer drag/resize positions from the rendered image stage back into 0-1000 coordinates.
-- Kept `imageWidth/imageHeight` only for the rendered image stage aspect ratio.
-- Updated bbox overlay tests to validate quantized coordinates on non-1000 source image resolutions.
-
-Acceptance:
-- `npm run test` passes with 20 tests.
-- `npm run build` passes.
-- Browser check confirms sample R1 `[163, 362, 336, 632]` renders as `left: 16.3%; top: 36.2%; width: 17.3%; height: 27%`.
-- Browser check confirms the rendered box remains inside the actual image stage.
-- Updated screenshot captured at `/tmp/uvp_review_quantized_boxes.png`.
-
-## Phase 18 - Bbox Color And Selected-State Styling Rule
-
-Goal:
-- Enforce the requested bbox visual rule: default boxes use pure 2px non-red lines; selected boxes become thicker and red.
-
-Implementation:
-- Changed default bbox styling to `2px solid currentColor` with no shadow/fill treatment.
-- Changed selected bbox styling to a `4px` red border.
-- Stopped mapping orphan stage1 relations and unsupported stage2 verifications to red tones.
-- Kept default tones to blue, green, orange, and purple.
-
-Acceptance:
-- Default bbox overlays do not use red as their line color.
-- Selected bbox overlay is red and thicker than default overlays.
-- `npm run test` passes with 20 tests.
-- `npm run build` passes.
-- Browser computed-style check confirms selected R1 is `4px` red and default R2/R3/S2 boxes are `2px` non-red lines.
-- Updated screenshot captured at `/tmp/uvp_review_box_color_rules.png`.
-
-## Phase 19 - Review Bottom Dock And Panel Height Expansion
-
-Goal:
-- Align the vote note/review action dock to the browser bottom and increase the usable height of the image evidence and right-side review panels.
-
-Root Cause:
-- The review workbench used fixed grid height math (`calc(100vh - 380px)`) that left unused vertical space and kept the vote note/action bar above the browser bottom.
-- The bottom action bar also had bottom padding, so the vote note textarea did not visually touch the bottom edge even after the dock reached the viewport bottom.
-
-Implementation:
-- Changed the review-focus page surface to a fixed viewport-height surface with no bottom padding on desktop.
-- Changed `ReviewWorkbenchShell` to a full-height flex column.
-- Let `.review-grid` flex to fill the remaining height between the top status bar and bottom action dock.
-- Increased image evidence minimum row height and made the right-side Relation/Candidate panels share the expanded vertical space.
-- Removed bottom padding and bottom border/radius from the review action dock so the vote note textarea aligns with the browser bottom.
-- Kept responsive breakpoints in normal document flow on narrower screens.
-
-Acceptance:
-- `npm run test` passes with 20 tests.
-- `npm run build` passes.
-- Browser layout check confirms action dock bottom gap is `0` and vote note textarea bottom gap is `0`.
-- Browser layout check confirms the image stage is 430px high and Relation/Candidate panels are each 310px high in the 1440px desktop check.
-- Updated screenshot captured at `/tmp/uvp_review_bottom_aligned_layout.png`.
-
-## Phase 20 - QC Label Field Editing Design Document
-
-Goal:
-- Define how the QC workbench edits model label fields without overwriting model baseline data.
-- Separate fixed dictionary fields from flexible open-tag fields.
-- Explicitly handle `scene_elements` and `segmentation_targets` as open controlled tags, not closed enums.
-
-Implementation:
-- Added `docs/qc_label_field_editing_design.md`.
-- Documented the `baseSample` / `reviewDraft` / `mergedSample` / `buildPatch` editing model.
-- Defined field categories: closed enum, open controlled tags, numeric confidence, free text, and quantized bbox.
-- Designed dictionary-backed validation for category/relation/result fields.
-- Designed suggestion-backed but non-blocking validation for `scene_elements` and `segmentation_targets`.
-- Added patch payload examples for closed enum replacement, open-tag add, open-tag normalization, and tag deletion.
-
-Acceptance:
-- The design clearly states that `scene_elements` and `segmentation_targets` are not fixed enumerable fields.
-- Closed enum fields have a backend dictionary contract and save-time validation rule.
-- Open tags preserve `raw_text`, `normalized_text`, optional `canonical_code`, status, and audit history.
-- The design can be used directly by frontend, backend, and integration agents for the next implementation slice.
-
-## Phase 21 - Frontend Uploaded Label Config Flow
-
-Goal:
-- Correct the label dictionary loading strategy so dataset label configs are uploaded manually from the frontend instead of being bundled and auto-loaded by backend code.
-
-Implementation:
-- Added `docs/qc_label_config_upload_flow.md`.
-- Defined frontend upload, local preview, backend validation, draft save, activation, active config loading, and patch version binding.
-- Clarified that `scene_elements` and `segmentation_targets` remain `open_tags` in uploaded configs.
-- Marked the previous backend package-config loading approach as a development fixture pattern, not the target product flow.
-
-Acceptance:
-- The next implementation slice can replace backend-bundled config loading with a dataset-bound uploaded config lifecycle.
-- Frontend, backend, and integration agents have clear API, state, and validation responsibilities.
-- Missing active config behavior is explicit: review data can display read-only, but label editing/submission must be blocked.
-
-## Phase 22 - Label Config Upload Subagent Execution
-
-Goal:
-- Split the frontend-uploaded label config lifecycle into backend, frontend, and integration subagent tasks.
-- Provide a real `urban_violation` label config file under the dataset directory for upload-based testing.
-
-Implementation:
-- Added `DATASET/urban_violation/label_config.json` as the current dataset test config file. This file is under ignored dataset data and is not committed.
-- Added `docs/subagent_label_config_upload_tasks.md` with per-agent write scopes, API contracts, execution tasks, and acceptance criteria.
-- Assigned backend, frontend, and integration implementation tasks to separate subagents.
-- Backend subagent completed commit `a7ba76e`: uploaded label config lifecycle with validate/save/activate/active/suggestions APIs.
-- Frontend subagent completed commit `e93f581`: manual upload panel, API client, active-config review gate, and related tests.
-- Integration subagent completed commits `98a2560` and `454cc3e`: label config API/browser test skeletons plus live API smoke report.
-
-Acceptance:
-- Backend subagent has a clear brief to replace backend-bundled config loading with uploaded config validation/save/activation.
-- Frontend subagent has a clear brief to add manual upload, preview, activation, and active-config-driven review controls.
-- Integration subagent has a clear brief to validate the full upload/activate/review workflow using `DATASET/urban_violation/label_config.json`.
-- Backend validation passed: `uv run pytest` reported 20 tests passing.
-- Frontend validation passed: `npm run test` reported 23 tests passing and `npm run build` passed.
-- Integration API smoke passed against live backend on port 8010: 4 tests passing.
-- Browser E2E remains environment-blocked because Python Playwright is unavailable and Chrome DevTools MCP cannot connect to local Chrome.
-
-## Phase 23 - Label Config Validate Runtime 404 Fix
-
-Goal:
-- Resolve the user-reported `Not Found` popup after uploading a label config and clicking `校验配置`.
-
-Root Cause:
-- The frontend default API base points to `http://127.0.0.1:8000/api`.
-- Port `8000` was still running an older backend process from May 15.
-- That old process returned `404 {"detail":"Not Found"}` for `POST /api/datasets/urban_violation/label-configs/validate` because it did not include the uploaded label config lifecycle routes.
-
-Resolution:
-- Stopped the stale `8000` backend process.
-- Restarted `8000` from the current backend worktree commit `a7ba76e`.
-- Verified `POST /api/datasets/urban_violation/label-configs/validate` returns 200 and validates `DATASET/urban_violation/label_config.json`.
-
-Acceptance:
-- `curl` validate request against `http://127.0.0.1:8000/api/datasets/urban_violation/label-configs/validate` returns `valid=true`.
-- `BACKEND_URL=http://127.0.0.1:8000 pytest -q tests/label_config/test_label_config_api_smoke.py` passes with 4 tests.
-
-## Phase 24 - STEP1/STEP2 Review Field and Two-Zone Layout Design
-
-Goal:
-- Reorganize the STEP1 and STEP2 fields that require QC editing.
-- Redesign the right-side sample review workbench into two clear regions: `Relation 复核区` and `Candidate 与质检裁决`.
-
-Implementation:
-- Added `docs/qc_step_review_field_layout_design.md`.
-- Confirmed current dataset field shapes from real samples:
-  - STEP1: `environment_analysis`, `scene_elements`, `key_anchors`, `key_relations`.
-  - STEP2 parsed: `sample_id`, `fact_verifications`, `candidates`.
-  - STEP2 failure: `error_type`, `message`.
-- Defined editable fields, readonly fields, control types, label-config dependencies, and patch scopes.
-- Specified that `relation_index` and `evidence_relation_indices` should be shown as readable Relation references in the UI rather than raw numeric indices.
-- Designed the right-side layout as two operational regions:
-  - Upper `Relation 复核区` for STEP1 relation plus STEP2 fact verification editing.
-  - Lower `Candidate 与质检裁决` for Candidate editing, evidence relation selection, vote note, and review decisions.
-
-Acceptance:
-- The design covers every STEP1/STEP2 field involved in QC edits.
-- Closed enum fields are tied to active label config.
-- `scene_elements` and `segmentation_targets` remain open controlled tags.
-- `bbox` editing remains image-stage only and preserves 0-1000 quantized coordinates.
-- The next frontend implementation slice has clear target controls and acceptance criteria.
-
-## Phase 25 - STEP1/STEP2 Review Layout HTML Preview
-
-Goal:
-- Produce a standalone HTML preview aligned to `docs/qc_step_review_field_layout_design.md` and the current frontend review-workbench visual language.
-
-Implementation:
-- Added `docs/qc_step_review_field_layout_preview.html`.
-- Used real sample `000142_0_1762483003246` and its source image from `DATASET/urban_violation/images`.
-- Rendered the target workbench as:
-  - Left image evidence area with 0-1000 projected bbox overlays.
-  - Upper-right `Relation 复核区` with relation list plus active relation/verification editor.
-  - Lower-right `Candidate 与质检裁决` with candidate fields, evidence relation check rows, vote note, and review actions.
-- Added lightweight click interaction so clicking a bbox or Relation row updates the active Relation editor.
-
-Acceptance:
-- The file opens directly as static HTML.
-- Headless Chrome screenshot succeeds at `1440x1000`.
-- The preview uses the current frontend dark workbench styling, border radius, panel structure, bbox color rule, and bottom decision action pattern.
-
-## Phase 26 - Corrected 50/50 Right Rail and Full-Width Verdict Dock
-
-Goal:
-- Correct the preview/design to match the clarified layout requirement.
-
-Implementation:
-- Updated `docs/qc_step_review_field_layout_preview.html`.
-- Updated `docs/qc_step_review_field_layout_design.md`.
-- Changed the right rail to strict equal split:
-  - `Relation 复核区`: 50% of right-side height.
-  - `Candidate 与质检裁决`: 50% of right-side height.
-- Kept each right-side panel independently scrollable so all fields remain accessible without changing panel heights.
-- Moved `vote note`, `通过`, `需修改`, `驳回`, `人工精标`, `保存 Patch`, and `提交质检` into a full-width bottom dock spanning the entire workbench.
-
-Acceptance:
-- Right rail rows use 1:1 height distribution.
-- Relation and Candidate panel content can scroll independently.
-- Vote note and review actions are no longer inside the Candidate panel.
-- Bottom dock spans both the image area and right rail.
-
-## Phase 27 - Relation Editor Text Overlap Fix
-
-Goal:
-- Fix the text layout overlap in the right side of `Relation 复核区` in the HTML preview.
-
-Implementation:
-- Updated `docs/qc_step_review_field_layout_preview.html`.
-- Replaced the Relation editor's compressed grid row layout with a vertical flex flow.
-- Kept the Relation editor independently scrollable with horizontal overflow disabled.
-- Added stable textarea heights and a dedicated wrapping rule for the long `bbox_observation / global_context_observation` label.
-
-Acceptance:
-- Relation editor labels, controls, tags, and textareas no longer overlap in the `1440x1000` preview.
-- Right-side Relation content remains reachable through vertical scrolling.
-- Headless Chrome screenshot succeeds at `/tmp/qc_step_review_field_layout_relation_fix.png`.
-
-## Phase 28 - Label Edit Bottom Bar Semantics
-
-Goal:
-- Redefine the bottom dock for the case where the workbench is used by annotators to modify labels rather than by reviewers to cast a final QC verdict.
-
-Implementation:
-- Added `docs/qc_label_edit_bottom_bar_design.md`.
-- Updated `docs/qc_step_review_field_layout_design.md`.
-- Updated `docs/qc_step_review_field_layout_preview.html`.
-- Removed the explanation input from the label-edit bottom bar.
-- Removed final verdict actions from the preview bottom bar:
-  - `通过`
-  - `需修改`
-  - `驳回`
-  - `人工精标`
-- Added label-edit workflow actions:
-  - `跳过样本`
-  - `校验修改`
-  - `保存草稿`
-  - `提交修改`
-- Added bottom status chips for changed-field count and validation result.
-
-Acceptance:
-- Bottom bar no longer implies final QC pass/fail authority.
-- Bottom bar does not show or require explanation text.
-- Patch/audit records rely on structured diffs instead of `change_note`.
-- Headless Chrome screenshot succeeds at `/tmp/qc_label_edit_bottom_bar_no_note.png`.
-
-## Phase 29 - Relation Index-Only Left Rail
-
-Goal:
-- Simplify the left side of `Relation 复核区` so it only acts as a Relation index selector.
-
-Implementation:
-- Updated `docs/qc_step_review_field_layout_preview.html`.
-- Updated `docs/qc_step_review_field_layout_design.md`.
-- Changed the Relation left rail to fixed-width index buttons showing only `R1/R2/R3`.
-- Moved the design responsibility for status, triple summary, verification result, and bbox status into the right-side Relation detail area.
-
-Acceptance:
-- Relation selector rows do not show triple text, status text, result chips, bbox labels, or explanation snippets.
-- Active/warning/dirty states are represented visually without adding text to the left rail.
-- Headless Chrome screenshot succeeds at `/tmp/qc_relation_index_left_rail.png`.
-
-## Phase 30 - Relation Reference Fields and Candidate Index Rail
-
-Goal:
-- Adjust Relation and Candidate panel semantics after clarifying that `subject_visible`, `subject_match`, and `visible attributes` should not be edited by annotators.
-
-Implementation:
-- Updated `docs/qc_step_review_field_layout_preview.html`.
-- Updated `docs/qc_step_review_field_layout_design.md`.
-- Moved `subject_visible`, `subject_match`, and `key_attributes_visible` below `bbox_observation / global_context_observation`.
-- Rendered these three fields as model visibility reference, not editable switches or tag inputs.
-- Reworked `Candidate 与质检裁决` to match the Relation panel structure:
-  - left candidate index rail with `C1` and `+`
-  - right current Candidate editor with category, sample category, confidence, segmentation targets, reasoning, evidence relations, and relation hint
-
-Acceptance:
-- Subject visibility fields are visually separated from editable verification fields.
-- Candidate panel aligns with Relation panel: compact index rail on the left, editable detail area on the right.
-- Left Candidate rail does not carry category, confidence, or reasoning text.
-
-## Phase 31 - Field-Only Validate Action Semantics
-
-Goal:
-- Narrow the `校验修改` button semantics to field legality validation only.
-
-Implementation:
-- Updated `docs/qc_label_edit_bottom_bar_design.md`.
-- Updated `docs/qc_step_review_field_layout_design.md`.
-- Updated `docs/qc_step_review_field_layout_preview.html`.
-- Changed the status chip wording from `校验通过` to `字段合法`.
-- Defined `校验修改` as checking field type, requiredness, enum membership, open-tag format, confidence range, bbox coordinate legality, and text constraints.
-- Explicitly excluded Relation truth judgment, Candidate evidence sufficiency, cross-field business consistency, sample-level QC verdict, saving, patch submission, and queue-state changes.
-
-Acceptance:
-- `校验修改` does not imply quality judgment or business validation.
-- The preview bottom status reflects field legality rather than QC pass/fail.
-- `提交修改` still requires field legality validation before saving/submitting the patch.
-
-## Phase 32 - Frontend/Backend Implementation Delegation
-
-Goal:
-- Assign backend and frontend implementation agents to turn the current review-workbench design documents into working code.
-
-Backend implementation contract:
-- Worktree: `/mnt/lc/LC/ares_xtws/0_train_data/data_platform_backend_agent`.
-- Source docs:
-  - `/mnt/lc/LC/ares_xtws/0_train_data/data_platform/docs/qc_label_edit_bottom_bar_design.md`
-  - `/mnt/lc/LC/ares_xtws/0_train_data/data_platform/docs/qc_step_review_field_layout_design.md`
-  - `/mnt/lc/LC/ares_xtws/0_train_data/data_platform/docs/qc_step_review_field_layout_preview.html`
-- Add label-edit APIs around the fixture runtime:
-  - `POST /api/datasets/{dataset_id}/samples/{sample_id}/label-edits/validate`
-  - `POST /api/datasets/{dataset_id}/samples/{sample_id}/label-edits`
-- `validate` must only check field legality: type, requiredness, closed enum membership, open tag format, confidence range, bbox 0-1000 legality, text constraints.
-- `validate` must not judge Relation truth, Candidate evidence sufficiency, business consistency, QC verdict, saving, submission, or queue state.
-- `label-edits` must support `submit_action=save_draft` and `submit_action=submit_changes`, persist in the in-memory fixture service, expose latest draft/submitted state in review detail, and preserve existing review-decision endpoint compatibility.
-
-Frontend implementation contract:
-- Worktree: `/mnt/lc/LC/ares_xtws/0_train_data/data_platform_frontend_agent`.
-- Source docs are the same three main-worktree docs above.
-- Rebuild the live review workbench to match the preview:
-  - review-focused shell only
-  - left image evidence area with direct bbox editing on the rendered image stage
-  - right stack split 50/50 between `Relation 复核区` and `Candidate 与质检裁决`
-  - Relation left rail shows only `R1/R2/R3`
-  - Candidate left rail shows only `C1/C2/+`
-  - `subject_visible` / `subject_match` / `key_attributes_visible` are read-only model visibility reference below observations
-  - bottom bar buttons: `跳过样本`, `校验修改`, `保存草稿`, `提交修改`
-  - `校验修改` calls field-legality validation only and does not save or submit
-- Frontend must keep `baseSample` readonly, write user edits into `reviewDraft`, render merged state, and submit patch-only payloads.
-
-Acceptance:
-- Backend agent returns commits and passing `uv run pytest`.
-- Frontend agent returns commits and passing `npm run test` plus `npm run build`.
-- Main thread then integrates both branches and runs a frontend/backend smoke check.
-
-Implementation result:
-- Backend agent completed `59167a5` with `label-edits/validate` and `label-edits` APIs, in-memory label edit state, review detail hydration, contract export, and pytest coverage.
-- Frontend agent completed `791192d` with backend-contract-aligned client methods, review workbench label-edit layout, bottom bar actions, and Vitest coverage.
-- Main branch integrated backend source, backend tests, exported contract, frontend source, frontend tests, and frontend build files from the agent branches.
-- Main branch adjusted `pyproject.toml` to use the existing platform README instead of the backend agent task file as package readme.
-- Main branch added Vite `/media` proxy support so review images load when the frontend uses `/api` proxy mode against the backend.
-
-Verification:
-- `uv run pytest`: 26 passed.
-- `cd frontend && npm run test`: 25 passed.
-- `cd frontend && npm run build`: passed.
-- Backend live smoke on `http://127.0.0.1:8011`:
-  - `/health` returned ok.
-  - review detail returned `label_edit_state` and `label_edit_history`.
-  - active label config was saved from `DATASET/urban_violation/label_config.json`.
-  - `label-edits/validate` returned `valid=true` without persistence.
-  - `label-edits` `save_draft` persisted `annotation_draft`.
-  - `label-edits` `submit_changes` persisted `annotation_submitted`.
-  - invalid `confidence=1.5` returned `422` with field-level validation detail.
-- Browser smoke through Vite proxy on `http://127.0.0.1:5178` rendered the review page with image, bbox overlays, Relation/Candidate index rails, and label-edit bottom bar.
-- Integrated screenshot: `/tmp/uvp_main_integrated_review.png`.
-
-## Phase 33 - Local Frontend/Backend One-Command Dev Stack
-
-Goal:
-- Provide a single local script to start, stop, restart, inspect, and tail logs for the backend and frontend development services.
-
-Implementation:
-- Added `scripts/dev-stack.sh`.
-- Added `.runtime/` to `.gitignore` for local pid files, log files, and saved stack metadata.
-- Backend start command:
-  - `uv run uvicorn urban_violation_backend.app:app --host "$BACKEND_HOST" --port "$BACKEND_PORT"`
-- Frontend start command:
-  - `VITE_API_BASE_URL=/api VITE_API_PROXY_TARGET="$BACKEND_URL" npm run dev -- --host "$FRONTEND_HOST" --port "$FRONTEND_PORT" --strictPort`
-- The script manages only its own pid files and stops frontend before backend.
-- The script fails fast if configured ports are occupied by unrelated processes.
-- Defaults are backend `127.0.0.1:8000` and frontend `0.0.0.0:5173`, displayed as `127.0.0.1:5173`.
-- Ports and hosts can be overridden through environment variables.
-
-Acceptance:
-- `scripts/dev-stack.sh start` launches backend and frontend, waits for `/health` and the Vite root page, and prints usable URLs.
-- `scripts/dev-stack.sh stop` stops only processes recorded in `.runtime/*.pid`.
-- `scripts/dev-stack.sh restart`, `status`, `logs`, and `urls` work from the repo root.
-- Frontend runs in proxy mode so both `/api` and `/media` resolve through the backend during review-workbench checks.
-
-Verification:
-- `bash -n scripts/dev-stack.sh`: passed.
-- `BACKEND_PORT=8021 FRONTEND_PORT=5181 scripts/dev-stack.sh start`: backend and frontend started.
-- `curl --noproxy '*' http://127.0.0.1:8021/health`: returned `{"status":"ok","dataset_id":"urban_violation"}`.
-- `curl --noproxy '*' http://127.0.0.1:5181/api/datasets/urban_violation/samples/000142_0_1762483003246/review`: returned review detail JSON through Vite proxy.
-- `curl --noproxy '*' http://127.0.0.1:5181/media/images/000142_0_1762483003246.jpg`: returned `200 image/jpeg`.
-- `scripts/dev-stack.sh stop`: stopped frontend and backend pids.
-
-## Phase 34 - Review Workbench Zoom and Candidate Deletion Tweaks
-
-Goal:
-- Refine the review workbench image evidence and Candidate editing behavior after UI acceptance feedback.
-
-Implementation:
-- Added mouse-wheel zoom to the image evidence stage in `BBoxOverlay.vue`.
-- Kept bbox coordinates in 0-1000 quantized space; zoom is a stage transform, so the image and all boxes scale together without rewriting the selected region.
-- Added an initial bbox color rule that was superseded by Phase 35.
-- Changed unreferenced Relation detection so a Relation with no Candidate evidence reference is marked unreferenced even when the active Candidate list is empty.
-- Added a right-top Candidate delete button in the Candidate detail editor.
-- Added frontend patch generation for `delete_candidate` operations while keeping newly added then deleted Candidates out of the patch.
-- Preserved empty `segmentation_targets` as a legal Candidate state.
-- Added backend validation support for `delete_candidate` and explicit tests that empty `segmentation_targets` remains valid.
-
-Acceptance:
-- Mouse wheel over the image evidence area zooms the rendered image and bbox overlays together.
-- Zoom does not mutate bbox coordinates and bbox drag/resize still emits 0-1000 coordinates.
-- Superseded by Phase 35: unreferenced Relation boxes now render purple and turn red when selected.
-- Candidate detail has a delete action at the right side of the detail header.
-- Removing all segmentation targets is valid.
-- Deleting an existing Candidate creates a `candidate:C* / field=candidate / op=delete_candidate` patch operation.
-
-Verification:
-- `uv run pytest`: 28 passed.
-- `cd frontend && npm run test`: 28 passed.
-- `cd frontend && npm run build`: passed.
-- Live stack smoke on `127.0.0.1:8022` and `127.0.0.1:5182`:
-  - uploaded and activated `DATASET/urban_violation/label_config.json`;
-  - review page DOM included `candidate-delete-button`, `active config ready`, and the previous unreferenced bbox color classes;
-  - review media returned `200 image/jpeg`;
-  - label-edit validate accepted both empty `segmentation_targets` and `delete_candidate`.
-- Headless Chrome screenshots:
-  - `/tmp/uvp_qc_tweak_review.png`
-  - `/tmp/uvp_qc_tweak_review_active.png`
-
-## Phase 35 - Review Bbox Color Semantics Correction
-
-Goal:
-- Correct the bbox color rules after clarifying that unreferenced Relation boxes should be purple by default and red when selected.
-
-Implementation:
-- Changed unreferenced Relation boxes from black to purple.
-- Restored selected state for unreferenced Relation boxes so selection turns the 2px purple outline into the existing thick red selected outline.
-- Added a stable pseudo-random default color assignment by Relation id for ordinary Relation boxes.
-- The ordinary default bbox color card excludes purple, red, and black.
-- Added ordinary color card classes: blue, green, orange, cyan, yellow, and teal.
-- Removed black tone support from `BBoxOverlay.vue`.
-
-Acceptance:
-- A Relation with no Candidate evidence reference renders purple when not selected.
-- Selecting that unreferenced Relation turns the box red through the normal selected state.
-- Ordinary referenced Relation boxes use stable color-card tones and never default to purple, red, or black.
-- Color assignment remains deterministic across renders for the same Relation id.
-
-Verification:
-- `cd frontend && npm run test -- bboxOverlay routesAndPages`: 17 passed.
-- `cd frontend && npm run test`: 28 passed.
-- `cd frontend && npm run build`: passed.
-- Live stack smoke on `127.0.0.1:8023` and `127.0.0.1:5183`:
-  - activated `DATASET/urban_violation/label_config.json`;
-  - dumped review page DOM with headless Chrome;
-  - confirmed `purple_boxes=True`, `selected_purple_boxes=True`, `black_boxes=False`, `ordinary_palette_boxes=True`, and `candidate_delete=True`;
-  - captured `/tmp/uvp_qc_color_review.png`;
-  - stopped the dev stack.
-
-## Phase 36 - Review Bbox Selected-State Source Correction
-
-Goal:
-- Prevent review page entry, right-side active Relation state, and active Candidate evidence state from marking image boxes red before the user selects a box in the image evidence area.
-
-Implementation:
-- Added a separate `activeImageRelationKey` state in `ReviewWorkbenchShell.vue`.
-- Kept `activeRelationKey` as the right-side Relation editor state only.
-- Overlay `selected` now depends only on `activeImageRelationKey`.
-- `activeImageRelationKey` is set by image-area interactions:
-  - clicking a bbox overlay through `selectOverlayBox`
-  - dragging/resizing a bbox through `updateOverlayBox`
-- Route/sample refresh clears `activeImageRelationKey`.
-- Right-side Relation index clicks and Candidate index changes no longer mark image boxes red.
-
-Acceptance:
-- Entering the review page produces no red selected bbox.
-- Clicking a right-side Relation index opens the editor but does not red-highlight image boxes.
-- Clicking a bbox in the image evidence area still opens the corresponding Relation and applies the red selected-state outline.
-
-Verification:
-- `cd frontend && npm run test -- bboxOverlay routesAndPages`: 17 passed.
-- `cd frontend && npm run test`: 28 passed.
-- `cd frontend && npm run build`: passed.
-- Live stack smoke on `127.0.0.1:8024` and `127.0.0.1:5184`:
-  - activated `DATASET/urban_violation/label_config.json`;
-  - dumped review page DOM with headless Chrome;
-  - parsed bbox element classes and confirmed `bbox_element_count=8`, `selected_element_count=0`, `purple_element_count=4`, `black_element_count=0`, and `ordinary_palette_element_count=4`;
-  - captured `/tmp/uvp_qc_selected_entry.png`;
-  - stopped the dev stack.
-
-## Phase 4 - Acceptance Criteria
-
-Tasks:
-- Define phase gates and final acceptance criteria for each agent.
-- Include verification commands, sample data checks, API contract checks, and UI workflow checks where applicable.
-- Update `progress.md` with completed analysis steps.
-
-Acceptance:
-- The final plan can be used directly as an execution brief.
-- Remaining open questions are separated from executable work.
-
-## Phase 42 - Dataset Type/Batch Lifecycle Design
-
-Status: complete
-
-Goal:
-- Reframe datasets around dataset type and batch identity.
-- Support `urban_violation` as the shared dataset type while batch suffixes such as date/scene identify concrete import batches.
-- Include that QC queue entries are batch-scoped rather than type-wide.
-
-Implementation:
-- Documented dataset lifecycle and batch-state model in `docs/dataset_asset_import_usage_logic_design.md`.
-- Established that the same dataset type shares field design and active `label_config`, while each batch owns import state, asset statistics, and QC queue slices.
-
-Acceptance:
-- Dataset list can group by type while opening concrete batch pages.
-- QC queue entry points include a batch key and do not silently mix batches under the same dataset type.
-
-## Phase 43 - Batch-Scoped Asset Statistics And Browsing Design
-
-Status: complete
-
-Goal:
-- Fold the former standalone asset browser into dataset management.
-- Expose asset statistics and asset browsing at the dataset-batch level.
-
-Implementation:
-- Documented asset summary, failure-status filters, stage1/stage2 status surfaces, and browser-safe media URL behavior.
-- Chose batch detail pages as the ownership location for asset statistics and samples.
-
-Acceptance:
-- A user can inspect total assets, stage2 success/failure counts, and failed assets for a concrete batch.
-- Asset browsing remains connected to dataset/batch context and can route to QC review for the same sample.
-
-## Phase 44 - Import Job Orchestration Inside Dataset Creation
-
-Status: complete
-
-Goal:
-- Treat import tasks as part of dataset-batch creation and refresh rather than a separate top-level product module.
-- Preserve import diagnostics as execution records under a batch.
-
-Implementation:
-- Documented import job state, validation/retry behavior, and the relationship between import failures and asset/QC statistics.
-- Preserved the distinction between historical import diagnostics and current asset failure state.
-
-Acceptance:
-- Import job detail is reachable from a dataset batch.
-- Validation can report preserved failure diagnostics without changing current asset counts incorrectly.
-
-## Phase 45 - Dataset Management Frontend/Backend/Test Task Breakdown
-
-Status: complete
-
-Goal:
-- Split remaining dataset management work into backend, frontend, and integration-test execution tasks.
-- Protect the current QC review workbench layout and behavior.
-
-Implementation:
-- Added `docs/dataset_management_implementation_tasks.md`.
-- Assigned backend to dataset/batch/import/asset/QC APIs, frontend to dataset-management pages, and integration testing to end-to-end verification.
-- Marked current review-workbench layout and behavior as protected during this implementation pass.
-
-Acceptance:
-- Subagents had disjoint ownership and explicit acceptance gates.
-- Review-workbench files from subagent work are not allowed to overwrite the main-worktree QC workbench source of truth.
-
-## Phase 46 - Dataset Management Implementation Delegation And Integration
-
-Status: complete
-
-Goal:
-- Implement the dataset, asset, and import job management plan and verify frontend/backend integration.
-- Keep the QC workbench source of truth as the current main directory state.
-
-Implementation:
-- Backend subagent implemented batch-aware dataset summaries, import job detail/validation, asset summaries/filtering, and canonical batch-aware QC responses.
-- Frontend subagent implemented dataset type/batch list, overview, asset browser, import job detail, and navigation into batch-scoped QC.
-- Integration subagent verified API behavior, regression tests, and browser smoke where local tooling permitted.
-- Main-thread verification confirmed the integrated product against the current main worktree.
-
-Acceptance:
-- `uv run pytest` passed with 30 tests.
-- `cd frontend && npm run test` passed with 35 tests.
-- `cd frontend && npm run build` passed.
-- API smoke passed for dataset list, batch summary, import job detail/validation, asset summary/filtering, QC list, and sample review detail.
-- Headless Chrome smoke passed for dataset list, overview, assets, import job, QC queue, and two sample review routes.
-- The QC workbench remains governed by the main directory version; no subagent review-workbench replacement is treated as authoritative.
-
-## Errors Encountered
-
-| Error | Attempt | Resolution |
+| Area | Status | Notes |
 | --- | --- | --- |
-| `cat ~/.codex/skills/planning-with-files/SKILL.md` failed because the AGENTS path does not exist on this machine. | Read skill from AGENTS-specified path. | Used installed skill path `/home/hy/.agents/skills/planning-with-files/SKILL.md`. |
-| `git status --short` failed because `/mnt/lc/LC/ares_xtws/0_train_data/data_platform` is not inside a Git repository. | Final verification. | Treated as environment fact; verified planning files directly instead. |
-| `jq '.schema_version, .dataset_type, (.fields | length), [.fields[] | select(...)] | length'` failed with `Cannot index string with string "fields"`. | Initial JSON summary check for `DATASET/urban_violation/label_config.json`. | Re-ran with grouped array expression: `jq '[.schema_version, .dataset_type, (.fields | length), ([.fields[] | select(.mode=="closed_enum")] | length), ([.fields[] | select(.mode=="open_tags")] | length)]' ...`. |
-| Frontend label config `校验配置` showed `Not Found`. | Reproduced direct request to `http://127.0.0.1:8000/api/datasets/urban_violation/label-configs/validate`. | Found stale backend process on port 8000 with no label-config routes; restarted 8000 from current backend commit and reran API smoke successfully. |
-| `jq '.field_definitions | ...' DATASET/urban_violation/label_config.json` failed with `Cannot iterate over null`. | Checked uploaded label config shape. | Re-ran against the actual `.fields[]` structure and confirmed 8 configured fields. |
-| Chrome DevTools MCP could not connect: `Could not find DevToolsActivePort`. | Tried to open the static preview through MCP. | Used `google-chrome --headless=new --user-data-dir=/tmp/uvp-preview-chrome --screenshot=... file://...` as the browser verification path. |
-| `uv run pytest` failed with `Readme file does not exist: AGENT_TASK.md` after integrating backend files into main. | Main branch initially pulled backend code paths without the backend agent task file referenced by `pyproject.toml`. | Changed `pyproject.toml` readme to `urban_violation_platform_markdown/README.md` and reran `uv run pytest` successfully. |
-| Live browser smoke initially showed `Media preview pending from backend URL`. | Vite proxy mode proxied `/api` but not root `/media`, so image requests fell through to the frontend HTML route. | Added `/media` proxy in `frontend/vite.config.ts`; image request returned `200 image/jpeg` and screenshot rendered the actual image. |
-| Chrome DevTools MCP could not connect for integrated click verification: `Could not find DevToolsActivePort`. | Tried to use DevTools MCP after screenshot smoke. | Kept headless Chrome screenshot/DOM dump and direct API smoke as the browser verification path. |
-| `/bin/bash: 行 1: python: 未找到命令` during color DOM smoke. | Used bare `python` in a shell one-liner. | Re-ran with repo convention `uv run python` and completed the DOM checks. |
-| Planning files were overwritten with a short validation summary. | Integration validation agent initialized `task_plan.md`, `findings.md`, and `progress.md` in the main workspace. | Restored all three files from `HEAD` and appended Phase 42-46 plus the latest validation notes. |
-| A Vite process remained after `scripts/dev-stack.sh stop`. | `status` reported stopped, but `ps` still showed the Vite child process on the frontend command. | Killed the residual process and hardened `scripts/dev-stack.sh stop` to clean matching owned frontend/backend processes by command and port. |
+| Git/worktree setup | Complete | Main plus frontend/backend/integration worktrees exist. |
+| Real dataset registration | Complete | `DATASET/urban_violation` registered as the main fixture. |
+| QC review workbench | Complete/protected | Focused single-screen review UI, bbox editing, zoom, color semantics, Relation/Candidate layout, and bottom action bar are accepted. |
+| Label field editing | Complete baseline | Validate, save draft, submit modification, and field legality validation exist. |
+| Label config upload | Complete baseline | Frontend upload, validate, save, activate, active read, suggestions, reload are implemented. Duplicate-version idempotency remains a backlog item. |
+| Dataset management | Complete baseline | Dataset type plus batch model, manual batch scan/register/ingest, assets, import job, preannotation, and QC queue generation are implemented. |
+| Multi-user collaboration | Complete baseline | Internal accounts, sessions, RBAC, batch assignment, leases, private drafts, submissions, qc_lead confirmation, and audit are implemented. |
+| User center | Complete baseline | `/account`, `/account/permissions`, `/account/audit`, topbar entry, permission guards, and legacy redirects are implemented. |
+| Frontend architecture repair | P0 complete | Route reuse refresh, batch-switch cache cleanup, dataset type/batch semantic aliases, and focused tests are integrated. P1/P2 remain. |
+| Main-workspace governance | Complete | `AGENTS.md` and `scripts/agent-dev-stack.sh` added. |
+
+## Protected Review Workbench Rules
+
+Do not modify these without explicit user approval:
+
+- `frontend/src/features/review-workbench/**`
+- `frontend/src/shared/components/BBoxOverlay.vue`
+- `frontend/src/test/bboxOverlay.test.ts`
+
+Protected behavior:
+
+- Bbox values are 0-1000 quantized coordinates.
+- Image aspect ratio determines the rendered stage; bbox positions are percentages of that stage.
+- Default bbox line width is 2px; selected state changes color only unless the user asks otherwise.
+- Default colors must exclude red, black, and the reserved unreferenced color.
+- Unreferenced Relation boxes use purple and turn red only when explicitly selected in the image evidence area.
+- The review page stays chrome-free and review-focused.
+- Bottom bar actions are `跳过样本`, `校验修改`, `保存草稿`, `提交修改`.
+- `校验修改` checks field legality only; it does not save, submit, or judge semantic correctness.
+
+## Active Backlog
+
+### P0 - Keep Stable
+
+- Before any new frontend/backend product change, synchronize main into the corresponding agent worktree.
+- Use `scripts/agent-dev-stack.sh` to run agent worktree code for review.
+- After implementation agents finish, use integration validation against the combined frontend/backend product before syncing accepted code into main.
+- After every service-based verification, stop frontend/backend services and check no tracked local listeners remain.
+
+### P1 - Frontend Architecture Repair
+
+Source plan: `docs/frontend/README.md`
+
+Remaining work:
+
+- Split the large API adapter into clearer dataset, batch, import, label-config, QC, account, and audit clients.
+- Improve asset browsing filters and batch-level browsing efficiency.
+- Improve QC queue throughput page behavior without touching the sample review page.
+- Consolidate status dictionaries and Chinese UI copy.
+- Remove demo-default leakage from audit and role-binding pages.
+
+Acceptance:
+
+- Existing review workbench tests remain unchanged and passing.
+- Route/API tests cover non-review route refresh and batch context.
+- `npm run test` and `npm run build` pass in the frontend agent worktree before main sync.
+
+### P1 - Label Config Persistence Idempotency
+
+Problem:
+
+- Restart/reload does not create new versions, but saving the same content repeatedly creates duplicate `label-config-N` versions because backend save is not content-hash idempotent.
+
+Required behavior:
+
+- Identical content save should reuse the existing version or require an explicit "save as new version" action.
+- Manual `重新加载 active` must never create a version.
+- Runtime config root should not default to raw `DATASET/` if the dataset must remain strictly input-only.
+
+Acceptance:
+
+- Repeated save of unchanged config does not append a duplicate version.
+- Reload active keeps the same active config id and content hash.
+- Tests cover restart, reload, duplicate save, and explicit new-version save.
+
+### P1 - Dataset Batch Product Hardening
+
+- Persist import validation history or clearly separate recalculated validation from audit history.
+- Make manual batch source-path warnings clearer when backend cannot read `source_uri`.
+- Keep batch QC queue generation explicit and label-config gated.
+- Keep batch-scoped state keyed by concrete batch id.
+
+### P2 - Integration Test Environment
+
+- Add a reproducible browser smoke setup if Playwright remains absent from the repo environment.
+- Keep headless Chrome fallback documented for local checks.
+- Add integration scripts that assert actual backend action strings and current route contracts.
+
+## Validation Commands
+
+Backend:
+
+```bash
+PLATFORM_STATE_ROOT=/tmp/uvp-check uv run pytest
+uv run python -m py_compile src/urban_violation_backend/service.py src/urban_violation_backend/routes.py src/urban_violation_backend/api_schemas.py
+```
+
+Frontend:
+
+```bash
+cd frontend
+source ~/.nvm/nvm.sh
+nvm use "$(cat ../.nvmrc)"
+npm run test
+npm run build
+```
+
+Agent stack from main:
+
+```bash
+scripts/agent-dev-stack.sh start
+scripts/agent-dev-stack.sh status
+scripts/agent-dev-stack.sh stop
+```
+
+Main accepted-code stack:
+
+```bash
+scripts/dev-stack.sh start
+scripts/dev-stack.sh stop
+```
+
+## Service Shutdown Gate
+
+After any live check:
+
+```bash
+scripts/dev-stack.sh stop
+scripts/agent-dev-stack.sh stop
+```
+
+Then verify no project `uvicorn`, Vite, or tracked backend/frontend listener remains on the ports used for the check.
+
+## Completed Milestones
+
+- Documentation and DATASET analysis.
+- Worktree and subagent orchestration.
+- Backend FastAPI fixture/runtime baseline.
+- Frontend Vue runtime/API baseline.
+- Full `DATASET/urban_violation` registration.
+- Immersive QC sample review redesign and iterative bbox/image fixes.
+- QC label editing and label-config upload workflow.
+- Dataset type/batch lifecycle, asset browsing, import job orchestration, and manual batch creation.
+- Registered-batch QC queue generation.
+- Internal account, RBAC, batch assignment, lease, draft, submission, qc_lead confirmation, and audit baseline.
+- User center and management route hierarchy.
+- Chinese tech-minimal topbar and permission page refinement.
+- Frontend architecture P0 repair.
+- Main-workspace governance and agent worktree stack script.
+
+## Open Product Decisions
+
+- Whether STEP2 failure entries should enter the normal QC queue by default or a separate remediation queue.
+- Whether category/code dictionaries should be displayed only as Chinese labels or preserve machine codes in advanced views.
+- Whether future batch keys should be date-only, scene-only, or a combined convention such as `{date}_{scene}`.
+- Whether import validation history should become persistent audit data in the first production hardening pass.

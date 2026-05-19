@@ -9,12 +9,19 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from urban_violation_backend.schemas import (
+    BatchAssignmentStatus,
     DatasetLifecycleStatus,
     HumanReview,
+    LeaseStatus,
+    QcTaskStatus,
+    RoleBinding,
+    RoleScopeType,
     Stage1Preannotation,
     Stage2Preannotation,
     Stage2PreannotationFailure,
     StrictModel,
+    UserRole,
+    UserStatus,
 )
 
 
@@ -23,6 +30,88 @@ class HealthResponse(StrictModel):
 
     status: Literal["ok"]
     dataset_id: str
+
+
+class ErrorResponse(StrictModel):
+    """Structured API error payload."""
+
+    code: str
+    message: str
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class LoginRequest(StrictModel):
+    """Internal account login request."""
+
+    user_id: str = Field(min_length=1, max_length=80)
+    password: str = Field(min_length=1, max_length=1024)
+
+
+class LoginResponse(StrictModel):
+    """Login response with opaque session token."""
+
+    token: str
+    expires_at: datetime
+    auth_mode: str
+    user: "UserAccountResponse"
+
+
+class LogoutResponse(StrictModel):
+    """Logout response."""
+
+    logged_out: bool
+
+
+class UserAccountCreateRequest(StrictModel):
+    """Create one internal account."""
+
+    user_id: str = Field(min_length=1, max_length=80, pattern=r"^[a-z][a-z0-9_\-]*$")
+    display_name: str = Field(min_length=1, max_length=120)
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=8, max_length=1024)
+    status: UserStatus = UserStatus.ACTIVE
+
+
+class UserAccountPatchRequest(StrictModel):
+    """Patch mutable account fields."""
+
+    display_name: str | None = Field(default=None, min_length=1, max_length=120)
+    email: str | None = Field(default=None, min_length=3, max_length=255)
+    password: str | None = Field(default=None, min_length=8, max_length=1024)
+    status: UserStatus | None = None
+
+
+class UserAccountResponse(StrictModel):
+    """Public account projection."""
+
+    user_id: str
+    display_name: str
+    email: str
+    status: UserStatus
+    created_at: datetime
+    updated_at: datetime
+    last_seen_at: datetime | None = None
+
+
+class RoleBindingCreateRequest(StrictModel):
+    """Create role binding request."""
+
+    user_id: str = Field(min_length=1, max_length=80)
+    role: UserRole
+    scope_type: RoleScopeType
+    scope_id: str = Field(min_length=1, max_length=180)
+
+
+class CurrentUserResponse(StrictModel):
+    """Current user context and effective permissions."""
+
+    auth_mode: str
+    user_id: str
+    display_name: str
+    email: str
+    status: UserStatus
+    roles: list[RoleBinding] = Field(default_factory=list)
+    permissions: list[str] = Field(default_factory=list)
 
 
 class LabelConfigValidateRequest(StrictModel):
@@ -36,6 +125,14 @@ class LabelConfigSaveRequest(LabelConfigValidateRequest):
     """JSON request body for saving one uploaded label config version."""
 
     activate: bool = False
+
+
+class DatasetTypeCreateRequest(StrictModel):
+    """Request body for registering a dataset type before creating batches."""
+
+    dataset_type: str = Field(min_length=1, max_length=80, pattern=r"^[a-z][a-z0-9_]*$")
+    display_name: str = Field(min_length=1, max_length=120)
+    field_schema_version: str = Field(default="draft", min_length=1, max_length=80)
 
 
 class LabelEditOperation(BaseModel):
@@ -55,6 +152,9 @@ class LabelEditValidateRequest(StrictModel):
     """Request body for field-level label edit validation."""
 
     task_mode: Literal["label_edit"] = "label_edit"
+    lease_id: str | None = None
+    base_revision: int | None = Field(default=None, ge=0)
+    draft_revision: int | None = Field(default=None, ge=0)
     label_config_id: str | None = None
     label_config_version: str | None = None
     operations: list[LabelEditOperation] = Field(default_factory=list)
@@ -94,6 +194,7 @@ class LabelEditState(StrictModel):
     edit_id: str
     dataset_id: str
     sample_id: str
+    user_id: str = "dev_user"
     task_mode: Literal["label_edit"]
     submit_action: Literal["save_draft", "submit_changes"]
     task_status: Literal["annotation_draft", "annotation_submitted"]
@@ -111,6 +212,151 @@ class LabelEditSubmitResponse(StrictModel):
     validation: LabelEditValidationResponse | None = None
 
 
+class BatchQcAssignmentResponse(StrictModel):
+    """Batch-level single-assignee state."""
+
+    assignment_id: str
+    qc_queue_id: str
+    dataset_id: str
+    assignee_user_id: str
+    assigned_by: str
+    status: BatchAssignmentStatus
+    assigned_at: datetime
+    submitted_at: datetime | None = None
+    confirmed_at: datetime | None = None
+    returned_at: datetime | None = None
+    revoked_at: datetime | None = None
+
+
+class BatchAssignmentRequest(StrictModel):
+    """Assign one batch to one user."""
+
+    assignee_user_id: str = Field(min_length=1, max_length=80)
+
+
+class BatchAssignmentActionRequest(StrictModel):
+    """Batch assignment action with optional reason."""
+
+    assignee_user_id: str | None = Field(default=None, min_length=1, max_length=80)
+    reason: str | None = Field(default=None, max_length=400)
+
+
+class QcTaskResponse(StrictModel):
+    """Sample-level task state."""
+
+    task_id: str
+    qc_queue_id: str
+    dataset_id: str
+    sample_id: str
+    status: QcTaskStatus
+    assignee_user_id: str | None = None
+    claimed_at: datetime | None = None
+    submitted_at: datetime | None = None
+    completed_at: datetime | None = None
+    confirmed_by: str | None = None
+    confirmed_at: datetime | None = None
+    latest_submission_id: str | None = None
+    label_config_id: str | None = None
+    label_config_version: str | None = None
+    task_revision: int = Field(default=0, ge=0)
+
+
+class SampleLeaseResponse(StrictModel):
+    """Sample lease projection."""
+
+    lease_id: str
+    dataset_id: str
+    sample_id: str
+    task_id: str
+    user_id: str
+    status: LeaseStatus
+    acquired_at: datetime
+    expires_at: datetime
+    heartbeat_at: datetime
+    released_at: datetime | None = None
+    revoked_at: datetime | None = None
+
+
+class LeaseAcquireResponse(StrictModel):
+    """Lease acquire result."""
+
+    editable: bool
+    lease: SampleLeaseResponse
+
+
+class LabelEditDraftResponse(StrictModel):
+    """Current user's draft payload."""
+
+    draft_id: str
+    dataset_id: str
+    sample_id: str
+    user_id: str
+    task_id: str
+    lease_id: str
+    base_revision: int
+    label_config_id: str | None = None
+    label_config_version: str | None = None
+    operations: list[LabelEditOperation] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class LabelEditSubmissionResponse(StrictModel):
+    """Immutable submission payload."""
+
+    submission_id: str
+    dataset_id: str
+    sample_id: str
+    user_id: str
+    task_id: str
+    lease_id: str
+    base_revision: int
+    label_config_id: str | None = None
+    label_config_version: str | None = None
+    operations: list[LabelEditOperation] = Field(default_factory=list)
+    created_at: datetime
+
+
+class AuditEventResponse(StrictModel):
+    """Audit event response."""
+
+    event_id: str
+    actor_user_id: str
+    actor_roles: list[UserRole] = Field(default_factory=list)
+    action: str
+    entity: str
+    dataset_id: str | None = None
+    sample_id: str | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+    before: dict[str, Any] | None = None
+    after: dict[str, Any] | None = None
+    created_at: datetime
+
+
+class QcProgressByStatus(StrictModel):
+    """Count by status."""
+
+    status: QcTaskStatus
+    count: int = Field(ge=0)
+
+
+class QcProgressByUser(StrictModel):
+    """Count by user."""
+
+    user_id: str
+    count: int = Field(ge=0)
+
+
+class QcProgressResponse(StrictModel):
+    """Dataset QC progress summary."""
+
+    dataset_id: str
+    assignment: BatchQcAssignmentResponse | None = None
+    total_tasks: int = Field(ge=0)
+    by_status: list[QcProgressByStatus] = Field(default_factory=list)
+    by_user: list[QcProgressByUser] = Field(default_factory=list)
+
+
 class DatasetSummaryResponse(StrictModel):
     """High-level counters for one dataset."""
 
@@ -124,6 +370,10 @@ class DatasetSummaryResponse(StrictModel):
     active_import_job_id: str | None = None
     qc_queue_id: str | None = None
     legacy_dataset_id: str | None = None
+    source_mode: Literal["local_directory", "uploaded_package", "object_storage_prefix", "manifest_only"] | None = None
+    source_uri: str | None = None
+    source_structure: Literal["images_only", "images_with_preannotations"] | None = None
+    source_file_count: int = Field(default=0, ge=0)
     name: str
     total_assets: int = Field(ge=0)
     stage1_count: int = Field(ge=0)
@@ -139,6 +389,18 @@ class DatasetSummaryResponse(StrictModel):
     confidence_distribution: list["CountDistributionItem"] = Field(default_factory=list)
     visibility_distribution: list["CountDistributionItem"] = Field(default_factory=list)
     sample_category_distribution: list["CountDistributionItem"] = Field(default_factory=list)
+
+
+class DatasetTypeResponse(StrictModel):
+    """Dataset type registry row with its owned batches."""
+
+    dataset_type: str
+    display_name: str
+    field_schema_version: str = "draft"
+    active_label_config_version: int | None = None
+    status: Literal["active", "archived"] = "active"
+    batch_count: int = Field(ge=0)
+    batches: list[DatasetSummaryResponse] = Field(default_factory=list)
 
 
 class CountDistributionItem(StrictModel):
@@ -219,6 +481,12 @@ class AssetDetailResponse(StrictModel):
     stage2_failure: Stage2PreannotationFailure | None = None
     label_edit_state: LabelEditState | None = None
     label_edit_history: list[LabelEditState] = Field(default_factory=list)
+    current_user: CurrentUserResponse | None = None
+    batch_assignment: BatchQcAssignmentResponse | None = None
+    qc_task: QcTaskResponse | None = None
+    sample_lease: SampleLeaseResponse | None = None
+    my_draft: LabelEditDraftResponse | None = None
+    latest_submission: LabelEditSubmissionResponse | None = None
     latest_review: HumanReview | None = None
     review_history: list[HumanReview] = Field(default_factory=list)
 
@@ -254,6 +522,16 @@ class ImportJobStatusResponse(StrictModel):
     dataset_id: str
     dataset_type: str = "urban_violation"
     batch_key: str = "0508_fixture"
+    batch_name: str | None = None
+    source_mode: Literal["local_directory", "uploaded_package", "object_storage_prefix", "manifest_only"] | None = None
+    source_uri: str | None = None
+    source_structure: Literal["images_only", "images_with_preannotations"] | None = None
+    description: str | None = None
+    source_file_count: int = Field(default=0, ge=0)
+    image_count: int = Field(default=0, ge=0)
+    stage1_file_count: int = Field(default=0, ge=0)
+    stage2_file_count: int = Field(default=0, ge=0)
+    stage2_failure_file_count: int = Field(default=0, ge=0)
     state: str
     lifecycle_status: DatasetLifecycleStatus = DatasetLifecycleStatus.IMPORTED
     expected_assets: int = Field(ge=0)
@@ -269,9 +547,21 @@ class ImportJobStatusResponse(StrictModel):
 
 
 class ImportJobCreateRequest(StrictModel):
-    """Create one import job for current dataset batch."""
+    """Create one import job or register a manual batch under a dataset type."""
 
     requested_sample_ids: list[str] = Field(default_factory=list)
+    dataset_type: str | None = Field(default=None, min_length=1, max_length=80, pattern=r"^[a-z][a-z0-9_]*$")
+    batch_key: str | None = Field(default=None, min_length=1, max_length=80, pattern=r"^[a-zA-Z0-9_\-]+$")
+    batch_name: str | None = Field(default=None, min_length=1, max_length=120)
+    source_mode: Literal["local_directory", "uploaded_package", "object_storage_prefix", "manifest_only"] | None = None
+    source_uri: str | None = Field(default=None, max_length=1024)
+    source_structure: Literal["images_only", "images_with_preannotations"] | None = None
+    description: str | None = Field(default=None, max_length=500)
+    source_file_count: int = Field(default=0, ge=0)
+    image_count: int = Field(default=0, ge=0)
+    stage1_file_count: int = Field(default=0, ge=0)
+    stage2_file_count: int = Field(default=0, ge=0)
+    stage2_failure_file_count: int = Field(default=0, ge=0)
 
 
 class ImportValidationRow(StrictModel):
@@ -311,6 +601,10 @@ class QCQueueItem(StrictModel):
     highest_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     stage2_failure: bool = False
     updated_at: datetime | None = None
+    task_status: QcTaskStatus = QcTaskStatus.QUEUED
+    assignee_user_id: str | None = None
+    active_lease_user_id: str | None = None
+    latest_submission_id: str | None = None
 
 
 class QCQueueResponse(StrictModel):
@@ -320,6 +614,7 @@ class QCQueueResponse(StrictModel):
     dataset_type: str = "urban_violation"
     batch_key: str = "0508_fixture"
     qc_queue_id: str = "qcq_urban_violation_0508_fixture"
+    assignment: BatchQcAssignmentResponse | None = None
     total: int = Field(ge=0)
     items: list[QCQueueItem] = Field(default_factory=list)
 

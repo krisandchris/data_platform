@@ -3,11 +3,12 @@
     <div class="panel__header label-config-panel__header">
       <div>
         <h2 class="panel__title">标签配置上传</h2>
-        <p>手动选择 JSON 配置，校验后保存为数据集标签配置版本。</p>
+        <p>手动选择 JSON 配置，校验后保存为数据集类型共享的标签配置版本。</p>
       </div>
       <div class="active-config">
-        <span>Active</span>
+        <span>{{ scopeName ?? datasetId }}</span>
         <strong>{{ activeConfig?.version ?? '未激活' }}</strong>
+        <small v-if="activeConfig?.contentHash">{{ shortHash(activeConfig.contentHash) }}</small>
       </div>
     </div>
 
@@ -51,19 +52,19 @@
       <div class="preview-grid">
         <div class="preview-metrics">
           <div>
-            <span>version</span>
+            <span>版本</span>
             <strong>{{ previewVersion }}</strong>
           </div>
           <div>
-            <span>field_count</span>
+            <span>字段数量</span>
             <strong>{{ previewSummary.fieldCount }}</strong>
           </div>
           <div>
-            <span>closed_enum_count</span>
+            <span>固定枚举</span>
             <strong>{{ previewSummary.closedEnumCount }}</strong>
           </div>
           <div>
-            <span>open_tags_count</span>
+            <span>开放标签</span>
             <strong>{{ previewSummary.openTagsCount }}</strong>
           </div>
         </div>
@@ -72,9 +73,9 @@
           <table>
             <thead>
               <tr>
-                <th>field</th>
-                <th>mode</th>
-                <th>options</th>
+                <th>字段</th>
+                <th>模式</th>
+                <th>选项</th>
               </tr>
             </thead>
             <tbody>
@@ -93,7 +94,7 @@
 
       <div class="validation-columns">
         <div class="validation-box" :class="{ empty: !previewErrors.length }">
-          <strong>errors</strong>
+          <strong>错误</strong>
           <ul v-if="previewErrors.length">
             <li v-for="issue in previewErrors" :key="issueKey(issue)">
               <span v-if="issue.field">{{ issue.field }}: </span>{{ issue.message }}
@@ -102,7 +103,7 @@
           <p v-else>暂无错误</p>
         </div>
         <div class="validation-box validation-box--warning" :class="{ empty: !previewWarnings.length }">
-          <strong>warnings</strong>
+          <strong>警告</strong>
           <ul v-if="previewWarnings.length">
             <li v-for="issue in previewWarnings" :key="issueKey(issue)">
               <span v-if="issue.field">{{ issue.field }}: </span>{{ issue.message }}
@@ -134,6 +135,54 @@
           <ShieldCheck v-else :size="16" />
           激活当前版本
         </button>
+        <button class="button" type="button" :disabled="reloadingActive" @click="reloadActiveConfig">
+          <Loader2 v-if="reloadingActive" :size="16" class="spin" />
+          <RefreshCcw v-else :size="16" />
+          重新加载激活配置
+        </button>
+      </div>
+
+      <div class="version-history">
+        <div class="version-history__header">
+          <strong>配置版本</strong>
+          <button class="button button--compact" type="button" :disabled="loadingVersions" @click="loadVersions">
+            <Loader2 v-if="loadingVersions" :size="14" class="spin" />
+            <RefreshCcw v-else :size="14" />
+            刷新
+          </button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>版本</th>
+              <th>状态</th>
+              <th>哈希</th>
+              <th>激活时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="version in savedVersions" :key="version.configId">
+              <td>{{ version.version }}</td>
+              <td>{{ configStatusLabel(version.status) }}</td>
+              <td>{{ shortHash(version.contentHash) }}</td>
+              <td>{{ version.activatedAt ?? '-' }}</td>
+              <td>
+                <button
+                  class="button button--compact"
+                  type="button"
+                  :disabled="version.status === 'active' || activating"
+                  @click="activateConfig(version.configId)"
+                >
+                  激活
+                </button>
+              </td>
+            </tr>
+            <tr v-if="!savedVersions.length">
+              <td colspan="5">暂无已保存版本</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </section>
@@ -141,7 +190,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { CheckCircle2, FileJson, Loader2, ShieldCheck, TriangleAlert, Upload } from 'lucide-vue-next';
+import { CheckCircle2, FileJson, Loader2, RefreshCcw, ShieldCheck, TriangleAlert, Upload } from 'lucide-vue-next';
 import { apiClient } from '../../../services/urbanViolationApi';
 import type {
   LabelConfig,
@@ -154,6 +203,7 @@ import type {
 
 const props = defineProps<{
   datasetId: string;
+  scopeName?: string;
 }>();
 
 const emit = defineEmits<{
@@ -166,11 +216,14 @@ const parsedConfig = ref<unknown>();
 const parseError = ref('');
 const validation = ref<LabelConfigValidationResult>();
 const saveResult = ref<LabelConfigSaveResult>();
+const savedVersions = ref<LabelConfigSaveResult[]>([]);
 const activeConfig = ref<LabelConfig>();
 const activateImmediately = ref(true);
 const validating = ref(false);
 const saving = ref(false);
 const activating = ref(false);
+const loadingVersions = ref(false);
+const reloadingActive = ref(false);
 const statusMessage = ref('');
 
 const localFields = computed(() => normalizeLocalFields(parsedConfig.value));
@@ -185,6 +238,7 @@ const canSave = computed(() => Boolean(parsedConfig.value && validation.value?.v
 
 onMounted(() => {
   void loadActiveConfig();
+  void loadVersions();
 });
 
 async function onFileChange(event: Event) {
@@ -247,6 +301,7 @@ async function saveConfig() {
         ? `已保存并激活 ${saveResult.value.version}`
         : `已保存 ${saveResult.value.version}，可手动激活。`;
     await loadActiveConfig();
+    await loadVersions();
     emit('saved', saveResult.value);
   } catch (err) {
     parseError.value = err instanceof Error ? err.message : '配置保存失败';
@@ -259,17 +314,38 @@ async function activateSavedConfig() {
   if (!saveResult.value?.configId) {
     return;
   }
+  await activateConfig(saveResult.value.configId);
+}
+
+async function activateConfig(configId: string) {
   activating.value = true;
   statusMessage.value = '';
   try {
-    saveResult.value = await apiClient.activateLabelConfig(props.datasetId, saveResult.value.configId);
+    saveResult.value = await apiClient.activateLabelConfig(props.datasetId, configId);
     statusMessage.value = `已激活 ${saveResult.value.version}`;
     await loadActiveConfig();
+    await loadVersions();
     emit('saved', saveResult.value);
   } catch (err) {
     parseError.value = err instanceof Error ? err.message : '配置激活失败';
   } finally {
     activating.value = false;
+  }
+}
+
+async function reloadActiveConfig() {
+  reloadingActive.value = true;
+  statusMessage.value = '';
+  try {
+    saveResult.value = await apiClient.reloadActiveLabelConfig(props.datasetId);
+    statusMessage.value = `已重新加载 ${saveResult.value.version}`;
+    await loadActiveConfig();
+    await loadVersions();
+    emit('saved', saveResult.value);
+  } catch (err) {
+    parseError.value = err instanceof Error ? err.message : '重新加载 active 失败';
+  } finally {
+    reloadingActive.value = false;
   }
 }
 
@@ -279,6 +355,24 @@ async function loadActiveConfig() {
   } catch {
     activeConfig.value = undefined;
   }
+}
+
+async function loadVersions() {
+  loadingVersions.value = true;
+  try {
+    savedVersions.value = await apiClient.listLabelConfigs(props.datasetId);
+  } catch {
+    savedVersions.value = [];
+  } finally {
+    loadingVersions.value = false;
+  }
+}
+
+function shortHash(value?: string) {
+  if (!value) {
+    return '-';
+  }
+  return value.length > 18 ? `${value.slice(0, 15)}...` : value;
 }
 
 function normalizeLocalFields(value: unknown): LabelConfigField[] {
@@ -361,7 +455,16 @@ function validateLocalConfig(value: unknown, fields: LabelConfigField[]): { erro
 
 function localVersion(value: unknown) {
   const record = isRecord(value) ? value : {};
-  return stringValue(record.version, 'unversioned-label-config');
+  return stringValue(record.version, '未命名标签配置');
+}
+
+function configStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    active: '已激活',
+    saved: '已保存',
+    draft: '草稿',
+  };
+  return labels[status] ?? status;
 }
 
 function readFileText(file: File) {
@@ -580,6 +683,46 @@ function numberValue(value: unknown) {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.version-history {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.version-history__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-subtle);
+}
+
+.version-history table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.version-history th,
+.version-history td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.version-history th {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.button--compact {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
 }
 
 .spin {

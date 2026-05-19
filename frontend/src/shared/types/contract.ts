@@ -1,4 +1,6 @@
 export type DatasetId = string;
+export type DatasetTypeId = string;
+export type DatasetBatchId = DatasetId;
 export type AssetId = string;
 export type SampleId = string;
 export type ImportJobId = string;
@@ -58,11 +60,223 @@ export type LabelConfigStatus = 'draft' | 'active' | 'archived' | 'rejected' | s
 export type AssetMediaStatus = 'valid' | 'missing' | 'load_failed' | 'resolution_abnormal' | 'unknown';
 export type AssetLabelEditStatus = 'none' | 'draft' | 'submitted' | 'changed' | 'unknown';
 export type ImportSourceMode = 'local_directory' | 'uploaded_package' | 'object_storage_prefix' | 'manifest_only';
+export type ImportSourceStructure = 'images_only' | 'images_with_preannotations';
 
 export interface ApiErrorPayload {
   code: string;
   message: string;
   details?: Record<string, unknown>;
+}
+
+export type AuthMode = 'session' | 'dev_header' | 'anonymous' | string;
+export type UserRole =
+  | 'platform_admin'
+  | 'dataset_admin'
+  | 'batch_manager'
+  | 'annotator'
+  | 'qc_lead'
+  | 'auditor';
+export type RoleScopeType = 'platform' | 'dataset_type' | 'dataset_batch';
+export type UserStatus = 'active' | 'disabled';
+export type BatchAssignmentStatus = 'assigned' | 'in_progress' | 'submitted' | 'confirmed' | 'returned' | 'revoked';
+export type QcTaskStatus =
+  | 'queued'
+  | 'assigned'
+  | 'in_progress'
+  | 'draft_saved'
+  | 'skipped'
+  | 'submitted'
+  | 'confirmed'
+  | 'returned'
+  | 'completed';
+export type LeaseStatus = 'active' | 'released' | 'expired' | 'revoked';
+
+export interface UserAccount {
+  userId: string;
+  username?: string;
+  displayName: string;
+  email?: string;
+  status: UserStatus;
+  createdAt?: string;
+  lastSeenAt?: string;
+  roles?: UserRole[];
+  roleBindings?: RoleBinding[];
+}
+
+export interface CurrentUser extends UserAccount {
+  authMode: AuthMode;
+  roles: UserRole[];
+  permissions: string[];
+}
+
+export interface LoginPayload {
+  username: string;
+  password: string;
+}
+
+export interface UserCreatePayload {
+  userId?: string;
+  username: string;
+  displayName: string;
+  email?: string;
+  password?: string;
+  status?: UserStatus;
+}
+
+export interface UserUpdatePayload {
+  displayName?: string;
+  email?: string;
+  password?: string;
+  status?: UserStatus;
+}
+
+export interface RoleBinding {
+  bindingId: string;
+  userId: string;
+  role: UserRole;
+  scopeType: RoleScopeType;
+  scopeId: string;
+  createdAt?: string;
+  createdBy?: string;
+}
+
+export interface RoleBindingCreatePayload {
+  userId: string;
+  role: UserRole;
+  scopeType: RoleScopeType;
+  scopeId: string;
+}
+
+export interface BatchQcAssignment {
+  assignmentId: string;
+  qcQueueId?: string;
+  datasetId: DatasetId;
+  assigneeUserId: string;
+  assigneeDisplayName?: string;
+  assignedBy?: string;
+  assignedByDisplayName?: string;
+  status: BatchAssignmentStatus;
+  assignedAt?: string;
+  updatedAt?: string;
+  submittedAt?: string;
+  confirmedAt?: string;
+  returnedAt?: string;
+}
+
+export interface BatchAssignmentPayload {
+  assigneeUserId: string;
+}
+
+export interface QcTask {
+  taskId: string;
+  qcQueueId?: string;
+  datasetId: DatasetId;
+  sampleId: SampleId;
+  status: QcTaskStatus;
+  assigneeUserId?: string;
+  assigneeDisplayName?: string;
+  claimedAt?: string;
+  submittedAt?: string;
+  completedAt?: string;
+  confirmedBy?: string;
+  confirmedAt?: string;
+  latestSubmissionId?: string;
+  labelConfigId?: string;
+  labelConfigVersion?: string;
+  taskRevision?: number;
+  updatedAt?: string;
+}
+
+export interface SampleLease {
+  leaseId: string;
+  datasetId: DatasetId;
+  sampleId: SampleId;
+  taskId?: string;
+  userId: string;
+  userDisplayName?: string;
+  status: LeaseStatus;
+  acquiredAt?: string;
+  expiresAt?: string;
+  heartbeatAt?: string;
+}
+
+export interface LabelEditDraft {
+  draftId: string;
+  datasetId: DatasetId;
+  sampleId: SampleId;
+  userId: string;
+  operations: LabelEditOperation[];
+  labelConfigId?: string;
+  labelConfigVersion?: string;
+  leaseId?: string;
+  taskRevision?: number;
+  updatedAt?: string;
+}
+
+export interface LabelEditSubmission {
+  submissionId: string;
+  datasetId: DatasetId;
+  sampleId: SampleId;
+  userId: string;
+  userDisplayName?: string;
+  status: Extract<QcTaskStatus, 'submitted' | 'confirmed' | 'returned' | 'completed'>;
+  operations: LabelEditOperation[];
+  validation?: LabelEditValidationResult;
+  labelConfigId?: string;
+  labelConfigVersion?: string;
+  taskRevision?: number;
+  submittedAt?: string;
+  confirmedBy?: string;
+  confirmedAt?: string;
+  returnedAt?: string;
+  returnReason?: string;
+}
+
+export interface AuditEvent {
+  eventId: string;
+  actorUserId: string;
+  actorDisplayName?: string;
+  actorRole?: UserRole;
+  action: string;
+  entityType: string;
+  entityId: string;
+  datasetId?: DatasetId;
+  sampleId?: SampleId;
+  before?: unknown;
+  after?: unknown;
+  details?: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface AuditEventFilters {
+  datasetId?: DatasetId;
+  sampleId?: SampleId;
+  actorUserId?: string;
+  action?: string;
+}
+
+export interface QcProgress {
+  datasetId: DatasetId;
+  byStatus: Partial<Record<QcTaskStatus, number>>;
+  byUser: Array<{
+    userId: string;
+    displayName?: string;
+    draftSaved: number;
+    submitted: number;
+    returned: number;
+    confirmed: number;
+  }>;
+  total: number;
+  updatedAt?: string;
+}
+
+export interface QcWorkspace {
+  datasetId: DatasetId;
+  assignment?: BatchQcAssignment;
+  queue: QcQueueItem[];
+  tasks: QcTask[];
+  leases: SampleLease[];
+  progress?: QcProgress;
 }
 
 export interface Dataset {
@@ -91,6 +305,10 @@ export interface Dataset {
   latestImportJob?: ImportJobSummary;
   description?: string;
   rootPath?: string;
+  sourceMode?: ImportSourceMode;
+  sourceUri?: string;
+  sourceStructure?: ImportSourceStructure;
+  sourceFileCount?: number;
   createdAt: string;
   updatedAt: string;
   tags: string[];
@@ -107,6 +325,12 @@ export interface DatasetType {
   status?: string;
   batchCount: number;
   batches: DatasetBatch[];
+}
+
+export interface DatasetTypeCreatePayload {
+  datasetType: string;
+  displayName: string;
+  fieldSchemaVersion?: string;
 }
 
 export interface DatasetRunSummary {
@@ -260,6 +484,7 @@ export interface ImportJobDetail {
   title?: string;
   sourceMode?: ImportSourceMode;
   sourceUri?: string;
+  sourceStructure?: ImportSourceStructure;
   state: ImportJobState;
   activeStep: number;
   createdAt: string;
@@ -278,7 +503,13 @@ export interface ImportJobCreatePayload {
   batchName?: string;
   sourceMode?: ImportSourceMode;
   sourceUri?: string;
+  sourceStructure?: ImportSourceStructure;
   description?: string;
+  sourceFileCount?: number;
+  imageCount?: number;
+  stage1FileCount?: number;
+  stage2FileCount?: number;
+  stage2FailureFileCount?: number;
 }
 
 export interface AssetListFilters {
@@ -517,6 +748,9 @@ export interface LabelEditPatchPayload {
   taskMode: 'label_edit';
   labelConfigId?: string;
   labelConfigVersion?: string;
+  leaseId?: string;
+  baseRevision?: number | string;
+  taskRevision?: number;
   operations: LabelEditOperation[];
 }
 
@@ -547,11 +781,14 @@ export interface LabelEditState {
   editId: string;
   datasetId: DatasetId;
   sampleId: SampleId;
+  userId?: string;
   taskMode: 'label_edit';
   submitAction: LabelEditSubmitAction;
   taskStatus: LabelEditTaskStatus;
   labelConfigId?: string;
   labelConfigVersion?: string;
+  leaseId?: string;
+  taskRevision?: number;
   operations: LabelEditOperation[];
   updatedAt: string;
 }
@@ -577,6 +814,12 @@ export interface ReviewSampleDetail {
   auditArtifacts: AuditArtifact[];
   labelEditState?: LabelEditState;
   labelEditHistory: LabelEditState[];
+  currentUser?: CurrentUser;
+  batchAssignment?: BatchQcAssignment;
+  qcTask?: QcTask;
+  sampleLease?: SampleLease;
+  myDraft?: LabelEditDraft;
+  latestSubmission?: LabelEditSubmission;
 }
 
 export interface QcQueueItem {
@@ -588,6 +831,14 @@ export interface QcQueueItem {
   primaryCategory?: string;
   stage2Failure: boolean;
   updatedAt: string;
+  task?: QcTask;
+  taskStatus?: QcTaskStatus;
+  assigneeUserId?: string;
+  assigneeDisplayName?: string;
+  lease?: SampleLease;
+  leaseStatus?: LeaseStatus;
+  latestSubmission?: LabelEditSubmission;
+  labelConfigVersion?: string;
 }
 
 export interface PreannotationSummary {
@@ -619,6 +870,10 @@ export interface BackendDataset {
   field_schema_version?: string;
   active_import_job_id?: ImportJobId;
   qc_queue_id?: string;
+  source_mode?: ImportSourceMode;
+  source_uri?: string;
+  source_structure?: ImportSourceStructure;
+  source_file_count?: number;
   total_assets: number;
   stage1_count: number;
   stage2_success_count: number;
@@ -631,6 +886,15 @@ export interface BackendImportJob {
   dataset_id: DatasetId;
   dataset_type?: string;
   batch_key?: string;
+  batch_name?: string;
+  source_mode?: ImportSourceMode;
+  source_uri?: string;
+  source_structure?: ImportSourceStructure;
+  source_file_count?: number;
+  image_count?: number;
+  stage1_file_count?: number;
+  stage2_file_count?: number;
+  stage2_failure_file_count?: number;
   state: ImportJobState;
   expected_assets: number;
   imported_assets: number;
