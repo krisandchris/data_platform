@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ApiClientError } from '../services/http';
 import type {
   AssetListItem,
   AssetSummary,
@@ -34,6 +35,7 @@ const mockApiClient = vi.hoisted(() => ({
   listRoleBindings: vi.fn(),
   createRoleBinding: vi.fn(),
   deleteRoleBinding: vi.fn(),
+  getRbacCatalog: vi.fn(),
   listDatasets: vi.fn(),
   listDatasetTypes: vi.fn(),
   getDatasetType: vi.fn(),
@@ -127,6 +129,7 @@ import ReviewWorkbenchPage from '../features/review-workbench/ReviewWorkbenchPag
 import LabelConfigUploadPanel from '../features/datasets/components/LabelConfigUploadPanel.vue';
 import AppShell from '../app/layouts/AppShell.vue';
 import AccountPage from '../features/account/AccountPage.vue';
+import UsersPage from '../features/users/UsersPage.vue';
 import { router as appRouter } from '../app/router';
 import { useAuthState } from '../features/auth/authState';
 
@@ -844,6 +847,52 @@ beforeEach(() => {
   mockApiClient.getCurrentUser.mockResolvedValue(currentUser);
   mockApiClient.listUsers.mockResolvedValue([currentUser]);
   mockApiClient.listRoleBindings.mockResolvedValue([]);
+  mockApiClient.getRbacCatalog.mockResolvedValue({
+    roles: [
+      {
+        role: 'platform_admin',
+        label: '平台管理员',
+        description: '管理账号、角色、审计与全平台配置',
+        permissions: ['users:manage', 'roles:manage', 'audit:read'],
+      },
+      {
+        role: 'dataset_admin',
+        label: '数据集管理员',
+        description: '管理数据集类型与批次',
+        permissions: ['roles:manage', 'batch_assignment:manage', 'audit:read'],
+      },
+      {
+        role: 'batch_manager',
+        label: '批次管理员',
+        description: '管理批次分配',
+        permissions: ['batch_assignment:manage', 'audit:read'],
+      },
+      {
+        role: 'qc_lead',
+        label: '质检负责人',
+        description: '确认质检提交',
+        permissions: ['label_edit:confirm', 'audit:read'],
+      },
+      {
+        role: 'annotator',
+        label: '标注员',
+        description: '编辑标签',
+        permissions: ['label_edit:write'],
+      },
+      {
+        role: 'auditor',
+        label: '审计员',
+        description: '查看审计记录',
+        permissions: ['audit:read'],
+      },
+    ],
+    scopes: [
+      { scopeType: 'platform', label: '全平台' },
+      { scopeType: 'dataset_type', label: '数据集类型' },
+      { scopeType: 'dataset_batch', label: '数据集批次' },
+    ],
+    permissions: ['users:manage', 'roles:manage', 'batch_assignment:manage', 'audit:read', 'label_edit:confirm', 'label_edit:write'],
+  });
   mockApiClient.logout.mockResolvedValue(undefined);
   mockApiClient.getDatasetBatchSummary.mockResolvedValue(makeDatasetSummary('ds-live', 'Batch A', 2));
   mockApiClient.getDatasetType.mockResolvedValue({
@@ -855,6 +904,17 @@ beforeEach(() => {
     batchCount: 1,
     batches: [dataset],
   });
+  mockApiClient.listDatasetTypes.mockResolvedValue([
+    {
+      datasetType: 'urban_violation',
+      displayName: '城市违规',
+      fieldSchemaVersion: '2026-05-18',
+      activeLabelConfigVersion: 'urban_violation_labels_v1',
+      status: 'active',
+      batchCount: 1,
+      batches: [dataset],
+    },
+  ]);
   mockApiClient.getDatasetBatchAssetSummary.mockResolvedValue(makeAssetSummary('ds-live', 2));
   mockApiClient.getDatasetBatchQcModificationEventStats.mockResolvedValue(makeQcModificationStats('ds-live'));
   mockApiClient.getQcModificationEventStats.mockResolvedValue(makeQcModificationStats('ds-live'));
@@ -1096,6 +1156,163 @@ describe('route rendering and live route states', () => {
     expect(wrapper.text()).toContain('用户管理');
     expect(wrapper.find('a[href="/account/permissions"]').exists()).toBe(true);
     expect(wrapper.find('a[href="/account/audit"]').exists()).toBe(true);
+  });
+
+  it('renders the permission console tabs and opens the account drawer on demand', async () => {
+    mockApiClient.getCurrentUser.mockResolvedValue(adminUser);
+    mockApiClient.listUsers.mockResolvedValue([
+      {
+        userId: 'admin',
+        username: 'admin',
+        displayName: '平台管理员',
+        email: 'admin@example.local',
+        status: 'active',
+      },
+      {
+        userId: 'new_user',
+        username: 'new_user',
+        displayName: '未授权用户',
+        email: 'new@example.local',
+        status: 'active',
+      },
+    ]);
+    mockApiClient.listRoleBindings.mockResolvedValue([
+      {
+        bindingId: 'binding-admin',
+        userId: 'admin',
+        role: 'platform_admin',
+        scopeType: 'platform',
+        scopeId: '*',
+        createdAt: '2026-05-18T00:00:00Z',
+        createdBy: 'system',
+      },
+    ]);
+
+    const wrapper = mount(UsersPage);
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('账号管理');
+    expect(wrapper.text()).toContain('数据集权限分配');
+    expect(wrapper.text()).toContain('角色绑定记录');
+    expect(wrapper.text()).toContain('未分配角色');
+    expect(wrapper.find('input[placeholder="至少 8 位"]').exists()).toBe(false);
+
+    const createButton = wrapper.findAll('button').find((button) => button.text().includes('新建账号'));
+    await createButton?.trigger('click');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('新建账号');
+    expect(wrapper.find('input[placeholder="至少 8 位"]').exists()).toBe(true);
+  });
+
+  it('opens the dataset permission assignment drawer with dataset-batch flow and permission preview', async () => {
+    mockApiClient.getCurrentUser.mockResolvedValue(adminUser);
+    mockApiClient.listUsers.mockResolvedValue([
+      { userId: 'annotator_a', username: 'annotator_a', displayName: '标注员 A', status: 'active' },
+    ]);
+    mockApiClient.listRoleBindings.mockResolvedValue([]);
+    mockApiClient.listDatasetTypes.mockResolvedValue([
+      {
+        datasetType: 'urban_violation',
+        displayName: '城市违规',
+        fieldSchemaVersion: '2026-05-18',
+        activeLabelConfigVersion: 'urban_violation_labels_v1',
+        status: 'active',
+        batchCount: 1,
+        batches: [dataset],
+      },
+      {
+        datasetType: 'ares_detection',
+        displayName: 'Ares Detection',
+        fieldSchemaVersion: 'draft',
+        status: 'active',
+        batchCount: 0,
+        batches: [],
+      },
+    ]);
+
+    const wrapper = mount(UsersPage);
+    await flushPromises();
+
+    const assignButton = wrapper.findAll('button').find((button) => button.text().includes('分配数据权限'));
+    await assignButton?.trigger('click');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('数据权限分配向导');
+    await wrapper.find('[data-testid="assignment-scope"]').setValue('dataset_batch');
+    await wrapper.find('[data-testid="assignment-dataset-type"]').setValue('urban_violation');
+    expect(wrapper.find('[data-testid="assignment-batch"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="assignment-batch"]').text()).toContain('ds-live');
+    await wrapper.find('[data-testid="assignment-role"]').setValue('qc_lead');
+    const previewText = wrapper.find('[data-testid="rbac-permission-preview"]').text();
+    const legacyConfirmPermission = ['qc', 'submission'].join('_') + ':confirm';
+    expect(previewText).toContain('提交确认');
+    expect(previewText).not.toContain(legacyConfirmPermission);
+  });
+
+  it('shows binding detail and delete confirmation with user role and scope', async () => {
+    mockApiClient.getCurrentUser.mockResolvedValue(adminUser);
+    mockApiClient.listUsers.mockResolvedValue([
+      { userId: 'annotator_a', username: 'annotator_a', displayName: '标注员 A', status: 'active' },
+    ]);
+    mockApiClient.listRoleBindings.mockResolvedValue([
+      {
+        bindingId: 'binding-annotator',
+        userId: 'annotator_a',
+        role: 'annotator',
+        scopeType: 'dataset_batch',
+        scopeId: 'ds-live',
+        createdAt: '2026-05-18T00:00:00Z',
+        createdBy: 'admin',
+      },
+    ]);
+
+    const wrapper = mount(UsersPage);
+    await flushPromises();
+
+    await wrapper.findAll('button').find((button) => button.text().includes('角色绑定记录'))?.trigger('click');
+    await flushPromises();
+    await wrapper.findAll('button').find((button) => button.text().includes('详情'))?.trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).toContain('绑定详情');
+    expect(wrapper.text()).toContain('派生权限');
+    expect(wrapper.text()).toContain('admin');
+
+    await wrapper.find('button[aria-label="关闭"]').trigger('click');
+    await flushPromises();
+    await wrapper.findAll('button').find((button) => button.text().includes('删除'))?.trigger('click');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('确认删除 标注员 A 的 标注员');
+    expect(wrapper.text()).toContain('数据集批次 · ds-live');
+  });
+
+  it('confirms account disable and displays backend 409 errors', async () => {
+    mockApiClient.getCurrentUser.mockResolvedValue(adminUser);
+    mockApiClient.listUsers.mockResolvedValue([
+      { userId: 'admin', username: 'admin', displayName: '平台管理员', status: 'active' },
+      { userId: 'annotator_a', username: 'annotator_a', displayName: '标注员 A', status: 'active' },
+    ]);
+    mockApiClient.updateUser.mockRejectedValueOnce(
+      new ApiClientError(409, '不能禁用存在未完成任务的账号', {
+        code: 'user_has_active_tasks',
+        message: '不能禁用存在未完成任务的账号',
+      }),
+    );
+
+    const wrapper = mount(UsersPage);
+    await flushPromises();
+
+    const disableButtons = wrapper.findAll('button').filter((button) => button.text() === '禁用');
+    await disableButtons[1]?.trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).toContain('确认禁用账号 标注员 A');
+
+    await wrapper.findAll('button').find((button) => button.text().includes('确认禁用'))?.trigger('click');
+    await flushPromises();
+
+    expect(mockApiClient.updateUser).toHaveBeenCalledWith('annotator_a', { status: 'disabled' });
+    expect(wrapper.text()).toContain('不能禁用存在未完成任务的账号');
   });
 
   it('shows audit entry without permission management for auditors', async () => {

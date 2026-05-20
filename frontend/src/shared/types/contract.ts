@@ -147,6 +147,25 @@ export interface RoleBindingCreatePayload {
   scopeId: string;
 }
 
+export interface RbacCatalogRole {
+  role: UserRole;
+  label: string;
+  description?: string;
+  permissions: string[];
+}
+
+export interface RbacCatalogScope {
+  scopeType: RoleScopeType;
+  label: string;
+  description?: string;
+}
+
+export interface RbacCatalog {
+  roles: RbacCatalogRole[];
+  scopes: RbacCatalogScope[];
+  permissions: string[];
+}
+
 export interface BatchQcAssignment {
   assignmentId: string;
   qcQueueId?: string;

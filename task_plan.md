@@ -221,7 +221,105 @@ Dispatch status:
 - Frontend agent: completed homepage/type route refactor and frontend tests in `../data_platform_frontend_agent`.
 - Integration/test agent: passed protected-file checks, backend/frontend tests, agent stack smoke, live API checks, browser route checks, and service shutdown checks.
 - Main workspace: synchronized accepted code, passed backend/frontend tests, passed `scripts/integration-smoke.sh main`, passed live dataset-type API checks, captured browser evidence for dataset home, label-config child route, and create-batch child route, then stopped services and released ports.
-- Integration/test agent: assigned for combined agent-stack validation.
+
+### P1 - Permission Management Command Center
+
+Status: completed and accepted into main.
+
+Problem:
+
+- `/account/permissions` currently shows account creation and role binding forms directly on the page.
+- Admins must manually type scope ids such as `urban_violation` or `urban_violation__0508_fixture`, which is error-prone.
+- Account creation and data permission assignment are not visually separated enough.
+- Detailed operations such as create account, edit account, reset password, assign permission, delete binding, and disable user should not all be flattened into the main page.
+
+Required behavior:
+
+- Keep `/account/permissions` as a command center with clear tabs or sections:
+  - `账号管理`
+  - `数据集权限分配`
+  - `角色绑定记录`
+- Main page shows summaries, lists, search/filter controls, role/status chips, and primary action buttons.
+- Detailed sub-flows open in modals or right-side drawers:
+  - Create account.
+  - Edit account.
+  - Reset password.
+  - Assign dataset permission.
+  - Binding detail.
+  - Delete binding confirmation.
+  - Disable/enable account confirmation.
+- Account creation only creates identity. Dataset access is granted only through role bindings.
+- Dataset permission assignment must guide admins through:
+  - Select user.
+  - Select target level: platform, dataset type, or dataset batch.
+  - Select concrete target.
+  - Select role.
+  - Preview granted permissions.
+  - Submit binding.
+- Avoid free-text scope ids where possible:
+  - `platform` locks `scopeId` to `*`.
+  - `dataset_type` uses dataset type options from backend.
+  - `dataset_batch` first selects dataset type, then selects a concrete batch.
+- Preserve Chinese visible copy and current tech-minimal management style.
+- Do not modify protected QC review files.
+
+Backend agent tasks:
+
+- Add a read-only RBAC catalog endpoint such as `GET /api/rbac/catalog`.
+- Catalog should expose roles, role labels or ids, scope types, and each role's permission list so frontend can render permission previews without duplicating backend grant logic.
+- Keep machine permission strings authoritative from `ROLE_PERMISSIONS`.
+- Add safety guardrails:
+  - Prevent disabling the current active user account from the management API.
+  - Prevent deleting the current user's own active platform-admin binding if it would remove their management route access, or provide a clear conflict response for self-lockout risk.
+- Preserve existing `/api/users` and `/api/role-bindings` contracts.
+- Keep existing permission checks: user CRUD requires `users:manage`; role-binding CRUD requires `roles:manage`.
+- Add backend tests for catalog, scope/role payload shape, self-disable prevention, duplicate binding conflict, and existing RBAC boundaries.
+
+Frontend agent tasks:
+
+- Refactor `UsersPage.vue` into a command-center layout.
+- Implement tabs or equivalent segmented navigation for `账号管理`, `数据集权限分配`, and `角色绑定记录`.
+- Implement modal/drawer surfaces for account create/edit/reset, permission assignment, binding detail, delete confirmation, and disable/enable confirmation.
+- Use `GET /api/dataset-types` to populate dataset type and batch selectors.
+- Use new RBAC catalog endpoint for role permission preview; if unavailable during development, isolate a temporary frontend fallback behind the service layer.
+- Show unassigned users clearly as `未分配角色`.
+- Data permission assignment drawer must support platform, dataset-type, and dataset-batch scopes without raw typing for normal use.
+- Add inline error handling for duplicate binding, invalid scope, and backend validation errors.
+- Update API client/types/fixtures/tests.
+- Do not touch `frontend/src/features/review-workbench/**`, `frontend/src/shared/components/BBoxOverlay.vue`, or `frontend/src/test/bboxOverlay.test.ts`.
+
+Integration/test tasks:
+
+- After backend/frontend agents complete, run protected-file checks, backend tests, frontend tests, and build.
+- Run `scripts/integration-smoke.sh agent`.
+- Live API checks:
+  - Catalog returns all supported roles and expected permissions.
+  - Admin cannot disable their own active account.
+  - Duplicate role binding returns conflict.
+  - Creating a user and assigning dataset-batch annotator role succeeds.
+- Browser checks:
+  - `/account/permissions` shows `账号管理`, `数据集权限分配`, and `角色绑定记录`.
+  - `新建账号` opens modal/drawer, not an always-visible long form.
+  - `分配数据权限` opens assignment drawer.
+  - Dataset batch scope can be selected through dataset type -> batch selectors.
+  - Permission preview is visible before submit.
+  - Delete/disable actions require confirmation.
+- Stop all services and confirm project ports are released.
+
+Acceptance:
+
+- Permission management is easier to understand: identity and data access are visibly separated.
+- Scope ids are selected through UI controls, not manually typed in normal flows.
+- Main page is not overloaded by expanded forms.
+- Backend remains the source of truth for role permissions.
+- Safety guardrails prevent obvious self-lockout paths.
+- Existing account, audit, assignment, and review-workbench tests remain passing.
+- Integration validation passes before main workspace synchronization.
+- Dispatch status:
+  - Backend agent: completed RBAC catalog, self-lockout guardrails, and backend tests in `../data_platform_backend_agent`.
+  - Frontend agent: completed `/account/permissions` command-center refactor, drawers/modals, selector-driven scope assignment, RBAC permission preview, and frontend tests in `../data_platform_frontend_agent`.
+  - Integration/test agent: passed static checks, backend/frontend tests, agent-stack smoke, live API guardrail checks, browser flow checks, and service shutdown checks.
+  - Main workspace: synchronized accepted code, passed backend/frontend tests, passed `scripts/integration-smoke.sh main`, and confirmed project ports released.
 
 Acceptance:
 

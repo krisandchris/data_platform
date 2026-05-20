@@ -37,6 +37,7 @@ import type {
   QcTask,
   QcWorkspace,
   ReviewSampleDetail,
+  RbacCatalog,
   RoleBinding,
   RoleBindingCreatePayload,
   SampleLease,
@@ -1252,28 +1253,132 @@ const permissionsFor = (roles: UserAccount['roles'] = []) => {
       [
         'users:manage',
         'roles:manage',
+        'dataset_type:create',
+        'label_config:manage',
+        'import_job:manage',
         'batch_assignment:manage',
-        'audit:read',
-        'qc_submission:confirm',
+        'lease:force_release',
         'label_edit:write',
+        'label_edit:confirm',
+        'audit:read',
+        'qc_progress:read',
+        'dataset:read',
+        'qc_queue:read',
+      ].forEach((item) => permissions.add(item));
+    }
+    if (role === 'dataset_admin') {
+      [
+        'dataset_type:create',
+        'label_config:manage',
+        'import_job:manage',
+        'batch_assignment:manage',
+        'lease:force_release',
+        'label_edit:write',
+        'audit:read',
+        'qc_progress:read',
+        'dataset:read',
+        'qc_queue:read',
       ].forEach((item) => permissions.add(item));
     }
     if (role === 'batch_manager') {
-      ['batch_assignment:manage', 'audit:read', 'label_edit:write'].forEach((item) => permissions.add(item));
+      [
+        'import_job:manage',
+        'batch_assignment:manage',
+        'lease:force_release',
+        'dataset:read',
+        'qc_queue:read',
+        'audit:read',
+        'qc_progress:read',
+        'label_edit:write',
+      ].forEach((item) => permissions.add(item));
     }
     if (role === 'qc_lead') {
-      ['batch_assignment:manage', 'audit:read', 'qc_submission:confirm', 'label_edit:write'].forEach((item) =>
+      [
+        'dataset:read',
+        'qc_queue:read',
+        'batch_assignment:manage',
+        'lease:force_release',
+        'label_edit:write',
+        'label_edit:confirm',
+        'audit:read',
+        'qc_progress:read',
+      ].forEach((item) => permissions.add(item));
+    }
+    if (role === 'annotator') {
+      ['dataset:read', 'qc_queue:read', 'label_edit:write', 'audit:read_own', 'qc_progress:read_own'].forEach((item) =>
         permissions.add(item),
       );
     }
-    if (role === 'annotator') {
-      permissions.add('label_edit:write');
-    }
     if (role === 'auditor') {
-      permissions.add('audit:read');
+      ['dataset:read', 'qc_queue:read', 'audit:read', 'qc_progress:read'].forEach((item) => permissions.add(item));
     }
   });
   return Array.from(permissions);
+};
+
+const rbacCatalog: RbacCatalog = {
+  roles: [
+    {
+      role: 'platform_admin',
+      label: '平台管理员',
+      description: '管理账号、角色、审计与全平台配置',
+      permissions: permissionsFor(['platform_admin']),
+    },
+    {
+      role: 'dataset_admin',
+      label: '数据集管理员',
+      description: '管理数据集类型、标签配置和批次生命周期',
+      permissions: permissionsFor(['dataset_admin']),
+    },
+    {
+      role: 'batch_manager',
+      label: '批次管理员',
+      description: '管理批次分配、质检队列和批次状态',
+      permissions: permissionsFor(['batch_manager']),
+    },
+    {
+      role: 'qc_lead',
+      label: '质检负责人',
+      description: '确认标注修改、退回问题样本和查看审计记录',
+      permissions: permissionsFor(['qc_lead']),
+    },
+    {
+      role: 'annotator',
+      label: '标注员',
+      description: '领取样本、编辑标签并提交修改',
+      permissions: permissionsFor(['annotator']),
+    },
+    {
+      role: 'auditor',
+      label: '审计员',
+      description: '查看操作审计和权限变更记录',
+      permissions: permissionsFor(['auditor']),
+    },
+  ],
+  scopes: [
+    { scopeType: 'platform', label: '全平台', description: '作用于全部数据集类型与批次' },
+    { scopeType: 'dataset_type', label: '数据集类型', description: '作用于一个数据集类型及其批次' },
+    { scopeType: 'dataset_batch', label: '数据集批次', description: '仅作用于一个具体批次' },
+  ],
+  permissions: Array.from(
+    new Set([
+      'users:manage',
+      'roles:manage',
+      'dataset_type:create',
+      'label_config:manage',
+      'import_job:manage',
+      'batch_assignment:manage',
+      'lease:force_release',
+      'label_edit:write',
+      'label_edit:confirm',
+      'audit:read',
+      'audit:read_own',
+      'qc_progress:read',
+      'qc_progress:read_own',
+      'dataset:read',
+      'qc_queue:read',
+    ]),
+  ),
 };
 
 const taskForAsset = (asset: AssetListItem): QcTask => ({
@@ -1707,6 +1812,10 @@ export const fixtureApiClient: UrbanViolationApi = {
     if (index >= 0) {
       roleBindings.splice(index, 1);
     }
+  },
+  async getRbacCatalog() {
+    await delay();
+    return clone(rbacCatalog);
   },
   async listDatasets() {
     await delay();

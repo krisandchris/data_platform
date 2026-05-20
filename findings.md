@@ -132,6 +132,31 @@ This file keeps durable project facts, constraints, and open risks. Historical n
 - Users with only `audit:read_own` may list audit events only when `actor_user_id` is bound to themselves.
 - Admin assignment accepts any active user as assignee, including `platform_admin`.
 
+## Permission Management Page Design
+
+- Permission management is routed at `/account/permissions` and implemented by `frontend/src/features/users/UsersPage.vue`.
+- Access to `/account/permissions` is guarded by route meta `requiresAnyPermission: ['users:manage', 'roles:manage']`; users without these permissions are redirected to `/account`.
+- The account center exposes the permission-management entry only when `canManageUsers` is true; auditors can see audit entry without permission-management entry.
+- The current page has two primary panels:
+  - `账号管理`: create internal user accounts, list users, show status and role tags, enable/disable accounts.
+  - `角色绑定`: create scoped role bindings, list bindings, delete bindings.
+- Supported roles are `platform_admin`, `dataset_admin`, `batch_manager`, `annotator`, `qc_lead`, and `auditor`.
+- Supported role scopes are `platform`, `dataset_type`, and `dataset_batch`; platform scope should use `*`, dataset-type scope uses a dataset type such as `urban_violation`, and dataset-batch scope uses a concrete batch id such as `urban_violation__0508_fixture`.
+- Backend operations map to `/api/users`, `/api/users/{user_id}`, `/api/role-bindings`, and `/api/role-bindings/{binding_id}`.
+- Backend permission checks are split: account CRUD requires `users:manage`, role-binding CRUD requires `roles:manage`.
+- The current UI is functionally correct but should eventually add clearer scope-id assistance, duplicate-binding error display, role-permission preview, and safer self-disable/self-role-removal guardrails.
+- Easy-to-use target design should separate identity from access:
+  - Account creation only creates an internal identity and should not imply dataset access.
+  - Dataset access is granted only through role binding.
+  - Data permission assignment should guide admins through user -> target level -> concrete target -> role -> permission preview -> submit.
+- The permission-management page should not flatten every sub-feature onto the main canvas. The page should act as a command center with lists, summaries, filters, and primary actions, while detailed creation/editing/assignment/confirmation flows open in modals or right-side drawers.
+- Scope entry should avoid free-text where possible:
+  - `platform` locks `scope_id` to `*`.
+  - `dataset_type` uses a dataset-type dropdown.
+  - `dataset_batch` first selects dataset type, then selects a concrete batch under that type.
+- User rows should clearly surface `未分配角色`, and each binding row should make who/role/scope visible without reading raw IDs only.
+- Recommended modal/drawer surfaces include create account, edit account, reset password, assign dataset permission, binding detail, delete binding confirmation, and disable account confirmation.
+
 ## Frontend Facts
 
 - Framework: Vue 3, Vite, vue-router, lucide icons.

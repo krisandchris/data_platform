@@ -84,8 +84,12 @@ import type {
   QcWorkspace,
   ReviewDecision,
   ReviewSampleDetail,
+  RbacCatalog,
+  RbacCatalogRole,
+  RbacCatalogScope,
   RoleBinding,
   RoleBindingCreatePayload,
+  RoleScopeType,
   SampleId,
   SampleLease,
   SamplePoolAttributionTag,
@@ -143,6 +147,7 @@ export interface UrbanViolationApi {
   listRoleBindings(): Promise<RoleBinding[]>;
   createRoleBinding(payload: RoleBindingCreatePayload): Promise<RoleBinding>;
   deleteRoleBinding(bindingId: string): Promise<void>;
+  getRbacCatalog(): Promise<RbacCatalog>;
   listDatasets(): Promise<Dataset[]>;
   listDatasetTypes(): Promise<DatasetType[]>;
   getDatasetType(datasetType: DatasetTypeId): Promise<DatasetType>;
@@ -334,6 +339,18 @@ export class HttpUrbanViolationApi implements UrbanViolationApi {
 
   async deleteRoleBinding(bindingId: string): Promise<void> {
     await this.http.delete<unknown>(`/role-bindings/${encodeURIComponent(bindingId)}`);
+  }
+
+  async getRbacCatalog(): Promise<RbacCatalog> {
+    try {
+      const response = await this.http.get<unknown>('/rbac/catalog');
+      return normalizeRbacCatalog(response);
+    } catch (err) {
+      if (err instanceof ApiClientError && [404, 405, 501].includes(err.status)) {
+        return fallbackRbacCatalog();
+      }
+      throw err;
+    }
   }
 
   async listDatasets(): Promise<Dataset[]> {
@@ -1065,6 +1082,146 @@ const normalizeRoleBinding = (value: unknown): RoleBinding => {
     scopeId: stringValue(record.scopeId ?? record.scope_id, '*'),
     createdAt: optionalString(record.createdAt ?? record.created_at),
     createdBy: optionalString(record.createdBy ?? record.created_by),
+  };
+};
+
+const defaultRoleCatalog: RbacCatalogRole[] = [
+  {
+    role: 'platform_admin',
+    label: '平台管理员',
+    description: '管理账号、角色、审计与全平台配置',
+    permissions: [
+      'users:manage',
+      'roles:manage',
+      'dataset_type:create',
+      'label_config:manage',
+      'import_job:manage',
+      'batch_assignment:manage',
+      'lease:force_release',
+      'label_edit:write',
+      'label_edit:confirm',
+      'audit:read',
+      'qc_progress:read',
+      'dataset:read',
+      'qc_queue:read',
+    ],
+  },
+  {
+    role: 'dataset_admin',
+    label: '数据集管理员',
+    description: '管理数据集类型、标签配置和批次生命周期',
+    permissions: [
+      'dataset_type:create',
+      'label_config:manage',
+      'import_job:manage',
+      'batch_assignment:manage',
+      'lease:force_release',
+      'label_edit:write',
+      'audit:read',
+      'qc_progress:read',
+      'dataset:read',
+      'qc_queue:read',
+    ],
+  },
+  {
+    role: 'batch_manager',
+    label: '批次管理员',
+    description: '管理批次分配、质检队列和批次状态',
+    permissions: [
+      'import_job:manage',
+      'batch_assignment:manage',
+      'lease:force_release',
+      'dataset:read',
+      'qc_queue:read',
+      'audit:read',
+      'qc_progress:read',
+      'label_edit:write',
+    ],
+  },
+  {
+    role: 'qc_lead',
+    label: '质检负责人',
+    description: '确认标注修改、退回问题样本和查看审计记录',
+    permissions: [
+      'dataset:read',
+      'qc_queue:read',
+      'batch_assignment:manage',
+      'lease:force_release',
+      'label_edit:write',
+      'label_edit:confirm',
+      'audit:read',
+      'qc_progress:read',
+    ],
+  },
+  {
+    role: 'annotator',
+    label: '标注员',
+    description: '领取样本、编辑标签并提交修改',
+    permissions: ['dataset:read', 'qc_queue:read', 'label_edit:write', 'audit:read_own', 'qc_progress:read_own'],
+  },
+  {
+    role: 'auditor',
+    label: '审计员',
+    description: '查看操作审计和权限变更记录',
+    permissions: ['dataset:read', 'qc_queue:read', 'audit:read', 'qc_progress:read'],
+  },
+];
+
+const defaultScopeCatalog: RbacCatalogScope[] = [
+  { scopeType: 'platform', label: '全平台', description: '作用于全部数据集类型与批次' },
+  { scopeType: 'dataset_type', label: '数据集类型', description: '作用于一个数据集类型及其批次' },
+  { scopeType: 'dataset_batch', label: '数据集批次', description: '仅作用于一个具体批次' },
+];
+
+const fallbackRbacCatalog = (): RbacCatalog => ({
+  roles: defaultRoleCatalog,
+  scopes: defaultScopeCatalog,
+  permissions: Array.from(new Set(defaultRoleCatalog.flatMap((role) => role.permissions))),
+});
+
+const normalizeRbacRole = (value: unknown): RbacCatalogRole => {
+  const record = isRecord(value) ? value : {};
+  const role = stringValue(record.role ?? record.value, 'annotator') as UserRole;
+  const fallback = defaultRoleCatalog.find((item) => item.role === role);
+  return {
+    role,
+    label: stringValue(record.label ?? record.label_zh ?? record.name, fallback?.label ?? role),
+    description: optionalString(record.description ?? record.usage ?? record.help) ?? fallback?.description,
+    permissions: normalizeStringList(record.permissions).length
+      ? normalizeStringList(record.permissions)
+      : fallback?.permissions ?? [],
+  };
+};
+
+const normalizeRbacScope = (value: unknown): RbacCatalogScope => {
+  const record = isRecord(value) ? value : {};
+  const scopeType = stringValue(
+    isRecord(value) ? record.scopeType ?? record.scope_type ?? record.value : value,
+    'dataset_batch',
+  ) as RoleScopeType;
+  const fallback = defaultScopeCatalog.find((item) => item.scopeType === scopeType);
+  return {
+    scopeType,
+    label: stringValue(record.label ?? record.label_zh ?? record.name, fallback?.label ?? scopeType),
+    description: optionalString(record.description ?? record.help) ?? fallback?.description,
+  };
+};
+
+const normalizeRbacCatalog = (value: unknown): RbacCatalog => {
+  const record = isRecord(value) ? value : {};
+  const roles = listPayload(record.roles ?? record.role_catalog, 'roles').map((item) => normalizeRbacRole(item));
+  const scopes = listPayload(record.scopes ?? record.scope_catalog ?? record.scope_types, 'scopes').map((item) =>
+    normalizeRbacScope(item),
+  );
+  const normalizedRoles = roles.length ? roles : defaultRoleCatalog;
+  const normalizedScopes = scopes.length ? scopes : defaultScopeCatalog;
+  const permissions = normalizeStringList(record.permissions);
+  return {
+    roles: normalizedRoles,
+    scopes: normalizedScopes,
+    permissions: permissions.length
+      ? permissions
+      : Array.from(new Set(normalizedRoles.flatMap((role) => role.permissions))),
   };
 };
 

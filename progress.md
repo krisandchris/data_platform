@@ -436,3 +436,91 @@ After the latest main verification, both stack stop commands were run and checke
   - Attempting a temporary Node script with `import { chromium } from 'playwright'` failed because the project does not install the Playwright package as an importable dependency.
   - Attempting `npx playwright test` against a temporary spec failed because `@playwright/test` was not resolvable for that temp runner path.
   - The verification path was changed to the already working `npx playwright screenshot` CLI with route selectors and full-page screenshots.
+
+## Permission Management Design Review
+
+- Reviewed current permission-management implementation and backend RBAC contract.
+- Captured current UI evidence:
+  - `/tmp/uvp-permissions-page.png`
+  - `/tmp/uvp-account-page.png`
+- Confirmed `/account/permissions` is protected by `users:manage` or `roles:manage`.
+- Confirmed current page design:
+  - Left panel manages internal accounts.
+  - Right panel manages scoped role bindings.
+  - Account center shows management entry only when the current user has management capability.
+- Confirmed backend operation boundaries:
+  - User list/create/update require `users:manage`.
+  - Role binding list/create/delete require `roles:manage`.
+  - Audit viewing remains separate under `/account/audit`.
+- Stopped both dev and agent stacks and confirmed tracked project ports were released.
+
+## Account And Dataset Permission Logic Redesign
+
+- Reworked the permission-management interaction design around clarity and ease of use.
+- Updated `docs/frontend/README.md` with:
+  - Recommended tab structure: `账号管理`, `数据集权限分配`, `角色绑定记录`.
+  - Processing logic that separates account creation from data access grants.
+  - Dataset permission flow: select user -> select target level -> select concrete target -> select role -> preview permissions -> submit.
+  - Main-page vs modal/drawer responsibilities so detailed sub-features are not flattened into the page.
+  - Scope UI rules for `platform`, `dataset_type`, and `dataset_batch`.
+  - Recommended role presets for platform owner, dataset admin, batch manager, annotator, qc lead, and auditor.
+  - Error/empty/duplicate-binding states.
+- No frontend/backend product code was modified in this step.
+- Added explicit guidance that account creation, account editing, password reset, dataset permission assignment, binding detail, delete confirmation, and disable confirmation should use modal or drawer surfaces.
+
+## Permission Management Command Center Dispatch
+
+- Started implementation stage: `P1 - Permission Management Command Center`.
+- Development split:
+  - Backend agent owns RBAC catalog endpoint, self-lockout guardrails, conflict behavior, and backend tests.
+  - Frontend agent owns `/account/permissions` command-center refactor, tabs, drawers/modals, selector-driven scope assignment, permission preview, and frontend tests.
+  - Integration/test agent starts only after both implementation agents finish and must validate the combined agent worktree outputs.
+- Main workspace remains orchestration-only for this product change.
+- Backend task dispatched to `../data_platform_backend_agent`.
+- Frontend task dispatched to `../data_platform_frontend_agent`.
+- Backend agent completed implementation:
+  - Added `GET /api/rbac/catalog`.
+  - Catalog returns roles with backend-derived permissions and supported scope types.
+  - Catalog read requires `dataset:read`.
+  - Added self-disable conflict for the current user.
+  - Added conflict protection for deleting the current user's own `platform_admin/platform/*` binding.
+  - Preserved existing user and role-binding API contracts.
+  - Reported focused backend tests `5 passed, 49 deselected`, full backend `60 passed`, and `git diff --check` passing.
+- Frontend agent completed implementation:
+  - Refactored `/account/permissions` into command-center layout with `账号管理`, `数据集权限分配`, and `角色绑定记录`.
+  - Replaced always-visible long forms with drawers/modals for account creation/editing, permission assignment, binding detail, password reset, delete binding, and account enable/disable.
+  - Added dataset type -> batch selector flow for dataset-batch assignments.
+  - Added permission preview via `getRbacCatalog()` with service-level fallback for unsupported endpoint responses.
+  - Shows `未分配角色` for users without bindings.
+  - Reported focused frontend tests `66 passed`, build passing, `git diff --check` passing, and protected review workbench files unchanged.
+- Frontend agent completed a follow-up compatibility fix:
+  - `normalizeRbacCatalog()` now consumes backend `scope_types` directly instead of relying on default scope fallback.
+  - RBAC fallback permissions now align with backend `ROLE_PERMISSIONS`, including `label_edit:confirm`.
+  - API client tests cover `scope_types` parsing.
+  - Reported focused frontend tests `66 passed`, build passing, `git diff --check` passing, and protected review workbench files unchanged.
+- Integration validation checklist prepared:
+  - Protected QC review files must have no diff.
+  - Backend focused and full pytest must pass.
+  - Frontend focused tests and build must pass.
+  - Agent stack smoke must pass with fresh `PLATFORM_STATE_ROOT` and `LABEL_CONFIG_STORE_ROOT`.
+  - Live API must verify RBAC catalog, self-disable conflict, self platform-admin binding delete conflict, duplicate binding conflict, and successful dataset-batch annotator assignment.
+  - Browser must verify `/account/permissions` command-center sections, modal/drawer account creation, assignment drawer, dataset type -> batch selector flow, permission preview, delete confirmation, and disable confirmation.
+  - All services must be stopped and checked ports released.
+- First integration pass result:
+  - Static checks, backend tests, frontend tests/build, agent stack smoke, live API guardrails, and browser modal/drawer flows passed.
+  - Integration did not pass final acceptance because `qc_lead` permission preview showed `质检确认` instead of the expected explicit `label_edit:confirm`/`提交确认` wording.
+  - Frontend agent was assigned a follow-up copy/mapping fix for `label_edit:confirm` preview text.
+- Final integration pass result:
+  - Frontend follow-up changed `label_edit:confirm` preview text to `提交确认` and updated tests.
+  - Integration/test agent reran static checks, backend focused/full tests, frontend focused tests/build, agent-stack smoke, live API checks, browser permission-management flows, and shutdown checks.
+  - Final agent integration result: passed.
+- Main workspace sync and verification passed:
+  - Accepted backend/frontend patches were applied to the main workspace.
+  - Protected review workbench files remained unchanged.
+  - `PLATFORM_STATE_ROOT=/tmp/uvp-permission-command-main-be LABEL_CONFIG_STORE_ROOT=/tmp/uvp-permission-command-main-labels uv run pytest tests/test_api.py -k "rbac or account or role_binding or users"`: `5 passed, 49 deselected`.
+  - `PLATFORM_STATE_ROOT=/tmp/uvp-permission-command-main-be-full LABEL_CONFIG_STORE_ROOT=/tmp/uvp-permission-command-main-labels-full uv run pytest`: `60 passed`.
+  - `cd frontend && npm run test -- apiClient routesAndPages`: `66 passed`.
+  - `cd frontend && npm run build`: passed.
+  - `git diff --check`: passed.
+  - `SMOKE_RUNTIME_DIR=/tmp/uvp-permission-command-main-smoke scripts/integration-smoke.sh main`: passed.
+  - `scripts/integration-smoke.sh main` stopped services and released project ports; a final `ss` check showed no listeners on `8000/5173/18031/15195`.

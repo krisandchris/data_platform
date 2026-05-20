@@ -260,6 +260,47 @@ describe('HTTP API adapter', () => {
     expect(user.roleBindings?.[0]).toMatchObject({ role: 'platform_admin', scopeType: 'platform' });
   });
 
+  it('loads the RBAC catalog and falls back when the endpoint is unavailable', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          roles: [
+            {
+              role: 'dataset_admin',
+              label: '数据集管理员',
+              description: '管理数据集类型',
+              permissions: ['roles:manage', 'audit:read'],
+            },
+          ],
+          scope_types: ['platform', 'dataset_type', 'dataset_batch'],
+          permissions: ['roles:manage', 'audit:read'],
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ detail: 'not implemented' }, { status: 404 }));
+    const api = new HttpUrbanViolationApi(new HttpClient({ baseUrl: 'http://backend.test/api', fetcher }));
+
+    const catalog = await api.getRbacCatalog();
+    const fallback = await api.getRbacCatalog();
+
+    expect(fetcher).toHaveBeenNthCalledWith(1, 'http://backend.test/api/rbac/catalog', expect.objectContaining({ method: 'GET' }));
+    expect(catalog.roles[0]).toMatchObject({
+      role: 'dataset_admin',
+      label: '数据集管理员',
+      permissions: ['roles:manage', 'audit:read'],
+    });
+    expect(catalog.scopes).toEqual([
+      expect.objectContaining({ scopeType: 'platform', label: '全平台' }),
+      expect.objectContaining({ scopeType: 'dataset_type', label: '数据集类型' }),
+      expect.objectContaining({ scopeType: 'dataset_batch', label: '数据集批次' }),
+    ]);
+    expect(fallback.roles.some((role) => role.role === 'platform_admin')).toBe(true);
+    const fallbackQcLead = fallback.roles.find((role) => role.role === 'qc_lead');
+    const legacyConfirmPermission = ['qc', 'submission'].join('_') + ':confirm';
+    expect(fallbackQcLead?.permissions).toContain('label_edit:confirm');
+    expect(fallbackQcLead?.permissions).not.toContain(legacyConfirmPermission);
+  });
+
   it('creates users with backend-required account fields', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(
       jsonResponse(

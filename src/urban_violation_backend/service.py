@@ -69,6 +69,8 @@ from urban_violation_backend.api_schemas import (
     QcProgressByUser,
     QcProgressResponse,
     QcTaskResponse,
+    RbacCatalogResponse,
+    RbacRoleCatalogItem,
     ReviewSubmitRequest,
     SnapshotDiffResponse,
     SnapshotRollbackResponse,
@@ -121,7 +123,7 @@ from urban_violation_backend.labels import (
     filter_label_suggestions,
     validate_label_config,
 )
-from urban_violation_backend.permissions import PermissionEvaluator
+from urban_violation_backend.permissions import PermissionEvaluator, ROLE_PERMISSIONS
 from urban_violation_backend.schemas import (
     AnnotationSnapshot,
     AnnotationSnapshotType,
@@ -3235,6 +3237,25 @@ class FixtureRuntimeService:
     def get_me(self, context: AuthContext) -> CurrentUserResponse:
         return context.to_current_user_response()
 
+    def get_rbac_catalog(self, context: AuthContext) -> RbacCatalogResponse:
+        """Return RBAC catalog for permission management screens."""
+        self._require_permission(context=context, action="dataset:read", dataset_id=self._dataset_id)
+        role_items = [
+            RbacRoleCatalogItem(
+                role=role,
+                permissions=sorted(ROLE_PERMISSIONS.get(role, set())),
+            )
+            for role in UserRole
+        ]
+        return RbacCatalogResponse(
+            roles=role_items,
+            scope_types=[
+                RoleScopeType.PLATFORM,
+                RoleScopeType.DATASET_TYPE,
+                RoleScopeType.DATASET_BATCH,
+            ],
+        )
+
     def list_users(self, context: AuthContext) -> list[UserAccountResponse]:
         self._require_permission(context=context, action="users:manage")
         return [self._to_user_response(user) for user in self._state_store.list_users()]
@@ -3278,6 +3299,16 @@ class FixtureRuntimeService:
         user = self._auth_service.get_user(user_id)
         if user is None:
             raise ApiError(status_code=404, code="not_found", message=f"User not found: {user_id}")
+        if (
+            user_id == context.user_id
+            and request.status == UserStatus.DISABLED
+            and user.status != UserStatus.DISABLED
+        ):
+            raise conflict(
+                "self_disable_forbidden",
+                "Current admin cannot disable own account.",
+                user_id=user_id,
+            )
         before = self._to_user_response(user).model_dump(mode="json")
         updates: dict[str, Any] = {"updated_at": self._state_store.now()}
         if request.display_name is not None:
@@ -3361,6 +3392,17 @@ class FixtureRuntimeService:
                 kept.append(binding)
         if removed is None:
             return False
+        if (
+            removed.user_id == context.user_id
+            and removed.role == UserRole.PLATFORM_ADMIN
+            and removed.scope_type == RoleScopeType.PLATFORM
+            and removed.scope_id == "*"
+        ):
+            raise conflict(
+                "self_binding_delete_forbidden",
+                "Current admin cannot delete own platform_admin platform binding.",
+                binding_id=binding_id,
+            )
         self._state_store.save_role_bindings(kept)
         self._record_audit(
             actor=context,

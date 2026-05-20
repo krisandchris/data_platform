@@ -1,6 +1,6 @@
 # Frontend Interface Specification
 
-Last updated: 2026-05-19
+Last updated: 2026-05-20
 
 This file is the current frontend documentation source of truth. It is based on the actual Vue source under `frontend/src`, not on historical mockups.
 
@@ -645,17 +645,44 @@ Permissions:
 
 Route: `/account/permissions`
 
-Layout:
+Design intent:
+
+- Make account lifecycle and data permission assignment two separate mental models.
+- Avoid asking admins to remember raw scope ids whenever the UI can offer choices.
+- Make each binding answer three visible questions: who gets access, what role they get, and where that role applies.
+- Keep destructive actions explicit and reversible at the workflow level through audit visibility, not hidden inside compact controls.
+- Keep the main page as a command center. Do not flatten every sub-feature into the page; use dialogs or drawers for detailed creation, editing, assignment, and confirmation workflows.
+
+Recommended layout:
 
 ```text
-+------------------------------------------------------+
-| Header: 权限管理 + account/binding counters           |
-+------------------------------------------------------+
-| Account management panel | Role binding panel         |
-| - create user form       | - create binding form      |
-| - user list              | - binding list             |
-+------------------------------------------------------+
++------------------------------------------------------------------------+
+| Header: 权限管理                                                         |
+| Metrics: active users / disabled users / bindings / unscoped accounts    |
++------------------------------------------------------------------------+
+| Tab: 账号管理 | 数据集权限分配 | 角色绑定记录                            |
++------------------------------------------------------------------------+
+| 账号管理                                                                 |
+| - user table with status, roles, last seen, operation buttons             |
+| - primary actions: 新建账号 / 分配权限 / 编辑账号 / 禁用                  |
++------------------------------------------------------------------------+
+| 数据集权限分配                                                            |
+| - assignment cards or table grouped by dataset type and batch             |
+| - open assignment drawer for detailed role/scope setup                    |
++------------------------------------------------------------------------+
+| 角色绑定记录                                                              |
+| - filter by user, role, scope type, dataset type, batch, status           |
+| - binding list with detail drawer, delete confirmation, audit trail link   |
++------------------------------------------------------------------------+
 ```
+
+Main-page vs dialog responsibilities:
+
+| Surface | Shows directly | Opens dialog/drawer for |
+| --- | --- | --- |
+| 账号管理 tab | user list, status, role summary, quick search, primary actions | create account, edit account, reset password, disable/enable confirmation |
+| 数据集权限分配 tab | dataset type/batch tree, assigned user count, missing assignment warnings | assign permission wizard, role permission preview, batch-specific binding details |
+| 角色绑定记录 tab | binding table, filters, status, created time | binding detail, delete confirmation, audit trail context |
 
 Data fields:
 
@@ -664,13 +691,79 @@ Data fields:
 - Role binding: `userId`, `role`, `scopeType`, `scopeId`, `bindingId`
 - Roles: `annotator`, `qc_lead`, `batch_manager`, `dataset_admin`, `auditor`, `platform_admin`
 - Scopes: `dataset_batch`, `dataset_type`, `platform`
+- Dataset type choices: from `GET /api/dataset-types`
+- Dataset batch choices: from dataset type `batches[]` or batch list data already returned by dataset type APIs
+
+Processing logic:
+
+1. Account creation creates identity only. It must not imply data access.
+2. Data access is granted only by role binding.
+3. A role binding is always `(userId, role, scopeType, scopeId)`.
+4. Platform scope applies globally and should use `scopeId="*"`.
+5. Dataset type scope applies to every current and future batch under that type.
+6. Dataset batch scope applies only to one concrete batch id, such as `urban_violation__0508_fixture`.
+7. Duplicate role bindings should be blocked before submit and also handled from backend conflict responses.
+8. Disabling a user should prevent new work while preserving historical submissions and audit records.
+9. Deleting a role binding should revoke future access; existing audit records and submitted work remain immutable.
+
+Recommended role presets:
+
+| Scenario | Role | Scope type | Scope id |
+| --- | --- | --- | --- |
+| System owner | `platform_admin` | `platform` | `*` |
+| Manage one dataset type | `dataset_admin` | `dataset_type` | `urban_violation` |
+| Manage one batch import and assignment | `batch_manager` | `dataset_batch` | concrete batch id |
+| Annotate one batch | `annotator` | `dataset_batch` | concrete batch id |
+| Confirm one batch | `qc_lead` | `dataset_batch` | concrete batch id |
+| Read audit for one dataset type | `auditor` | `dataset_type` | `urban_violation` |
+
+Recommended interaction flow:
+
+```text
+Create account
+  -> user appears as "未分配角色"
+  -> admin clicks "分配数据权限"
+  -> choose user
+  -> choose target level
+       platform: scope id locked to *
+       dataset type: choose dataset type
+       dataset batch: choose dataset type first, then choose batch
+  -> choose role
+  -> preview permission summary
+  -> submit binding
+  -> binding appears in user row and binding records
+```
+
+Dialog and drawer behavior:
+
+- `新建账号` opens a modal or right drawer; success closes the surface and refreshes the user list.
+- `编辑账号` opens the same account drawer in edit mode; password reset should be a separate confirmation step.
+- `分配数据权限` opens a right drawer with the guided assignment flow rather than expanding a long form inline.
+- `查看绑定详情` opens a read-only drawer showing role, scope, derived permissions, creator, created time, and related audit entries.
+- `删除绑定` opens a confirmation modal; the confirm button should repeat the role and scope being removed.
+- `禁用账号` opens a confirmation modal and warns when the account still owns active assignments, drafts, or role bindings.
+- Only one edit drawer/modal should be open at a time; closing with unsaved changes should ask for confirmation.
+
+Form behavior:
+
+- `scopeType=platform`: hide free-text scope input and display fixed `*`.
+- `scopeType=dataset_type`: use a dataset-type dropdown; do not ask the admin to type `urban_violation`.
+- `scopeType=dataset_batch`: first choose dataset type, then choose batch from that type.
+- Role dropdown should show role labels and intended use, not only machine values.
+- Permission preview should show grouped permission names such as 数据集查看、质检队列查看、标签编辑、批次分配管理.
+- Submit should be disabled until user, role, scope type, and valid scope id are selected.
+- Delete binding should require confirmation that includes user, role, and scope.
+- Disable user should require confirmation and should warn if the target user is the current admin.
 
 Interactions:
 
-- Create user.
-- Enable/disable user.
-- Create role binding.
-- Delete role binding.
+- Create user through modal/drawer.
+- Edit account or reset password through modal/drawer.
+- Enable/disable user through confirmation modal.
+- Create role binding through assignment drawer.
+- Delete role binding through confirmation modal.
+- Filter role bindings by user, role, and scope.
+- Jump from one user row to pre-filled data-permission assignment.
 
 States:
 
@@ -678,6 +771,10 @@ States:
 - 403 shows management-permission error.
 - Empty user list.
 - Empty binding list.
+- User created but no role: show `未分配角色`.
+- Scope choices failed to load: keep user list readable and disable binding submit.
+- Duplicate binding: show inline conflict message.
+- Backend validation error: show the backend message near the binding form.
 
 API:
 
@@ -687,11 +784,15 @@ API:
 - `GET /api/role-bindings`
 - `POST /api/role-bindings`
 - `DELETE /api/role-bindings/{binding_id}`
+- `GET /api/dataset-types` for scope dropdowns
 
 Permissions:
 
 - Route guard requires `users:manage` or `roles:manage`.
 - Backend enforces exact user and role management permissions.
+- Account operations require `users:manage`.
+- Role binding operations require `roles:manage`.
+- Audit viewing remains separate under `/account/audit`.
 
 ### 审计记录
 

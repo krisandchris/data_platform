@@ -48,6 +48,7 @@ from urban_violation_backend.api_schemas import (
     QCQueueResponse,
     QcProgressResponse,
     QcTaskResponse,
+    RbacCatalogResponse,
     ReviewSubmitRequest,
     SnapshotDiffResponse,
     SnapshotRollbackResponse,
@@ -133,6 +134,13 @@ def build_router(service: FixtureRuntimeService) -> APIRouter:
     @router.get("/api/me", response_model=CurrentUserResponse)
     async def me(context=Depends(get_context)) -> CurrentUserResponse:
         return context.to_current_user_response()
+
+    @router.get("/api/rbac/catalog", response_model=RbacCatalogResponse)
+    async def rbac_catalog(
+        runtime: FixtureRuntimeService = Depends(get_service),
+        context=Depends(get_context),
+    ) -> RbacCatalogResponse:
+        return runtime.get_rbac_catalog(context=context)
 
     @router.get("/api/users", response_model=list[UserAccountResponse])
     async def list_users(

@@ -1374,6 +1374,25 @@ def test_account_me_rbac_audit_boundaries_for_core_roles(client: TestClient) -> 
     assert "users:manage" not in annotator_payload["permissions"]
     assert "roles:manage" not in annotator_payload["permissions"]
     assert "audit:read" not in annotator_payload["permissions"]
+    annotator_catalog = client.get("/api/rbac/catalog", headers=annotator_headers)
+    assert annotator_catalog.status_code == 200
+    annotator_catalog_payload = annotator_catalog.json()
+    role_map = {item["role"]: set(item["permissions"]) for item in annotator_catalog_payload["roles"]}
+    expected_roles = {
+        "platform_admin",
+        "dataset_admin",
+        "batch_manager",
+        "annotator",
+        "qc_lead",
+        "auditor",
+    }
+    assert set(role_map) == expected_roles
+    assert {"users:manage", "roles:manage"}.issubset(role_map["platform_admin"])
+    assert set(annotator_catalog_payload["scope_types"]) == {
+        "platform",
+        "dataset_type",
+        "dataset_batch",
+    }
     assert client.get("/api/users", headers=annotator_headers).status_code == 403
     assert client.get("/api/role-bindings", headers=annotator_headers).status_code == 403
     full_audit = client.get("/api/audit-events", headers=annotator_headers)
@@ -1389,6 +1408,8 @@ def test_account_me_rbac_audit_boundaries_for_core_roles(client: TestClient) -> 
     assert admin_me.status_code == 200
     admin_permissions = set(admin_me.json()["permissions"])
     assert {"users:manage", "roles:manage", "audit:read"}.issubset(admin_permissions)
+    admin_catalog = client.get("/api/rbac/catalog", headers=_admin_headers())
+    assert admin_catalog.status_code == 200
     assert client.get("/api/users", headers=_admin_headers()).status_code == 200
     assert client.get("/api/role-bindings", headers=_admin_headers()).status_code == 200
     assert client.get("/api/audit-events", headers=_admin_headers()).status_code == 200
@@ -1406,6 +1427,55 @@ def test_account_me_rbac_audit_boundaries_for_core_roles(client: TestClient) -> 
     assert client.get("/api/audit-events", headers=auditor_headers).status_code == 200
     assert client.get("/api/users", headers=auditor_headers).status_code == 403
     assert client.get("/api/role-bindings", headers=auditor_headers).status_code == 403
+
+
+def test_users_self_disable_forbidden_for_current_admin(client: TestClient) -> None:
+    response = client.patch(
+        "/api/users/platform_admin",
+        json={"status": "disabled"},
+        headers=_admin_headers(),
+    )
+    assert response.status_code == 409
+    payload = response.json()
+    assert payload["code"] == "self_disable_forbidden"
+
+
+def test_role_binding_self_platform_admin_delete_forbidden(client: TestClient) -> None:
+    bindings = client.get("/api/role-bindings", headers=_admin_headers())
+    assert bindings.status_code == 200
+    target = next(
+        item
+        for item in bindings.json()
+        if item["user_id"] == "platform_admin"
+        and item["role"] == "platform_admin"
+        and item["scope_type"] == "platform"
+        and item["scope_id"] == "*"
+    )
+
+    deleted = client.delete(
+        f"/api/role-bindings/{target['binding_id']}",
+        headers=_admin_headers(),
+    )
+    assert deleted.status_code == 409
+    payload = deleted.json()
+    assert payload["code"] == "self_binding_delete_forbidden"
+
+
+def test_role_binding_duplicate_conflict_remains(client: TestClient) -> None:
+    _create_user(client, "role_case_user", role="annotator")
+    duplicate = client.post(
+        "/api/role-bindings",
+        json={
+            "user_id": "role_case_user",
+            "role": "annotator",
+            "scope_type": "dataset_batch",
+            "scope_id": BATCH_DATASET_ID,
+        },
+        headers=_admin_headers(),
+    )
+    assert duplicate.status_code == 409
+    payload = duplicate.json()
+    assert payload["code"] == "role_binding_conflict"
 
 
 def test_rbac_forbidden_for_annotator_label_config_activate(client: TestClient) -> None:

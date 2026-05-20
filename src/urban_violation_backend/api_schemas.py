@@ -123,6 +123,20 @@ class CurrentUserResponse(StrictModel):
     permissions: list[str] = Field(default_factory=list)
 
 
+class RbacRoleCatalogItem(StrictModel):
+    """Catalog row for one role and its machine-readable permissions."""
+
+    role: UserRole
+    permissions: list[str] = Field(default_factory=list)
+
+
+class RbacCatalogResponse(StrictModel):
+    """RBAC catalog for permission management UI rendering."""
+
+    roles: list[RbacRoleCatalogItem] = Field(default_factory=list)
+    scope_types: list[RoleScopeType] = Field(default_factory=list)
+
+
 class LabelConfigValidateRequest(StrictModel):
     """JSON request body for validating one uploaded label config."""
 
