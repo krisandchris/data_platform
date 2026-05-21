@@ -158,11 +158,30 @@ def preferred_candidates(
         for index, octet in enumerate([30, 31, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 16, 17])
     }
 
+    third_octet_order = {
+        octet: index
+        for index, octet in enumerate(
+            [
+                *range(240, 255),
+                *range(200, 240),
+                *range(128, 200),
+                *range(64, 128),
+                *range(2, 64),
+                1,
+                0,
+            ]
+        )
+    }
+
     def rank(network: ipaddress.IPv4Network) -> tuple[int, int, int]:
         octets = str(network.network_address).split(".")
         second = int(octets[1])
         third = int(octets[2])
-        return (second_octet_order.get(second, 99), third, int(octets[3]))
+        return (
+            second_octet_order.get(second, 99),
+            third_octet_order.get(third, 999),
+            int(octets[3]),
+        )
 
     return sorted(pool.subnets(new_prefix=prefix), key=rank)
 
@@ -205,9 +224,11 @@ def usage() -> None:
     print(
         """Usage:
   scripts/docker-compose-auto-subnet.py print-subnet
+  scripts/docker-compose-auto-subnet.py list-used
   scripts/docker-compose-auto-subnet.py <docker compose args...>
 
 Examples:
+  scripts/docker-compose-auto-subnet.py list-used
   scripts/docker-compose-auto-subnet.py build
   scripts/docker-compose-auto-subnet.py up -d --build
   scripts/docker-compose-auto-subnet.py down
@@ -229,6 +250,11 @@ def main(argv: list[str]) -> int:
     subnet = select_subnet(root)
     if argv[0] == "print-subnet":
         print(subnet)
+        return 0
+    if argv[0] == "list-used":
+        inspected = docker_network_inspect()
+        for network in sorted(used_networks(inspected), key=lambda item: int(item.network_address)):
+            print(network)
         return 0
 
     env = os.environ.copy()

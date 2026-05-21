@@ -128,3 +128,4 @@
 - Docker Compose YAML cannot run dynamic detection logic during variable interpolation.
 - Automatic subnet selection needs a wrapper that inspects `docker network inspect` IPAM config and host routes, then exports `PLATFORM_DOCKER_SUBNET` before invoking `docker compose`.
 - The wrapper should reuse an existing project `platform` network subnet if one exists, otherwise subsequent `ps`, `up`, or `down` commands may compute a different free subnet.
+- Low boundary slices like `172.x.0.0/24` can be risky on heterogeneous server/VPN networks even when not visible in Docker's IPAM list, so automatic ranking should prefer higher third-octet `/24` candidates first.

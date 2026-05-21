@@ -66,11 +66,12 @@ scripts/docker-compose-auto-subnet.py up -d
 Docker network selection:
 
 ```bash
+scripts/docker-compose-auto-subnet.py list-used
 scripts/docker-compose-auto-subnet.py print-subnet
 scripts/docker-compose-auto-subnet.py up -d
 ```
 
-The helper inspects existing Docker network IPAM subnets and host routes, then injects an unused subnet from the private `172.16.0.0/12` range as `PLATFORM_DOCKER_SUBNET`. If this project's `platform` network already exists, the helper reuses that existing subnet so later `ps`, `up`, and `down` commands stay stable. The compose file requires this variable so it does not silently fall back to a hardcoded subnet.
+The helper inspects existing Docker network IPAM subnets and host routes, then injects an unused subnet from the private `172.16.0.0/12` range as `PLATFORM_DOCKER_SUBNET`. It avoids low boundary `/24` ranges such as the `.0.0/24` slice unless no better candidate is available. If this project's `platform` network already exists, the helper reuses that existing subnet so later `ps`, `up`, and `down` commands stay stable. The compose file requires this variable so it does not silently fall back to a hardcoded subnet.
 
 Manual override remains available when needed:
 

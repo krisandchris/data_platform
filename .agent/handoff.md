@@ -226,3 +226,6 @@ No.
   - `scripts/docker-compose-auto-subnet.py config` -> passed
   - `scripts/docker-compose-auto-subnet.py build backend` -> passed
   - `git diff --check` -> passed
+- Follow-up after server selected a low boundary subnet:
+  - added `scripts/docker-compose-auto-subnet.py list-used`
+  - automatic subnet ranking now prefers higher third-octet `/24` ranges before `.0.0/24`

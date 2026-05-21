@@ -121,6 +121,9 @@
   - repository search found no old fixed subnet default or problematic LAN subnet literal
   - `scripts/docker-compose-auto-subnet.py build backend` -> passed
   - `git diff --check` -> passed
+- Adjusted automatic subnet ranking after server selected a low boundary subnet:
+  - added `list-used` command for visibility into detected Docker/host networks
+  - automatic candidates now prefer higher third-octet `/24` slices before `.0.0/24`
 - Started BBox overlap selection follow-up.
 - Frontend agent implemented:
   - stage-level bbox hit testing
