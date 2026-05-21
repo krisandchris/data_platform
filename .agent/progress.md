@@ -77,6 +77,19 @@
   - `VITE_API_BASE_URL=/api npm run build` in `frontend/` -> passed
   - `git diff --check` -> passed
   - `docker compose build frontend` -> passed
+- Started TASK-018 frontend no-fixture work in a fresh frontend worktree from current `main`.
+- Frontend worktree implemented:
+  - removed the Audit page hardcoded `urban_violation__0508_fixture` default filter
+  - made QC progress loading conditional on an explicit dataset id
+  - added a regression test that audit events load without a fixture dataset assumption
+- Frontend setup and focused verification:
+  - initial `npm run test -- routesAndPages.test.ts` failed because this fresh worktree had no `node_modules`
+  - `npm ci` -> passed with existing audit warnings
+  - `npm run test -- routesAndPages.test.ts` -> `1 passed`, `70 passed`
+- Frontend broader verification passed:
+  - `npm run test -- routesAndPages.test.ts` -> `1 passed`, `70 passed`
+  - `VITE_API_BASE_URL=/api npm run build` -> passed
+  - `npm run test` -> `6 passed`, `114 passed`
 - Started `v0.0.1` release preparation.
 - Confirmed no existing `v0.0.1` or `0.0.1` tag.
 - Updated release metadata:

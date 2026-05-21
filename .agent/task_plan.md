@@ -38,6 +38,8 @@ Objective: add a docker compose LAN deployment path with an Nginx-served Vue fro
    - Status: complete.
 17. Add automatic Docker Compose subnet selection for the 172 private range.
    - Status: complete.
+18. Disable built-in fixture batch loading for Docker deployments while preserving the `urban_violation` dataset type and label config store.
+   - Status: complete.
 
 ## Constraints
 
@@ -70,6 +72,9 @@ Objective: add a docker compose LAN deployment path with an Nginx-served Vue fro
 - Backend Docker image build does not require install-time bytecode compilation, so servers with lower file descriptor limits can build successfully.
 - Docker Compose does not auto-select an overlapping LAN subnet for the frontend/backend bridge network.
 - Deployment startup can compute `PLATFORM_DOCKER_SUBNET` from currently used Docker networks and host routes instead of relying on a fixed default subnet.
+- Docker deployment defaults to `PLATFORM_ENABLE_FIXTURE_BATCH=0`, so a clean runtime lists no built-in fixture batch.
+- `urban_violation` dataset type APIs and label config save/activation continue to work with no loaded batches.
+- Development and explicit test app creation can still enable the built-in fixture batch for fixture-based tests.
 
 ## Errors Encountered
 

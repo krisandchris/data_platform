@@ -129,3 +129,9 @@
 - Automatic subnet selection needs a wrapper that inspects `docker network inspect` IPAM config and host routes, then exports `PLATFORM_DOCKER_SUBNET` before invoking `docker compose`.
 - The wrapper should reuse an existing project `platform` network subnet if one exists, otherwise subsequent `ps`, `up`, or `down` commands may compute a different free subnet.
 - Low boundary slices like `172.x.0.0/24` can be risky on heterogeneous server/VPN networks even when not visible in Docker's IPAM list, so automatic ranking should prefer higher third-octet `/24` candidates first.
+
+## Fixture Batch Disable Finding
+
+- The Audit page hardcoded `urban_violation__0508_fixture` as its default dataset filter and progress target.
+- When Docker disables fixture loading, the page should still list audit events without a dataset filter, and it should only request QC progress after the user provides a concrete dataset id.
+- Existing fixture ids in tests remain useful sample data and should not be globally removed.
