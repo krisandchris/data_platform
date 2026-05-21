@@ -33,6 +33,26 @@
 - Conflict resolution:
   - Product backend files, Alembic files, dependency files, QA tests, and docs merged without conflict.
   - Root `.agent` files conflicted with local worktree records and were rewritten as Lead Agent integration records.
-- Pending:
-  - Reconcile docs wording against actual backend command names and DB behavior.
-  - Run final integration verification.
+- Additional integration work:
+  - Reconciled docs wording against actual backend command names and DB behavior.
+  - Ran final integration verification.
+- Reconciled docs with actual backend behavior:
+  - Direct Alembic commands use `uv run alembic ...`.
+  - Migration directory is `alembic/`.
+  - `alembic/env.py` now reads `DATABASE_URL` when set.
+  - PostgreSQL URL form is `postgresql+psycopg://user:password@host:5432/dbname`.
+  - DB foundation test selector is `state_store_contract or label_config_repository_contract or db_foundation`.
+- Lead Agent fixed integration issues found by active QA tests:
+  - Normalized DB-loaded datetimes to aware UTC values before Pydantic/auth usage.
+  - Updated DB foundation tests to explicitly migrate when startup auto-migrate is disabled.
+  - Updated session-auth DB API tests to send `X-Session-Token` and match current list response shapes.
+- Final Phase 3 verification:
+  - `uv sync` -> passed.
+  - `uv run pytest -k 'state_store_contract or label_config_repository_contract or db_foundation' -q` -> 14 passed, 1 skipped.
+  - `uv run pytest tests/test_db_foundation_contract.py tests/test_db_foundation_api.py tests/test_db_foundation_backend.py -q` -> 10 passed, 1 skipped.
+  - `DATABASE_URL=sqlite+pysqlite:////tmp/... uv run alembic upgrade head && ... alembic current` -> passed, current revision `20260522_0001`.
+  - `uv run pytest` -> 103 passed, 1 skipped.
+  - `npm run test` in `frontend/` with Node 20 -> 6 files passed, 114 tests passed.
+  - `VITE_API_BASE_URL=/api npm run build` in `frontend/` with Node 20 -> passed.
+  - `uv run python scripts/docker-compose-auto-subnet.py config` -> passed.
+  - `git diff --check` -> passed.

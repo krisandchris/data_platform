@@ -9,7 +9,7 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 2. Store interface extraction.
    - Status: complete.
 3. PostgreSQL foundation for identity, registry, label config, import jobs, and audit.
-   - Status: integration verification pending. Backend, QA, and Docs Phase 3 branches are merged into `integration/TASK-019`.
+   - Status: complete. Backend, QA, and Docs Phase 3 branches were merged and verified on `integration/TASK-019`.
 4. PostgreSQL migration for QC, drafts, submissions, sample pool, exports, and evaluations.
    - Status: pending.
 5. Redis runtime state for active leases, locks, session cache, and import progress.
@@ -39,9 +39,9 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 
 ## Phase 3 Exit Gate
 
-- File-backed mode remains green: `uv run pytest`.
-- Focused DB foundation and existing store contract tests pass.
-- Frontend tests/build remain green.
+- File-backed mode remains green: `uv run pytest` -> 103 passed, 1 skipped.
+- Focused DB foundation and existing store contract tests pass -> 14 passed, 1 skipped.
+- Frontend tests/build remain green -> 114 tests passed and production build passed.
 - Docs are reconciled with actual backend command names and DB behavior.
 - No Docker default switch to database mode yet.
 - No Redis implementation yet.

@@ -40,8 +40,13 @@ def _database_url(tmp_path: Path) -> str:
     return os.environ.get("TEST_DATABASE_URL", f"sqlite+pysqlite:///{tmp_path / 'task019_phase3_api.db'}")
 
 
-def _base_headers() -> dict[str, str]:
-    return {"X-User-Id": "platform_admin", "X-User-Role": "platform_admin"}
+def _session_headers(client: TestClient) -> dict[str, str]:
+    login = client.post(
+        "/api/auth/login",
+        json={"user_id": "platform_admin", "password": "admin123456"},
+    )
+    assert login.status_code == 200
+    return {"X-Session-Token": login.json()["token"]}
 
 
 def _label_config_payload() -> dict[str, Any]:
@@ -95,6 +100,7 @@ def test_db_mode_admin_bootstrap_and_session_login(db_client: TestClient) -> Non
 
 
 def test_db_mode_label_config_save_list_activate(db_client: TestClient) -> None:
+    headers = _session_headers(db_client)
     saved = db_client.post(
         f"/api/datasets/{DATASET_TYPE}/label-configs",
         json={
@@ -102,27 +108,34 @@ def test_db_mode_label_config_save_list_activate(db_client: TestClient) -> None:
             "config": _label_config_payload(),
             "activate": False,
         },
+        headers=headers,
     )
     assert saved.status_code == 200
     config_id = saved.json()["config_id"]
 
-    listed = db_client.get(f"/api/dataset-types/{DATASET_TYPE}/label-configs")
+    listed = db_client.get(f"/api/dataset-types/{DATASET_TYPE}/label-configs", headers=headers)
     assert listed.status_code == 200
-    assert any(item["config_id"] == config_id for item in listed.json()["items"])
+    listed_payload = listed.json()
+    assert isinstance(listed_payload, list)
+    assert any(item["config_id"] == config_id for item in listed_payload)
 
-    activated = db_client.post(f"/api/datasets/{DATASET_TYPE}/label-configs/{config_id}/activate")
+    activated = db_client.post(
+        f"/api/datasets/{DATASET_TYPE}/label-configs/{config_id}/activate",
+        headers=headers,
+    )
     assert activated.status_code == 200
 
-    active = db_client.get(f"/api/datasets/{DATASET_TYPE}/label-config/active")
+    active = db_client.get(f"/api/datasets/{DATASET_TYPE}/label-config/active", headers=headers)
     assert active.status_code == 200
     assert active.json()["config_id"] == config_id
 
 
 def test_db_mode_dataset_type_batch_registry_import_job_and_audit(db_client: TestClient) -> None:
+    headers = _session_headers(db_client)
     created_type = db_client.post(
         "/api/dataset-types",
         json={"dataset_type": "ares_detection", "display_name": "Ares Detection"},
-        headers=_base_headers(),
+        headers=headers,
     )
     assert created_type.status_code == 201
 
@@ -138,18 +151,18 @@ def test_db_mode_dataset_type_batch_registry_import_job_and_audit(db_client: Tes
             "source_file_count": 2,
             "image_count": 2,
         },
-        headers=_base_headers(),
+        headers=headers,
     )
     assert import_job.status_code == 201
     dataset_id = import_job.json()["dataset_id"]
 
-    dataset_type_detail = db_client.get("/api/dataset-types/ares_detection", headers=_base_headers())
+    dataset_type_detail = db_client.get("/api/dataset-types/ares_detection", headers=headers)
     assert dataset_type_detail.status_code == 200
     assert dataset_type_detail.json()["batch_count"] >= 1
 
-    audit = db_client.get("/api/audit-events", headers=_base_headers())
+    audit = db_client.get("/api/audit-events", headers=headers)
     assert audit.status_code == 200
-    assert isinstance(audit.json().get("items"), list)
+    assert isinstance(audit.json(), list)
 
-    summary = db_client.get(f"/api/datasets/{dataset_id}/summary", headers=_base_headers())
+    summary = db_client.get(f"/api/datasets/{dataset_id}/summary", headers=headers)
     assert summary.status_code == 200

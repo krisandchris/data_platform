@@ -33,6 +33,6 @@
 
 ## Known Risks
 
-- PostgreSQL runtime validation still requires a real `TEST_DATABASE_URL`.
+- PostgreSQL runtime validation against an actual PostgreSQL server still requires a real `TEST_DATABASE_URL`; integration used SQLite fallback plus Alembic smoke.
 - Rollback after database-mode writes remains a policy decision unless a tested reverse export tool is implemented.
 - Redis and full QC/review durable-state migration are not part of Phase 3.

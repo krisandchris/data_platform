@@ -36,6 +36,15 @@ from urban_violation_backend.schemas import AuditEvent, AuthSession, ImportJob, 
 from urban_violation_backend.state_store import PlatformStateStore
 
 
+def _as_utc(value: datetime | None) -> datetime | None:
+    """Normalize DB-loaded datetimes to aware UTC values."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 class FoundationRegistryRepositoryProtocol(Protocol):
     """Persistence boundary for dataset-type and batch/import-job registries."""
 
@@ -301,8 +310,8 @@ class DatabaseLabelConfigRepository(LabelConfigRepositoryProtocol):
             version=row.version,
             status=row.status,
             content_hash=row.content_hash,
-            created_at=row.created_at,
-            activated_at=row.activated_at,
+            created_at=_as_utc(row.created_at),
+            activated_at=_as_utc(row.activated_at),
             file_name=row.file_name,
             validation=LabelConfigValidationReport.model_validate(row.validation_payload),
             config=DatasetLabelConfig.model_validate(row.config_payload),
@@ -329,9 +338,9 @@ class DatabaseBackedPlatformStateStore(PlatformStateStore):
                         "email": row.email,
                         "password_hash": row.password_hash,
                         "status": row.status,
-                        "created_at": row.created_at,
-                        "updated_at": row.updated_at,
-                        "last_seen_at": row.last_seen_at,
+                        "created_at": _as_utc(row.created_at),
+                        "updated_at": _as_utc(row.updated_at),
+                        "last_seen_at": _as_utc(row.last_seen_at),
                     }
                 )
                 for row in rows
@@ -371,7 +380,7 @@ class DatabaseBackedPlatformStateStore(PlatformStateStore):
                         "scope_type": row.scope_type,
                         "scope_id": row.scope_id,
                         "created_by": row.created_by,
-                        "created_at": row.created_at,
+                        "created_at": _as_utc(row.created_at),
                     }
                 )
                 for row in rows
@@ -408,9 +417,9 @@ class DatabaseBackedPlatformStateStore(PlatformStateStore):
                         "user_id": row.user_id,
                         "token": row.token,
                         "auth_mode": row.auth_mode,
-                        "created_at": row.created_at,
-                        "expires_at": row.expires_at,
-                        "revoked_at": row.revoked_at,
+                        "created_at": _as_utc(row.created_at),
+                        "expires_at": _as_utc(row.expires_at),
+                        "revoked_at": _as_utc(row.revoked_at),
                     }
                 )
                 for row in rows
@@ -468,7 +477,7 @@ class DatabaseBackedPlatformStateStore(PlatformStateStore):
                         "details": row.details,
                         "before": row.before_payload,
                         "after": row.after_payload,
-                        "created_at": row.created_at,
+                        "created_at": _as_utc(row.created_at),
                     }
                 )
                 for row in rows

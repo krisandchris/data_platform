@@ -46,10 +46,11 @@ def test_db_foundation_env_selection_and_factory_bootstrap(monkeypatch: pytest.M
     _require_db_foundation()
 
     db_url = _database_url(tmp_path)
+    importlib.import_module("urban_violation_backend.db").run_migrations_to_head(db_url)
     monkeypatch.setenv("PLATFORM_STATE_BACKEND", "database")
     monkeypatch.setenv("DATABASE_URL", db_url)
 
-    # Keep migration bootstrap opt-in to avoid changing default file-backed behavior.
+    # Keep startup migration bootstrap opt-in to avoid changing default file-backed behavior.
     monkeypatch.setenv("PLATFORM_DB_AUTO_MIGRATE", "0")
     service = importlib.import_module("urban_violation_backend.service").build_fixture_service(
         label_config_store_root=tmp_path / "label_config_state",

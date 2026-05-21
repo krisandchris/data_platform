@@ -15,6 +15,9 @@ Lead Agent
 ## Scope Completed
 
 - Merged Phase 3 Backend, QA, and Docs branches into `integration/TASK-019`.
+- Reconciled docs against actual backend DB foundation behavior.
+- Fixed integration issues found by newly activated DB tests.
+- Ran final Phase 3 integration verification.
 
 ## Agent Branches Merged
 
@@ -45,7 +48,7 @@ Lead Agent
   - `alembic`
   - `psycopg[binary]`
 
-## Verification So Far
+## Verification
 
 - Backend Agent reported:
   - Focused backend DB/store tests -> 8 passed.
@@ -56,13 +59,22 @@ Lead Agent
 - Docs Agent reported:
   - Manual link/structure review -> passed.
   - `git diff --check` and `git diff --cached --check` -> passed.
-- Lead integration verification is pending.
+- Lead Agent ran:
+  - `uv sync` -> passed.
+  - `uv run pytest -k 'state_store_contract or label_config_repository_contract or db_foundation' -q` -> 14 passed, 1 skipped.
+  - `uv run pytest tests/test_db_foundation_contract.py tests/test_db_foundation_api.py tests/test_db_foundation_backend.py -q` -> 10 passed, 1 skipped.
+  - `DATABASE_URL=sqlite+pysqlite:////tmp/... uv run alembic upgrade head && ... alembic current` -> passed, current revision `20260522_0001`.
+  - `uv run pytest` -> 103 passed, 1 skipped.
+  - `npm run test` in `frontend/` with Node 20 -> 6 files passed, 114 tests passed.
+  - `VITE_API_BASE_URL=/api npm run build` in `frontend/` with Node 20 -> passed.
+  - `uv run python scripts/docker-compose-auto-subnet.py config` -> passed.
+  - `git diff --check` -> passed.
 
 ## Known Risks
 
-- PostgreSQL-specific runtime smoke was not run in agent worktrees; local DB foundation verification used SQLite URL fallback.
+- PostgreSQL-specific runtime smoke against a real PostgreSQL service was not run; local DB foundation verification used SQLite URL fallback.
 - Transitional hybrid mode is intentional for Phase 3: QC/review/export/evaluation remain file-backed until later migration phases.
-- Docs reconciliation and final integration verification are still pending.
+- Docker defaults remain file-backed; Phase 3 is not a production database rollout.
 
 ## Rollback Plan
 
