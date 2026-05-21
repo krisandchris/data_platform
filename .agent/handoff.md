@@ -91,3 +91,37 @@ No.
 - Backend DB Foundation Agent is authorized to modify Python dependency files for SQLAlchemy/Alembic/PostgreSQL driver dependencies only, using `uv add`.
 - QA DB Foundation Agent owns database-mode test harness additions and must not modify product backend code.
 - Docs DB Foundation Agent owns documentation alignment and must update runbook command names after backend implementation lands.
+
+## 2026-05-22 QA Phase 3 Handoff (db-foundation-tests)
+
+### Scope Completed
+
+- Added gated Phase 3 DB foundation tests in:
+  - `tests/test_db_foundation_contract.py`
+  - `tests/test_db_foundation_api.py`
+- Kept branch safe before backend DB merge by skipping DB-mode tests when DB foundation runtime wiring is absent.
+- Added PostgreSQL-specific gate on `TEST_DATABASE_URL`.
+
+### Activation Rules
+
+- Tests become active after backend DB foundation integration introduces runtime DB selection wiring (`PLATFORM_STATE_BACKEND` + `DATABASE_URL`).
+- PostgreSQL-only assertions activate only when `TEST_DATABASE_URL` is set and points to a PostgreSQL URL.
+- SQLite fallback path remains active for local/no-PostgreSQL smoke coverage.
+
+### Verification Executed
+
+- `uv run pytest tests/test_db_foundation_contract.py tests/test_db_foundation_api.py -q` -> `sss.sss`
+- 5x rerun loop -> `0/5` failures.
+- `uv run pytest -k 'state_store_contract or label_config_repository_contract' -q` -> `4 passed`.
+- `uv run pytest -q` -> failed with 4 pre-existing `tests/test_api.py` failures unrelated to this change set.
+- `git diff --check` -> passed.
+
+### Known Risks
+
+- DB support detection is text-token based to remain backend-implementation-agnostic. If backend uses different env var names, QA tests will remain skipped until token list is updated.
+- DB API tests assume existing route contracts remain stable in database mode.
+
+### Shared Contracts / Dependencies
+
+- No shared contract files modified.
+- No dependency or lockfile changes.

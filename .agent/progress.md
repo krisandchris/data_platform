@@ -106,3 +106,18 @@
   - QA: `../_worktrees/data_platform/TASK-019-qa-db-foundation-tests` on `agent/TASK-019/qa/db-foundation-tests`
   - Docs: `../_worktrees/data_platform/TASK-019-docs-db-foundation-runbooks` on `agent/TASK-019/docs/db-foundation-runbooks`
 - Lead Agent explicitly designates the Backend DB Foundation Agent as the Phase 3 Python dependency owner for database dependencies only.
+
+## 2026-05-22 QA Phase 3 Test Harness Progress
+
+- Implemented new gated test files:
+  - `tests/test_db_foundation_contract.py`
+  - `tests/test_db_foundation_api.py`
+- Focused harness command:
+  - `uv run pytest tests/test_db_foundation_contract.py tests/test_db_foundation_api.py -q` -> `sss.sss` (1 pass, 6 skips; DB-gated on pre-merge branch).
+- Flakiness probe (5 reruns):
+  - `for i in 1 2 3 4 5; do uv run pytest tests/test_db_foundation_contract.py tests/test_db_foundation_api.py -q; done` -> all 5 runs identical (`sss.sss`), 0 failures observed.
+- Required baseline command:
+  - `uv run pytest -k 'state_store_contract or label_config_repository_contract' -q` -> `....` (4 passed).
+- Full suite attempt:
+  - `uv run pytest -q` -> failed with 4 existing `tests/test_api.py` failures unrelated to new harness (`DATASET/urban` path and import-state assertions in this worktree).
+- Pending handoff: summarize gated activation behavior and integration notes for backend DB foundation merge.

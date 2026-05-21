@@ -66,3 +66,11 @@
 - PostgreSQL and Redis references in the repository are currently documentation/planning only, not runtime implementation.
 - `build_fixture_service` already accepts injected `platform_state_store` and `label_config_repo`, which is the intended seam for database-backed foundation implementations.
 - The first database phase must preserve file-backed defaults because Docker defaults and full QC state migration are later phases.
+
+## 2026-05-22 QA Phase 3 Findings (db-foundation-tests)
+
+- Current branch baseline (`c04223a`) has no DB foundation runtime wiring (`PLATFORM_STATE_BACKEND` + `DATABASE_URL`) in backend source; unconditional DB tests would fail or be non-actionable.
+- Added lazy activation logic by scanning backend python sources for required DB env tokens; tests skip with explicit message until backend DB foundation branch merges.
+- Added `TEST_DATABASE_URL` gate for PostgreSQL-only checks; fallback path uses temporary SQLite URL to keep harness runnable without local PostgreSQL.
+- Full suite failures in this QA worktree are pre-existing dataset/import assumptions in `tests/test_api.py` (`DATASET/urban` not present here and import job state expectations differ from current local fixture behavior).
+- No shared fixtures, dependencies, lockfiles, or product backend code were modified.

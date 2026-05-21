@@ -106,3 +106,11 @@ Detailed sub-agent sequence and per-phase test design:
 - Dependency changes are documented with `pyproject.toml` and `uv.lock` updates.
 - No Docker default switch to database mode yet.
 - No Redis implementation yet.
+
+## 2026-05-22 QA Phase 3 Execution (db-foundation-tests)
+
+- Add `tests/test_db_foundation_contract.py` with branch-safe gating so tests skip until DB foundation backend wiring exists.
+- Add `tests/test_db_foundation_api.py` for DB-mode admin/session, label config lifecycle, dataset type/batch/import job metadata, and audit list behavior.
+- Gate PostgreSQL-only assertions on `TEST_DATABASE_URL`.
+- Keep file-backed default behavior checks and avoid backend/product code edits.
+- Verify with focused new-harness runs, 5x rerun flakiness probe, required contract baseline command, full suite attempt, and `git diff --check`.
