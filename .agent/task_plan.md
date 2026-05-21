@@ -5,9 +5,9 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 ## Phases
 
 1. Baseline and contract freeze.
-   - Status: in progress. Backend, QA, and Docs first-pass branches have completed; pending Lead Agent review and integration merge.
+   - Status: integration in progress. Backend, QA, and Docs first-pass branches have completed; pending full integration verification.
 2. Store interface extraction.
-   - Status: in progress in `agent/TASK-019/backend/state-contracts`; pending Lead Agent review and integration merge.
+   - Status: backend branch merged into `integration/TASK-019`; pending QA/Docs merge and verification.
 3. PostgreSQL foundation for identity, registry, label config, import jobs, and audit.
    - Status: pending.
 4. PostgreSQL migration for QC, drafts, submissions, sample pool, exports, and evaluations.
@@ -56,3 +56,12 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 Detailed sub-agent sequence and per-phase test design:
 
 - `docs/architecture/state_migration_agent_sequence.md`
+
+## Phase 1 Backend Deliverables
+
+- Extract protocol boundaries:
+  - `PlatformStateStoreProtocol` in `src/urban_violation_backend/state_store.py`.
+  - `LabelConfigRepositoryProtocol` in `src/urban_violation_backend/labels.py`.
+- Switch `FixtureRuntimeService` and `build_fixture_service` to protocol-typed injection.
+- Keep default runtime wiring file-backed (`PlatformStateStore` + `FileBackedLabelConfigRepository`).
+- Keep API contract shape unchanged.

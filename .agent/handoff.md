@@ -1,31 +1,41 @@
-# TASK-019 Planning Handoff
+# TASK-019 Integration Handoff Draft
 
 ## Agent Role
+
 Lead Agent
 
 ## Branch
-`main`
+
+`integration/TASK-019`
 
 ## Worktree
+
 `/mnt/lc/LC/ares_xtws/0_train_data/data_platform`
 
 ## Scope Completed
 
-- Converted the PostgreSQL + Redis migration design into a multi-agent execution sequence.
-- Defined phase order, branch names, worktree ownership, frontend/backend/QA/docs responsibilities, and exit gates.
-- Captured current architecture risks and migration decisions in `.agent` files.
+- Dispatched Phase 1 Backend, QA, and Docs agents.
+- Monitored agent completion states and verified clean worktrees from git state.
+- Merged latest `main` monitoring records into `integration/TASK-019`.
+- Merged `agent/TASK-019/backend/state-contracts` into `integration/TASK-019`.
 
-## Changed Files
+## Agent Branches
 
-- `docs/architecture/state_migration_agent_sequence.md`
-- `.agent/task_plan.md`
-- `.agent/findings.md`
-- `.agent/progress.md`
-- `.agent/handoff.md`
+- Merged: `agent/TASK-019/backend/state-contracts` at `e1d145f`.
+- Pending merge: `agent/TASK-019/qa/test-matrix` at `d64fc60`.
+- Pending merge: `agent/TASK-019/docs/runbooks` at `df52cae`.
+
+## Conflicts
+
+- Backend merge conflicted only in root `.agent` coordination files.
+- Resolution: preserved Lead Agent orchestration records and merged Backend Agent completion details into `.agent/task_plan.md`, `.agent/findings.md`, and `.agent/progress.md`.
 
 ## Shared Contracts Changed
 
-No product API or runtime contract changed. This is planning and orchestration documentation only.
+- Internal Python protocol contracts added by Backend Agent:
+  - `PlatformStateStoreProtocol`
+  - `LabelConfigRepositoryProtocol`
+- No external API schema, Docker, or dependency contract changed by the merged backend branch.
 
 ## Dependencies Changed
 
@@ -33,24 +43,13 @@ No.
 
 ## Verification
 
-- Repository state inspected before edits.
-- No product code edited.
-- No tests run because only planning documents changed.
+- Backend Agent reported:
+  - `uv run pytest` -> `4 failed, 85 passed`; failures tied to missing `DATASET/urban` in that isolated worktree.
+  - Narrow API tests -> `2 passed`.
+  - `git diff --check` -> passed.
+- Lead integration verification is pending until QA and Docs branches are merged.
 
-## Next Step
+## Known Risks
 
-Phase 1 work has been dispatched.
-
-Active branches and worktrees:
-
-- `agent/TASK-019/backend/state-contracts`
-- `agent/TASK-019/qa/test-matrix`
-- `agent/TASK-019/docs/runbooks`
-
-Active sub-agents:
-
-- Backend Agent `019e4ade-8b46-7963-a36e-88082ac56170` (`Epicurus`)
-- QA Agent `019e4ade-c6c9-7ab2-be26-adc77748c091` (`Hegel`)
-- Docs Agent `019e4ade-f19a-7f71-bed0-ce0af9302bf3` (`Goodall`)
-
-Do not begin PostgreSQL dependency work until Phase 1 exits cleanly and the Lead Agent merges these branches through `integration/TASK-019`.
+- Root `.agent` files will likely conflict again when QA and Docs branches are merged because each worktree maintained its own local `.agent` records.
+- Full backend verification should be rerun from an environment where `DATASET/urban` exists or with an explicit fixture symlink.

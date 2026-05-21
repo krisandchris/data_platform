@@ -32,3 +32,12 @@
 - Full backend test runs in Backend/QA worktrees reported existing failures tied to missing `DATASET/urban` fixture data in those isolated worktrees, not a confirmed regression from the new protocol/test changes.
 - Frontend baseline commands in the QA worktree failed because `frontend/node_modules` was absent (`vitest` and `vue-tsc` not found); this requires dependency install or verification in the main workspace before final integration signoff.
 - Docs branch completed at `df52cae` with a clean worktree and docs-only handoff. Sub-agent status polling did not emit a completion event, so Lead Agent verified completion from git state and handoff contents.
+
+## Phase 1 Backend Findings (State Contract Extraction)
+
+- `FixtureRuntimeService` had direct concrete coupling to both `PlatformStateStore` and `FileBackedLabelConfigRepository`, which blocked later store substitution without touching service logic.
+- `AuthService` also typed directly to `PlatformStateStore`; this was updated to the protocol boundary so auth/session logic can operate with future database-backed stores.
+- Extracted protocol surface reflects real current usage:
+  - state store methods used by runtime/auth (users, sessions, RBAC bindings, QC state, drafts/submissions, snapshots/events, sample pool, exports/evaluations).
+  - label config repository methods used by runtime (list/save/activate/get_active/reload_active).
+- Full `uv run pytest` in this worktree is currently affected by local fixture path assumptions (`DATASET/urban` not present in this worktree), with 4 preannotation/manual-batch tests failing for source ingestion expectations; protocol extraction itself does not alter API schemas or route payload structure.

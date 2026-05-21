@@ -31,3 +31,27 @@
   - QA Agent `Hegel` completed branch `agent/TASK-019/qa/test-matrix` at commit `d64fc60` (`test: add state store contract baseline`).
   - Initial Docs Agent `Goodall` status polling timed out, but follow-up worktree inspection found completed commit `df52cae` (`docs: add state migration runbooks`) and a clean worktree.
   - Current integration gate: inspect Backend, QA, and Docs diffs/handoffs, then merge into `integration/TASK-019` one branch at a time.
+
+## 2026-05-21 (Backend Agent: state-contracts)
+
+- Implemented protocol boundaries:
+  - `PlatformStateStoreProtocol` in `src/urban_violation_backend/state_store.py`.
+  - `LabelConfigRepositoryProtocol` in `src/urban_violation_backend/labels.py`.
+- Refactored runtime/auth typing to depend on protocols instead of concrete file implementations:
+  - `AuthService.__init__` now accepts `PlatformStateStoreProtocol`.
+  - `FixtureRuntimeService.__init__` now accepts protocol-typed `label_config_repo` and optional `platform_state_store`.
+  - `build_fixture_service(...)` now supports protocol-typed injection args while preserving default file-backed behavior.
+- Verified no API response contract edits in route/schema layers.
+- Verification commands:
+  - `uv run pytest` -> 4 failed, 85 passed. Failures are fixture-path dependent manual-batch ingestion tests expecting local `DATASET/urban` in this worktree; no protocol-interface assertion failures.
+  - `uv run pytest tests/test_api.py::test_default_runtime_label_config_root_does_not_fallback_to_dataset tests/test_api.py::test_session_auth_401_structured_error` -> 2 passed.
+  - `git diff --check` -> passed.
+
+## 2026-05-21 Lead Integration
+
+- Merged latest `main` into `integration/TASK-019` to bring in dispatch and monitoring records.
+- Merged `agent/TASK-019/backend/state-contracts` into `integration/TASK-019`.
+- Conflict resolution:
+  - Product files merged without conflict.
+  - Root `.agent` files conflicted with the backend worktree's local `.agent` records.
+  - Preserved Lead Agent orchestration records and merged backend completion details into the root `.agent` files.

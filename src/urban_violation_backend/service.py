@@ -123,7 +123,7 @@ from urban_violation_backend.labels import (
     ActiveLabelConfigNotFoundError,
     DatasetLabelConfig,
     FileBackedLabelConfigRepository,
-    InMemoryLabelConfigRepository,
+    LabelConfigRepositoryProtocol,
     LabelConfigPersistenceError,
     LabelConfigVersionConflictError,
     LabelFieldNotFoundError,
@@ -172,7 +172,7 @@ from urban_violation_backend.schemas import (
     UserRole,
     UserStatus,
 )
-from urban_violation_backend.state_store import PlatformStateStore
+from urban_violation_backend.state_store import PlatformStateStore, PlatformStateStoreProtocol
 
 
 class DatasetNotFoundError(ValueError):
@@ -318,9 +318,10 @@ class FixtureRuntimeService:
         dataset_root: Path,
         sample_ids: Sequence[str] | None,
         dataset_id: str = "urban_violation",
-        label_config_repo: InMemoryLabelConfigRepository | None = None,
+        label_config_repo: LabelConfigRepositoryProtocol | None = None,
         label_config_store_root: Path | None = None,
         platform_state_root: Path | None = None,
+        platform_state_store: PlatformStateStoreProtocol | None = None,
         enable_fixture_batch: bool = True,
     ) -> None:
         self._dataset_root = dataset_root.resolve()
@@ -415,7 +416,11 @@ class FixtureRuntimeService:
                 else (self._label_config_store_root / "platform_state").resolve()
             )
         )
-        self._state_store = PlatformStateStore(self._platform_state_root)
+        self._state_store: PlatformStateStoreProtocol = (
+            platform_state_store
+            if platform_state_store is not None
+            else PlatformStateStore(self._platform_state_root)
+        )
         self._auth_service = AuthService(
             store=self._state_store,
             settings=AuthService.default_settings(),
@@ -6445,6 +6450,8 @@ def build_fixture_service(
     sample_ids: Sequence[str] | None = None,
     label_config_store_root: Path | None = None,
     platform_state_root: Path | None = None,
+    label_config_repo: LabelConfigRepositoryProtocol | None = None,
+    platform_state_store: PlatformStateStoreProtocol | None = None,
     enable_fixture_batch: bool | None = None,
 ) -> FixtureRuntimeService:
     """Factory for runtime service with deterministic defaults.
@@ -6468,8 +6475,10 @@ def build_fixture_service(
     return FixtureRuntimeService(
         dataset_root=resolved_dataset_root,
         sample_ids=sample_ids,
+        label_config_repo=label_config_repo,
         label_config_store_root=resolved_store_root,
         platform_state_root=platform_state_root,
+        platform_state_store=platform_state_store,
         enable_fixture_batch=(
             _env_flag("PLATFORM_ENABLE_FIXTURE_BATCH", True)
             if enable_fixture_batch is None
