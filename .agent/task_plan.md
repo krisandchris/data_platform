@@ -1,47 +1,56 @@
-# TASK-019 PostgreSQL + Redis State Migration Plan
+# TASK-019 Phase 4 QA Plan
 
-Objective: migrate mutable platform state from file-backed JSON/JSONL stores to PostgreSQL, use Redis for active leases/locks/progress, preserve current frontend API behavior, and provide a safe import path from existing runtime state.
+## Goal
 
-## Phases
+Add independent Phase 4 verification for database-backed QC/review state, restart persistence, concurrency risks, and file-backed regression safety.
 
-1. Baseline and contract freeze.
-   - Status: complete.
-2. Store interface extraction.
-   - Status: complete.
-3. PostgreSQL foundation for identity, registry, label config, import jobs, and audit.
-   - Status: complete. Backend, QA, and Docs Phase 3 branches were merged and verified on `integration/TASK-019`.
-4. PostgreSQL migration for QC, drafts, submissions, sample pool, exports, and evaluations.
-   - Status: pending.
-5. Redis runtime state for active leases, locks, session cache, and import progress.
-   - Status: pending.
-6. File-state import tool.
-   - Status: pending.
-7. Docker rollout and full acceptance.
-   - Status: pending.
+## Role
 
-## Phase 3 Agent Branches
+QA Agent
 
-- Merged: `agent/TASK-019/backend/db-foundation` at `a640e85`
-- Merged: `agent/TASK-019/qa/db-foundation-tests` at `064f7a2`
-- Merged: `agent/TASK-019/docs/db-foundation-runbooks` at `816d862`
+## Branch
 
-## Phase 3 Scope
+`agent/TASK-019/qa/qc-state-tests`
 
-- Added SQLAlchemy, Alembic, and `psycopg[binary]` through `uv`.
-- Added DB config/env support:
-  - `DATABASE_URL`
-  - `PLATFORM_STATE_BACKEND=file|database`
-  - `PLATFORM_DB_AUTO_MIGRATE=0|1`
-- Added Alembic baseline and initial schema for users, role bindings, sessions, dataset registry, batch/import job metadata, label config versions/active pointers, and audit events.
-- Added transitional DB foundation storage while leaving QC/review/export/evaluation state file-backed for later phases.
-- Added gated QA database foundation tests.
-- Updated Phase 3 documentation and runbooks.
+## Worktree
 
-## Phase 3 Exit Gate
+`/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-019-qa-qc-state-tests`
 
-- File-backed mode remains green: `uv run pytest` -> 103 passed, 1 skipped.
-- Focused DB foundation and existing store contract tests pass -> 14 passed, 1 skipped.
-- Frontend tests/build remain green -> 114 tests passed and production build passed.
-- Docs are reconciled with actual backend command names and DB behavior.
-- No Docker default switch to database mode yet.
-- No Redis implementation yet.
+## Assigned Scope
+
+- `tests/test_db_qc_state_contract.py`
+- `tests/test_db_qc_state_api.py`
+- Test helpers under `tests/` if required and non-conflicting
+- `.agent/**`
+
+## Out Of Scope
+
+- Product backend implementation under `src/**`
+- Frontend product code
+- Redis implementation
+- Docker rollout
+- Dependency changes
+
+## Planned Steps
+
+1. Inspect existing state store, DB foundation, and API tests.
+2. Add gated database-mode tests for assignment, lease, draft, batch draft, submission, snapshot, sample pool, export, and evaluation persistence.
+3. Add restart persistence tests by recreating service/store against the same database URL.
+4. Add race-oriented tests for duplicate queue generation, autosave vs submit, and assignment transition conflicts where feasible without external services.
+5. Keep tests compatible with SQLite fallback and optionally enable PostgreSQL with `TEST_DATABASE_URL`.
+6. Document tests that are expected to fail before backend Phase 4 lands.
+
+## Acceptance Criteria
+
+- Tests pass after backend Phase 4 branch is integrated.
+- File-backed regression tests remain green.
+- PostgreSQL-only checks are gated on `TEST_DATABASE_URL`.
+- `.agent/handoff.md` lists exact commands and pass/fail results.
+
+## Expected Checks
+
+- `uv sync`
+- `uv run pytest tests/test_db_qc_state_contract.py tests/test_db_qc_state_api.py -q`
+- `uv run pytest -k "state_store_contract or db_foundation or db_qc_state" -q`
+- `uv run pytest`
+
