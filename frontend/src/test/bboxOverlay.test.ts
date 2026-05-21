@@ -334,11 +334,98 @@ describe('BBoxOverlay', () => {
       },
     });
 
-    await wrapper.find('.bbox-shell__box').trigger('click');
+    const stage = wrapper.find('.bbox-shell__stage').element as HTMLElement;
+    stage.getBoundingClientRect = () => domRect(0, 0, 100, 100);
+
+    await wrapper.find('.bbox-shell__stage').trigger('pointerdown', {
+      button: 0,
+      clientX: 18,
+      clientY: 18,
+    });
+    window.dispatchEvent(new Event('pointerup'));
 
     expect(wrapper.emitted('selectBox')?.[0]?.[0]).toMatchObject({
       id: 'box-2',
       relationIndex: 'R2',
+    });
+  });
+
+  it('selects the nested small box when the selected large box contains it', async () => {
+    const wrapper = mount(BBoxOverlay, {
+      props: {
+        imageUrl: '/api/media/sample',
+        imageWidth: 1280,
+        imageHeight: 720,
+        boxes: [
+          {
+            id: 'large-box',
+            label: 'large',
+            bbox: [100, 100, 900, 900],
+            selected: true,
+            editable: true,
+          },
+          {
+            id: 'small-box',
+            label: 'small',
+            bbox: [450, 450, 550, 550],
+            editable: true,
+          },
+        ],
+      },
+    });
+
+    const stage = wrapper.find('.bbox-shell__stage').element as HTMLElement;
+    stage.getBoundingClientRect = () => domRect(0, 0, 100, 100);
+
+    await wrapper.find('.bbox-shell__stage').trigger('pointerdown', {
+      button: 0,
+      clientX: 50,
+      clientY: 50,
+    });
+    window.dispatchEvent(new Event('pointerup'));
+
+    expect(wrapper.emitted('selectBox')?.[0]?.[0]).toMatchObject({
+      id: 'small-box',
+    });
+  });
+
+  it('cycles through identical overlapping boxes with a modifier click', async () => {
+    const wrapper = mount(BBoxOverlay, {
+      props: {
+        imageUrl: '/api/media/sample',
+        imageWidth: 1280,
+        imageHeight: 720,
+        boxes: [
+          {
+            id: 'box-a',
+            label: 'A',
+            bbox: [250, 250, 750, 750],
+            selected: true,
+            editable: true,
+          },
+          {
+            id: 'box-b',
+            label: 'B',
+            bbox: [250, 250, 750, 750],
+            editable: true,
+          },
+        ],
+      },
+    });
+
+    const stage = wrapper.find('.bbox-shell__stage').element as HTMLElement;
+    stage.getBoundingClientRect = () => domRect(0, 0, 100, 100);
+
+    await wrapper.find('.bbox-shell__stage').trigger('pointerdown', {
+      button: 0,
+      clientX: 50,
+      clientY: 50,
+      shiftKey: true,
+    });
+    window.dispatchEvent(new Event('pointerup'));
+
+    expect(wrapper.emitted('selectBox')?.[0]?.[0]).toMatchObject({
+      id: 'box-b',
     });
   });
 
@@ -402,6 +489,49 @@ describe('BBoxOverlay', () => {
     expect(wrapper.emitted('updateBox')?.[0]?.[0]).toMatchObject({
       id: 'box-3',
       relationIndex: 'R3',
+    });
+    expect(wrapper.emitted('updateBox')?.[0]?.[1]).toEqual([200, 150, 400, 350]);
+  });
+
+  it('moves the selected editable box when a non-editable overlap ranks first for clicks', async () => {
+    const wrapper = mount(BBoxOverlay, {
+      props: {
+        imageUrl: '/api/media/sample',
+        imageWidth: 1280,
+        imageHeight: 720,
+        boxes: [
+          {
+            id: 'editable-stage1',
+            label: 'R1',
+            bbox: [100, 100, 300, 300],
+            relationIndex: 'R1',
+            selected: true,
+            editable: true,
+          },
+          {
+            id: 'readonly-stage2',
+            label: 'S2 R1',
+            bbox: [100, 100, 300, 300],
+            relationIndex: 'R1',
+          },
+        ],
+      },
+    });
+
+    const stage = wrapper.find('.bbox-shell__stage').element as HTMLElement;
+    stage.getBoundingClientRect = () => domRect(0, 0, 100, 100);
+
+    await wrapper.find('.bbox-shell__stage').trigger('pointerdown', {
+      button: 0,
+      clientX: 10,
+      clientY: 10,
+    });
+    dispatchPointerMove(20, 15);
+    window.dispatchEvent(new Event('pointerup'));
+
+    expect(wrapper.emitted('updateBox')?.[0]?.[0]).toMatchObject({
+      id: 'editable-stage1',
+      relationIndex: 'R1',
     });
     expect(wrapper.emitted('updateBox')?.[0]?.[1]).toEqual([200, 150, 400, 350]);
   });

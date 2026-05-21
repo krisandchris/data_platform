@@ -12,7 +12,7 @@
     @wheel.prevent="handleWheelZoom"
     @auxclick.prevent
   >
-    <div ref="stageRef" class="bbox-shell__stage" :style="stageStyle">
+    <div ref="stageRef" class="bbox-shell__stage" :style="stageStyle" @pointerdown.stop="handleStagePointerDown">
       <img
         v-if="displayedImageUrl"
         class="bbox-shell__image"
@@ -118,6 +118,8 @@ const BBOX_COORDINATE_MAX = 1000;
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 4;
 const ZOOM_FACTOR = 1.12;
+const HIT_DISTANCE_EPSILON = 0.0001;
+const DRAG_START_THRESHOLD_PX = 3;
 let resizeObserver: ResizeObserver | undefined;
 let dragState:
   | {
@@ -125,6 +127,15 @@ let dragState:
       mode: 'move' | 'resize';
       startPoint: { x: number; y: number };
       startBbox: [number, number, number, number];
+    }
+  | undefined;
+let pendingBoxInteraction:
+  | {
+      selectionBox: OverlayBox;
+      editableBox?: OverlayBox;
+      mode: 'move';
+      startClient: { x: number; y: number };
+      startPoint: { x: number; y: number };
     }
   | undefined;
 let panDragState:
@@ -208,6 +219,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   resizeObserver?.disconnect();
+  stopPendingBoxInteraction(false);
   stopBoxEdit();
   stopImagePan();
 });
@@ -296,6 +308,45 @@ function selectDisplayedBox(box: OverlayBox) {
   emit('selectBox', box);
 }
 
+function handleStagePointerDown(event: PointerEvent) {
+  if (imageLoading.value) {
+    return;
+  }
+  if (isMiddleButton(event)) {
+    startImagePan(event);
+    return;
+  }
+  if (event.button !== 0) {
+    return;
+  }
+
+  startPendingBoxInteraction(event);
+}
+
+function startPendingBoxInteraction(event: PointerEvent) {
+  if (event.button !== 0) {
+    return;
+  }
+  const point = pointerToImagePoint(event);
+  const candidates = rankedHitCandidates(point);
+  const selectionBox = selectHitBox(candidates, event.altKey || event.shiftKey);
+  if (!selectionBox) {
+    return;
+  }
+
+  event.preventDefault();
+  pendingBoxInteraction = {
+    selectionBox,
+    editableBox: editableHitBox(candidates, selectionBox),
+    mode: 'move',
+    startClient: { x: event.clientX, y: event.clientY },
+    startPoint: point,
+  };
+  window.addEventListener('pointermove', updatePendingBoxInteraction);
+  window.addEventListener('pointerup', stopPendingBoxInteractionFromEvent, { once: true });
+  window.addEventListener('pointercancel', cancelPendingBoxInteraction, { once: true });
+}
+
 function updateShellSize() {
   const rect = shellRef.value?.getBoundingClientRect();
   shellSize.value = {
@@ -353,7 +404,12 @@ function handleBoxPointerDown(event: PointerEvent, box: OverlayBox, mode: 'move'
     startImagePan(event);
     return;
   }
-  startBoxEdit(event, box, mode);
+  if (mode === 'resize') {
+    startBoxEdit(event, box, mode);
+    return;
+  }
+
+  startPendingBoxInteraction(event);
 }
 
 function startBoxEdit(event: PointerEvent, box: OverlayBox, mode: 'move' | 'resize') {
@@ -400,6 +456,54 @@ function stopBoxEdit() {
   window.removeEventListener('pointermove', updateBoxEdit);
   window.removeEventListener('pointerup', stopBoxEdit);
   window.removeEventListener('pointercancel', stopBoxEdit);
+}
+
+function updatePendingBoxInteraction(event: PointerEvent) {
+  if (!pendingBoxInteraction) {
+    return;
+  }
+  const dx = event.clientX - pendingBoxInteraction.startClient.x;
+  const dy = event.clientY - pendingBoxInteraction.startClient.y;
+  if (dx * dx + dy * dy < DRAG_START_THRESHOLD_PX * DRAG_START_THRESHOLD_PX) {
+    return;
+  }
+
+  const editableBox = pendingBoxInteraction.editableBox;
+  const startPoint = pendingBoxInteraction.startPoint;
+  stopPendingBoxInteraction(false);
+  if (!editableBox) {
+    return;
+  }
+
+  emit('selectBox', editableBox);
+  dragState = {
+    box: editableBox,
+    mode: 'move',
+    startPoint,
+    startBbox: cloneBbox(editableBox.bbox),
+  };
+  window.addEventListener('pointermove', updateBoxEdit);
+  window.addEventListener('pointerup', stopBoxEdit, { once: true });
+  window.addEventListener('pointercancel', stopBoxEdit, { once: true });
+  updateBoxEdit(event);
+}
+
+function stopPendingBoxInteractionFromEvent() {
+  stopPendingBoxInteraction(true);
+}
+
+function cancelPendingBoxInteraction() {
+  stopPendingBoxInteraction(false);
+}
+
+function stopPendingBoxInteraction(commitSelection: boolean) {
+  if (pendingBoxInteraction && commitSelection) {
+    emit('selectBox', pendingBoxInteraction.selectionBox);
+  }
+  pendingBoxInteraction = undefined;
+  window.removeEventListener('pointermove', updatePendingBoxInteraction);
+  window.removeEventListener('pointerup', stopPendingBoxInteractionFromEvent);
+  window.removeEventListener('pointercancel', cancelPendingBoxInteraction);
 }
 
 function startImagePan(event: PointerEvent) {
@@ -456,6 +560,85 @@ function pointerToImagePoint(event: PointerEvent) {
     x: ((event.clientX - rect.left) / rect.width) * BBOX_COORDINATE_MAX,
     y: ((event.clientY - rect.top) / rect.height) * BBOX_COORDINATE_MAX,
   };
+}
+
+interface HitCandidate {
+  box: OverlayBox;
+  index: number;
+  bbox: BBox;
+  nearestCornerDistance: number;
+  area: number;
+}
+
+function rankedHitCandidates(point: { x: number; y: number }): HitCandidate[] {
+  return displayedBoxes.value
+    .map((box, index) => ({ box, index, bbox: normalizeBbox(cloneBbox(box.bbox)) }))
+    .filter((candidate) => pointInsideBbox(point, candidate.bbox))
+    .map((candidate) => ({
+      ...candidate,
+      nearestCornerDistance: nearestCornerDistance(point, candidate.bbox),
+      area: bboxArea(candidate.bbox),
+    }))
+    .sort((a, b) => {
+      const distanceDelta = a.nearestCornerDistance - b.nearestCornerDistance;
+      if (Math.abs(distanceDelta) > HIT_DISTANCE_EPSILON) {
+        return distanceDelta;
+      }
+      const areaDelta = a.area - b.area;
+      if (areaDelta !== 0) {
+        return areaDelta;
+      }
+      return b.index - a.index;
+    });
+}
+
+function selectHitBox(ranked: HitCandidate[], cycle: boolean) {
+  if (!ranked.length) {
+    return undefined;
+  }
+  if (!cycle || ranked.length === 1) {
+    return ranked[0].box;
+  }
+
+  const selectedIndex = ranked.findIndex((candidate) => candidate.box.selected);
+  return ranked[(selectedIndex + 1) % ranked.length].box;
+}
+
+function editableHitBox(ranked: HitCandidate[], selectionBox: OverlayBox) {
+  if (selectionBox.editable) {
+    return selectionBox;
+  }
+  return (
+    ranked.find((candidate) => candidate.box.editable && candidate.box.selected)?.box ??
+    ranked.find((candidate) => candidate.box.editable)?.box
+  );
+}
+
+function pointInsideBbox(point: { x: number; y: number }, bbox: BBox) {
+  const [x1, y1, x2, y2] = bbox;
+  return point.x >= x1 && point.x <= x2 && point.y >= y1 && point.y <= y2;
+}
+
+function nearestCornerDistance(point: { x: number; y: number }, bbox: BBox) {
+  const [x1, y1, x2, y2] = bbox;
+  const corners = [
+    [x1, y1],
+    [x2, y1],
+    [x1, y2],
+    [x2, y2],
+  ] as const;
+  return Math.min(...corners.map(([x, y]) => squaredDistance(point.x, point.y, x, y)));
+}
+
+function bboxArea(bbox: BBox) {
+  const [x1, y1, x2, y2] = bbox;
+  return Math.max(1, x2 - x1) * Math.max(1, y2 - y1);
+}
+
+function squaredDistance(x1: number, y1: number, x2: number, y2: number) {
+  const dx = x1 - x2;
+  const dy = y1 - y2;
+  return dx * dx + dy * dy;
 }
 
 function isMiddleButton(event: PointerEvent) {
@@ -677,7 +860,6 @@ function roundPan(value: number) {
 
 .bbox-shell__box--editable {
   cursor: move;
-  pointer-events: auto;
 }
 
 .bbox-shell__box--editable:hover {
@@ -700,6 +882,7 @@ function roundPan(value: number) {
   cursor: nwse-resize;
   opacity: 0.58;
   padding: 0;
+  pointer-events: auto;
   transition: opacity 0.15s ease, transform 0.15s ease;
 }
 

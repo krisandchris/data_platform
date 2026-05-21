@@ -21,9 +21,9 @@
         :qc-task="detail.qcTask"
         :sample-lease="detail.sampleLease"
         :readonly-reason="readonlyReason"
+        :suppress-readonly-warning="refreshing"
         :release-sample-lease="releaseCurrentLease"
         :is-switching-sample="refreshing"
-        :switch-target-sample-id="sampleId"
         :switch-error="refreshError"
       />
     </div>
@@ -69,6 +69,10 @@ const refreshError = ref('');
 const { loadCurrentUser } = useAuthState();
 let requestSequence = 0;
 let heartbeatTimer: number | undefined;
+
+interface ReleaseSampleLeaseOptions {
+  preserveDisplayedLease?: boolean;
+}
 
 const readonlyReason = computed(() => {
   const reviewDetail = detail.value;
@@ -251,15 +255,16 @@ function stopHeartbeat() {
   }
 }
 
-async function releaseCurrentLease() {
-  const lease = detail.value?.sampleLease;
+async function releaseCurrentLease(options: ReleaseSampleLeaseOptions = {}) {
+  const currentDetail = detail.value;
+  const lease = currentDetail?.sampleLease;
   if (!lease || lease.status !== 'active') {
     return;
   }
   stopHeartbeat();
   try {
-    await apiClient.releaseSampleLease(props.id, props.sampleId, lease.leaseId);
-    if (detail.value) {
+    await apiClient.releaseSampleLease(props.id, currentDetail?.asset.sampleId ?? props.sampleId, lease.leaseId);
+    if (detail.value && !options.preserveDisplayedLease) {
       detail.value = {
         ...detail.value,
         sampleLease: {

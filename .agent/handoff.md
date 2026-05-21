@@ -109,8 +109,91 @@ No.
   - `npm run test -- routesAndPages.test.ts bboxOverlay.test.ts` -> passed (`2 passed`, `80 passed`)
   - `VITE_API_BASE_URL=/api npm run build` -> passed
 - Main verification:
+  - `npm run test -- routesAndPages.test.ts bboxOverlay.test.ts` -> passed (`2 passed`, `80 passed`)
+  - `VITE_API_BASE_URL=/api npm run build` -> passed
+  - `git diff --check` -> passed
+  - `docker compose build frontend` -> passed
+- Deployment note: recreate the frontend container for the updated review UI to appear in Docker.
+- Main verification:
   - `npm run test -- routesAndPages.test.ts bboxOverlay.test.ts` -> first run hit an unrelated label-config conflict assertion, immediate rerun passed (`2 passed`, `80 passed`)
   - `VITE_API_BASE_URL=/api npm run build` -> passed
   - `git diff --check` -> passed
   - `docker compose build frontend` -> passed
 - Deployment note: recreate the frontend container for the updated review UI to appear in Docker.
+
+## 2026-05-21 Sample Review No-Jitter Follow-Up
+- Removed the visible `正在切换到 <sampleId>` status from the top action bar so sample switching does not change toolbar width or push down the image area.
+- Kept pending state as `aria-busy` on the stable `.sample-detail-workbench` root.
+- Removed switching-time opacity changes from `.review-grid` and `.review-action-bar`.
+- Updated route/page regression coverage to assert the old sample remains visible without a visible switching status during the pending request.
+- Verification:
+  - `npm run test -- routesAndPages.test.ts bboxOverlay.test.ts` -> passed (`2 passed`, `80 passed`)
+  - `VITE_API_BASE_URL=/api npm run build` -> passed
+  - `git diff --check` -> passed
+  - `docker compose build frontend` -> passed
+
+## 2026-05-21 Sample Review Lease Flicker Follow-Up
+- Kept the backend lease release call during Sample Review navigation.
+- Added a navigation-only release mode that does not mutate the still-visible old sample lease to `released`.
+- Suppressed the readonly warning row while a sample route refresh is pending, while preserving readonly state for edit gating.
+- Added regression coverage for the window after `releaseSampleLease` resolves and before the next sample detail is hydrated.
+- Changed files:
+  - `frontend/src/features/review-workbench/ReviewWorkbenchPage.vue`
+  - `frontend/src/features/review-workbench/components/ReviewWorkbenchShell.vue`
+  - `frontend/src/test/routesAndPages.test.ts`
+- Verification in frontend agent:
+  - `npm run test -- routesAndPages.test.ts bboxOverlay.test.ts` -> passed (`2 passed`, `80 passed`)
+  - `VITE_API_BASE_URL=/api npm run build` -> passed
+
+## 2026-05-21 BBox Overlap Selection Follow-Up
+- Changed normal bbox pointer selection to stage-level coordinate hit testing.
+- Selection now ranks boxes that contain the pointer by nearest corner distance, then smaller area, then render order.
+- Kept editable resize handles pointer-addressable.
+- Added Shift/Alt click cycling for identical overlapping boxes.
+- Added regression coverage for selecting a nested small box when a larger box is already selected.
+- Changed files:
+  - `frontend/src/shared/components/BBoxOverlay.vue`
+  - `frontend/src/test/bboxOverlay.test.ts`
+- Verification in frontend agent:
+  - `npm run test -- bboxOverlay.test.ts routesAndPages.test.ts` -> passed (`2 passed`, `82 passed`)
+  - `VITE_API_BASE_URL=/api npm run build` -> passed
+- Main verification:
+  - `npm run test -- bboxOverlay.test.ts routesAndPages.test.ts` -> passed (`2 passed`, `82 passed`)
+  - `VITE_API_BASE_URL=/api npm run build` -> passed
+  - `git diff --check` -> passed
+  - `docker compose build frontend` -> passed
+- Deployment note: recreate the frontend container for the updated bbox interaction to appear in Docker.
+
+## 2026-05-21 BBox Move Regression Fix
+- Restored editable bbox movement after coordinate-based overlap selection.
+- Split pointer interactions into click selection and drag movement using a 3px threshold.
+- Kept click selection on coordinate/nearest-corner ranking.
+- Drag movement now prefers a selected editable hit box, so readonly overlapping boxes no longer block moving the editable box.
+- Changed files:
+  - `frontend/src/shared/components/BBoxOverlay.vue`
+  - `frontend/src/test/bboxOverlay.test.ts`
+- Verification in frontend agent:
+  - `npm run test -- bboxOverlay.test.ts routesAndPages.test.ts` -> passed (`2 passed`, `83 passed`)
+  - `VITE_API_BASE_URL=/api npm run build` -> passed
+- Main verification:
+  - `npm run test -- bboxOverlay.test.ts routesAndPages.test.ts` -> passed (`2 passed`, `83 passed`)
+  - `VITE_API_BASE_URL=/api npm run build` -> passed
+  - `git diff --check` -> passed
+  - `docker compose build frontend` -> passed
+- Deployment note: recreate the frontend container for the restored bbox move interaction to appear in Docker.
+
+## 2026-05-21 Release 0.0.1 Preparation
+- Prepared backend/frontend package metadata for `0.0.1`.
+- Added root `CHANGELOG.md` entry for `v0.0.1`.
+- Refreshed `uv.lock` with `uv lock`.
+- Refreshed frontend lockfile with `npm install --package-lock-only` under Node 20.
+- Pre-release tag check: no existing `v0.0.1` or `0.0.1` tag.
+- Verification:
+  - `uv run pytest` -> passed (`87 passed`)
+  - `npm run test` -> passed (`6 passed`, `113 passed`)
+  - `VITE_API_BASE_URL=/api npm run build` -> passed
+  - `docker compose config` -> passed
+  - `git diff --check` -> passed
+  - `docker compose build frontend backend` -> passed
+- Known release note: frontend dependency audit still reports 5 moderate findings; not remediated in this release because npm recommends `npm audit fix --force`, which may introduce breaking dependency changes.
+- Release commit is prepared for annotated `v0.0.1` tag creation.

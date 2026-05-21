@@ -67,3 +67,74 @@
   - `VITE_API_BASE_URL=/api npm run build` in `frontend/` -> passed
   - `git diff --check` -> passed
   - `docker compose build frontend` -> passed
+- Implemented Sample Review no-jitter follow-up:
+  - removed visible `正在切换到 ...` from `.top-actions`
+  - kept switching state on the stable workbench root via `aria-busy`
+  - removed switching-time opacity changes from `.review-grid` and `.review-action-bar`
+  - updated the route/page regression assertion to require no visible switching text while the old sample remains mounted
+- Main verification passed:
+  - `npm run test -- routesAndPages.test.ts bboxOverlay.test.ts` in `frontend/` -> `2 passed`, `80 passed`
+  - `VITE_API_BASE_URL=/api npm run build` in `frontend/` -> passed
+  - `git diff --check` -> passed
+  - `docker compose build frontend` -> passed
+- Started `v0.0.1` release preparation.
+- Confirmed no existing `v0.0.1` or `0.0.1` tag.
+- Updated release metadata:
+  - backend package version: `0.0.1`
+  - frontend package version: `0.0.1`
+  - root `CHANGELOG.md` with `v0.0.1` notes
+- Refreshed lockfiles:
+  - `uv lock` -> updated `urban-violation-backend v0.1.0 -> v0.0.1`
+  - `npm install --package-lock-only` -> passed; npm reported 5 existing moderate audit findings
+- Release verification passed:
+  - `uv run pytest` -> `87 passed`
+  - `npm run test` in `frontend/` under Node 20 -> `6 passed`, `113 passed`
+  - `VITE_API_BASE_URL=/api npm run build` in `frontend/` under Node 20 -> passed
+  - `docker compose config` -> passed
+  - `git diff --check` -> passed
+  - `docker compose build frontend backend` -> passed
+- Created release commit for `v0.0.1`; annotated tag creation follows this committed state.
+- Started BBox overlap selection follow-up.
+- Frontend agent implemented:
+  - stage-level bbox hit testing
+  - nearest-corner ranking for boxes containing the pointer
+  - Shift/Alt click cycling for identical overlap
+  - regression tests for nested and identical overlapping boxes
+- Frontend agent verification passed:
+  - `npm run test -- bboxOverlay.test.ts routesAndPages.test.ts` -> `2 passed`, `82 passed`
+  - `VITE_API_BASE_URL=/api npm run build` -> passed
+- Synchronized the verified BBox overlap selection patch into the main workspace for integration checks.
+- Main verification passed:
+  - `npm run test -- bboxOverlay.test.ts routesAndPages.test.ts` in `frontend/` -> `2 passed`, `82 passed`
+  - `VITE_API_BASE_URL=/api npm run build` in `frontend/` -> passed
+  - `git diff --check` -> passed
+  - `docker compose build frontend` -> passed
+- Started BBox move regression fix.
+- Frontend agent implemented:
+  - click selection and drag movement split by a 3px drag threshold
+  - pointerup commits nearest-corner hit selection
+  - drag movement prefers the selected editable hit box before falling back to other editable hits
+  - regression coverage for editable/non-editable identical overlap movement
+- Frontend agent verification passed:
+  - `npm run test -- bboxOverlay.test.ts routesAndPages.test.ts` -> `2 passed`, `83 passed`
+  - `VITE_API_BASE_URL=/api npm run build` -> passed
+- Synchronized the verified BBox move regression fix into the main workspace for integration checks.
+- Main verification passed:
+  - `npm run test -- bboxOverlay.test.ts routesAndPages.test.ts` in `frontend/` -> `2 passed`, `83 passed`
+  - `VITE_API_BASE_URL=/api npm run build` in `frontend/` -> passed
+  - `git diff --check` -> passed
+  - `docker compose build frontend` -> passed
+- Started Sample Review lease flicker follow-up.
+- Frontend agent implemented:
+  - navigation-only lease release mode preserving displayed old sample lease state
+  - readonly warning suppression during sample route refresh
+  - regression coverage for release-before-next-sample loading window
+- Frontend agent verification passed:
+  - `npm run test -- routesAndPages.test.ts bboxOverlay.test.ts` -> `2 passed`, `80 passed`
+  - `VITE_API_BASE_URL=/api npm run build` -> passed
+- Synchronized the verified lease-flicker frontend patch into the main workspace for integration checks.
+- Main verification passed:
+  - `npm run test -- routesAndPages.test.ts bboxOverlay.test.ts` in `frontend/` -> `2 passed`, `80 passed`
+  - `VITE_API_BASE_URL=/api npm run build` in `frontend/` -> passed
+  - `git diff --check` -> passed
+  - `docker compose build frontend` -> passed

@@ -4076,6 +4076,7 @@ describe('import and review routes', () => {
   });
 
   it('keeps the current review visible while switching samples', async () => {
+    const { router, push: routerPush } = makeRouterPushMock();
     const nextDetail = makeReviewDetail('sample-2');
     const nextDetailRequest = deferred<ReviewSampleDetail>();
     mockApiClient.getReviewSample
@@ -4099,6 +4100,7 @@ describe('import and review routes', () => {
         stubs: {
           RouterLink: true,
         },
+        plugins: [router],
       },
     });
     await flushPromises();
@@ -4106,18 +4108,33 @@ describe('import and review routes', () => {
     expect(wrapper.text()).toContain('sample-1');
     expect(wrapper.text()).not.toContain('Loading review sample...');
 
+    await wrapper.findAll('button').find((button) => button.text().includes('Next'))?.trigger('click');
+    await flushPromises();
+
+    expect(mockApiClient.releaseSampleLease).toHaveBeenCalledWith('ds-live', 'sample-1', 'lease-sample-1');
+    expect(routerPush).toHaveBeenCalledWith('/datasets/ds-live/samples/sample-2/review');
+    expect(wrapper.text()).toContain('sample-1');
+    expect(wrapper.text()).not.toContain('未持有有效 sample lease');
+    expect(wrapper.text()).not.toContain('当前样本只读');
+    expect(wrapper.find('.gate-warning--readonly').exists()).toBe(false);
+
     await wrapper.setProps({ sampleId: 'sample-2' });
     await flushPromises();
 
     expect(wrapper.text()).toContain('sample-1');
     expect(wrapper.text()).not.toContain('Loading review sample...');
-    expect(wrapper.find('[data-testid="sample-switch-status"]').exists()).toBe(true);
-    expect(wrapper.text()).toContain('正在切换到 sample-2');
+    expect(wrapper.find('.sample-detail-workbench').attributes('aria-busy')).toBe('true');
+    expect(wrapper.find('[data-testid="sample-switch-status"]').exists()).toBe(false);
+    expect(wrapper.text()).not.toContain('正在切换到 sample-2');
+    expect(wrapper.text()).not.toContain('未持有有效 sample lease');
+    expect(wrapper.text()).not.toContain('当前样本只读');
+    expect(wrapper.find('.gate-warning--readonly').exists()).toBe(false);
 
     nextDetailRequest.resolve(nextDetail);
     await flushPromises();
 
     expect(wrapper.text()).toContain('sample-2');
+    expect(wrapper.find('.sample-detail-workbench').attributes('aria-busy')).toBeUndefined();
     expect(wrapper.text()).not.toContain('正在切换到 sample-2');
   });
 });

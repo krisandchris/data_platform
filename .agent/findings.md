@@ -80,3 +80,32 @@
 - `ReviewWorkbenchPage` already keeps `detail` mounted during same-dataset sample route changes, but the UI had no explicit switching state beyond a cursor change.
 - `BBoxOverlay` binds `<img :src>` directly to the incoming image URL. When the sample detail changes, the browser may blank the image area while the new image loads, which reads as a full workbench refresh because the image panel dominates the page.
 - The fix should preserve the old review shell during the route request, show a small switching banner, and buffer the image URL/boxes inside `BBoxOverlay` until the next image has loaded.
+
+## Sample Review Lease Flicker Finding
+
+- `ReviewWorkbenchShell.navigateWithDirtyGuard` releases the current sample lease before pushing the next sample route.
+- `ReviewWorkbenchPage.releaseCurrentLease` previously mutated the still-visible `detail.sampleLease.status` to `released`.
+- Because the old sample remains mounted during same-dataset refresh, `readonlyReason` briefly rendered `未持有有效 sample lease，当前样本只读`.
+- The readonly warning row sits above the review grid, so that transient row can compress the image area and look like a page flicker.
+- Navigation should release the backend lease while preserving the currently displayed old sample lease until the next sample detail replaces it.
+
+## BBox Overlap Selection Finding
+
+- `BBoxOverlay` used individual box DOM elements as the pointer target.
+- Selected large boxes have higher visual stacking, so they can block pointer access to smaller nested boxes.
+- Stage-level coordinate hit testing avoids DOM stacking as the selection source of truth.
+- For overlapping boxes, the chosen ranking is: boxes containing the click point, nearest bbox corner distance, smaller area, then render order.
+- Identical overlap remains ambiguous, so Shift/Alt click cycles through the hit stack.
+
+## BBox Move Regression Finding
+
+- The overlap-selection change made normal hit testing independent of DOM stacking, but movement could choose a non-editable overlap first.
+- `startBoxEdit` only starts `dragState` for editable boxes, so readonly Stage2/Candidate overlaps can block moving the editable Stage1 box underneath.
+- The fix should keep click selection on coordinate ranking, but start movement only after a drag threshold and then prefer the selected editable hit box.
+
+## Release 0.0.1 Finding
+
+- `v0.0.1` and `0.0.1` git tags were not present before release preparation.
+- Backend `pyproject.toml` and frontend `package.json` were still at `0.1.0`; initial release metadata should be aligned to `0.0.1`.
+- `uv lock` updates the editable backend package entry from `0.1.0` to `0.0.1`.
+- `npm install --package-lock-only` keeps the frontend lockfile synchronized after the version change and reports existing moderate audit findings without changing dependencies.

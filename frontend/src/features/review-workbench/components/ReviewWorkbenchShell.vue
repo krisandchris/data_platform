@@ -3,7 +3,11 @@ let activeReviewShortcutOwner: symbol | undefined;
 </script>
 
 <template>
-  <section class="sample-detail-workbench" :class="{ 'is-switching-sample': isSwitchingSample }">
+  <section
+    class="sample-detail-workbench"
+    :class="{ 'is-switching-sample': isSwitchingSample }"
+    :aria-busy="isSwitchingSample ? 'true' : undefined"
+  >
     <header class="qc-topbar">
       <div class="sample-meta">
         <div class="meta-block meta-block--sample">
@@ -45,20 +49,6 @@ let activeReviewShortcutOwner: symbol | undefined;
       </div>
 
       <div class="top-actions">
-        <span
-          v-if="isSwitchingSample"
-          class="toolbar-status"
-          role="status"
-          aria-live="polite"
-          data-testid="sample-switch-status"
-        >
-          <Loader2 :size="16" class="toolbar-status__spinner" />
-          正在切换到 {{ switchTargetSampleId || '下一个样本' }}
-        </span>
-        <span v-else-if="switchError" class="toolbar-status toolbar-status--error" role="status" data-testid="sample-switch-error">
-          <CircleAlert :size="16" />
-          {{ switchError }}
-        </span>
         <button
           v-if="previousQueueItem"
           class="toolbar-button"
@@ -100,7 +90,7 @@ let activeReviewShortcutOwner: symbol | undefined;
       <CircleAlert :size="17" />
       <span>{{ actionMessage }}</span>
     </div>
-    <div v-if="readonlyReason" class="gate-warning gate-warning--readonly">
+    <div v-if="readonlyReason && !suppressReadonlyWarning" class="gate-warning gate-warning--readonly">
       <CircleAlert :size="17" />
       <span>{{ readonlyReason }}</span>
     </div>
@@ -653,7 +643,6 @@ import {
   ChevronRight,
   CircleAlert,
   ListChecks,
-  Loader2,
   Save,
   Send,
   ShieldCheck,
@@ -705,9 +694,9 @@ const props = defineProps<{
   qcTask?: QcTask;
   sampleLease?: SampleLease;
   readonlyReason?: string;
-  releaseSampleLease?: () => Promise<void> | void;
+  suppressReadonlyWarning?: boolean;
+  releaseSampleLease?: (options?: { preserveDisplayedLease?: boolean }) => Promise<void> | void;
   isSwitchingSample?: boolean;
-  switchTargetSampleId?: string;
   switchError?: string;
 }>();
 
@@ -2191,7 +2180,7 @@ async function navigateWithDirtyGuard(target: string) {
         return false;
       }
     }
-    await props.releaseSampleLease?.();
+    await props.releaseSampleLease?.({ preserveDisplayedLease: true });
     if (router) {
       await router.push(target);
       return true;
@@ -2602,35 +2591,9 @@ function candidateSnapshotFromBase(candidate: Stage2Candidate, id: string) {
   background: #262e3a;
 }
 
-.toolbar-status {
-  display: inline-flex;
-  min-height: 34px;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid rgba(79, 140, 255, 0.46);
-  border-radius: 999px;
-  background: rgba(79, 140, 255, 0.12);
-  color: #bfdbfe;
-  padding: 6px 10px;
-  font-size: 13px;
-  font-weight: 800;
-  white-space: nowrap;
-}
-
-.toolbar-status--error {
-  border-color: rgba(245, 101, 101, 0.52);
-  background: rgba(245, 101, 101, 0.12);
-  color: #fed7d7;
-}
-
-.toolbar-status__spinner {
-  animation: toolbar-spin 0.9s linear infinite;
-}
-
 .sample-detail-workbench.is-switching-sample .review-grid,
 .sample-detail-workbench.is-switching-sample .review-action-bar {
   pointer-events: none;
-  opacity: 0.92;
 }
 
 .gate-warning {
@@ -3301,12 +3264,6 @@ function candidateSnapshotFromBase(candidate: Stage2Candidate, id: string) {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-}
-
-@keyframes toolbar-spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 button:disabled,

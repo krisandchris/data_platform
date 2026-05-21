@@ -22,6 +22,16 @@ Objective: add a docker compose LAN deployment path with an Nginx-served Vue fro
    - Status: complete.
 9. Optimize Sample Review sample switching so the workbench stays mounted and image transitions do not flash.
    - Status: complete.
+10. Remove Sample Review switching-state layout jitter from the topbar.
+   - Status: complete.
+11. Remove Sample Review lease-release readonly flicker during sample switching.
+   - Status: complete.
+12. Improve BBoxOverlay nested/overlapping box selection.
+   - Status: complete.
+13. Restore BBoxOverlay editable box movement after overlap selection change.
+   - Status: complete.
+14. Prepare git release metadata, verification, commit, and `v0.0.1` tag.
+   - Status: complete.
 
 ## Constraints
 
@@ -46,6 +56,11 @@ Objective: add a docker compose LAN deployment path with an Nginx-served Vue fro
 - Sample Review keeps the current sample visible while a route-level sample switch is loading.
 - Sample Review shows a non-destructive switching indicator instead of replacing the whole page.
 - The image overlay avoids blanking the preview while a new sample image URL is loading.
+- Sample Review sample switching does not insert visible status text into the topbar layout flow or change the review grid opacity.
+- Sample Review navigation still releases the old sample lease but does not briefly insert the readonly warning row while the next sample is loading.
+- BBoxOverlay can select a small nested box even when a larger containing box is already selected.
+- BBoxOverlay can still move the selected editable box when non-editable boxes overlap the same hit area.
+- Release `v0.0.1` has synchronized backend/frontend package metadata, changelog, a clean verification record, a commit, and an annotated git tag.
 
 ## Errors Encountered
 
