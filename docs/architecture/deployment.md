@@ -7,6 +7,8 @@ This deployment profile runs the platform as two containers on a LAN host:
 - `DATASET/`: mounted from the host as readonly source data.
 - Runtime state: mounted from the host as writable state for accounts, sessions, permissions, batches, drafts, label config, QC state, and audit records.
 
+Current Compose deployment is file-backed. TASK-019 will add PostgreSQL and Redis only after database migrations, file-state import, Redis restart behavior, Docker rollout, and rollback have passed. See [State Persistence Boundaries](./state-persistence-boundaries.md) and [PostgreSQL + Redis Migration Runbook](./postgres-redis-migration-runbook.md).
+
 The public LAN entrypoint is HTTP on port `8080` by default:
 
 ```bash
@@ -147,6 +149,7 @@ Persistence checks:
 - Create or register a batch, restart containers, and confirm batch registry state remains.
 - Save a draft or autosave in the review workbench, restart containers, and confirm the draft can be reloaded.
 - Deleting a platform batch must remove runtime registry/state only; the mounted raw `DATASET/` directory is readonly and must not be modified.
+- Uploaded archives, extracted uploaded batch source, media files, and generated export artifacts remain on mounted filesystems and are not moved into PostgreSQL by TASK-019.
 
 ## Regression Checks
 

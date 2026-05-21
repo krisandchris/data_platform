@@ -1,6 +1,6 @@
 # Overall Architecture
 
-Last updated: 2026-05-20
+Last updated: 2026-05-21
 
 ## System Shape
 
@@ -12,6 +12,8 @@ Urban Violation Platform is a local dataset management and QC system for image-b
 - Dedicated frontend/backend/integration agent worktrees for implementation and validation.
 
 For LAN deployment, see [Docker LAN Deployment](./deployment.md).
+For the PostgreSQL + Redis migration boundary, see [State Persistence Boundaries](./state-persistence-boundaries.md).
+For the operator migration draft, see [PostgreSQL + Redis Migration Runbook](./postgres-redis-migration-runbook.md).
 
 ## Main Concepts
 
@@ -217,6 +219,9 @@ Bbox offset analysis must stay in quantized 0-1000 coordinates for storage and s
 Source data:
 
 - `DATASET/` is source input and should be treated as readonly.
+- Uploaded archive extraction directories, media files, and export artifact files remain filesystem content.
+- PostgreSQL is the target authority for mutable platform records after TASK-019.
+- Redis is the target coordination layer for active locks, live progress, and cache only; it is not an authority for drafts, submissions, audit, label config, or registry metadata.
 
 Runtime state:
 

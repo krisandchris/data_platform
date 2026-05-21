@@ -1,6 +1,6 @@
 # Project Documentation Index
 
-Last updated: 2026-05-20
+Last updated: 2026-05-21
 
 This directory is the current documentation entry point for the Urban Violation Platform. Frontend and backend documentation are split into small topic files under their own directories. Historical design notes have been folded into these current documents or remain available through git history.
 
@@ -12,6 +12,8 @@ This directory is the current documentation entry point for the Urban Violation 
 - Backend index: `docs/backend/README.md`
 - Backend API module documents: `docs/backend/modules/`
 - Overall architecture: `docs/architecture/README.md`
+- State persistence boundary: `docs/architecture/state-persistence-boundaries.md`
+- PostgreSQL + Redis migration runbook: `docs/architecture/postgres-redis-migration-runbook.md`
 - Docker LAN deployment: `docs/architecture/deployment.md`
 
 ## Historical Inputs

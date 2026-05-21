@@ -1,31 +1,43 @@
-# TASK-019 Planning Handoff
+# Handoff
 
 ## Agent Role
-Lead Agent
+
+Docs Agent
 
 ## Branch
-`main`
+
+`agent/TASK-019/docs/runbooks`
 
 ## Worktree
-`/mnt/lc/LC/ares_xtws/0_train_data/data_platform`
+
+`/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-019-docs-runbooks`
 
 ## Scope Completed
 
-- Converted the PostgreSQL + Redis migration design into a multi-agent execution sequence.
-- Defined phase order, branch names, worktree ownership, frontend/backend/QA/docs responsibilities, and exit gates.
-- Captured current architecture risks and migration decisions in `.agent` files.
+- Documented current file-backed state, process-local cache, and derived runtime boundaries.
+- Documented target PostgreSQL authority responsibilities and Redis short-lived coordination responsibilities.
+- Drafted operator runbook for backup, Alembic migration, file-state import, Docker rollout, restart checks, and rollback.
+- Explicitly documented that `DATASET/`, uploaded/extracted package source, media files, and export artifacts remain filesystem content.
+- Explicitly documented that Redis is not the authority for drafts, submissions, audit, users, roles, sessions, label config, dataset metadata, or batch metadata.
+- Cross-linked architecture, deployment, backend runtime, and documentation indexes.
 
 ## Changed Files
 
-- `docs/architecture/state_migration_agent_sequence.md`
-- `.agent/task_plan.md`
-- `.agent/findings.md`
-- `.agent/progress.md`
-- `.agent/handoff.md`
+- `docs/architecture/state-persistence-boundaries.md`: new architecture boundary document.
+- `docs/architecture/postgres-redis-migration-runbook.md`: new migration runbook draft.
+- `docs/architecture/README.md`: added links and runtime/persistence boundary notes.
+- `docs/architecture/deployment.md`: clarified current file-backed Compose state and TASK-019 migration relationship.
+- `docs/backend/modules/runtime-and-validation.md`: added PostgreSQL/Redis migration boundary notes and links.
+- `docs/README.md`: added new architecture and runbook entries.
+- `docs/architecture/state_migration_agent_sequence.md`: added references to the new docs.
+- `.agent/task_plan.md`: recorded Docs Agent scope and deliverable status.
+- `.agent/findings.md`: recorded implementation facts and migration constraints discovered during docs work.
+- `.agent/progress.md`: recorded Docs Agent progress and verification notes.
+- `.agent/handoff.md`: replaced prior lead planning handoff with Docs Agent handoff.
 
 ## Shared Contracts Changed
 
-No product API or runtime contract changed. This is planning and orchestration documentation only.
+No product API, database schema, Docker Compose, or runtime contract changed. This branch changes documentation only.
 
 ## Dependencies Changed
 
@@ -33,16 +45,18 @@ No.
 
 ## Verification
 
-- Repository state inspected before edits.
-- No product code edited.
-- No tests run because only planning documents changed.
+- Manual structure/link review: passed. Updated docs were read back and referenced files were checked with `ls`.
+- Command: `git diff --check`
+  Result: passed.
 
-## Next Step
+## Known Risks
 
-Create `integration/TASK-019` and the Phase 1 worktrees:
+- The runbook includes expected future command surfaces for Alembic and file-state import. Backend implementation agents must update the runbook if final module or CLI names differ.
+- Rollback after database-mode writes remains a policy decision unless a tested reverse export tool is implemented.
 
-- `agent/TASK-019/backend/state-contracts`
-- `agent/TASK-019/qa/test-matrix`
-- `agent/TASK-019/docs/runbooks`
+## Next Agent Notes
 
-Start with Phase 1 store interface extraction and contract-test harness. Do not begin PostgreSQL dependency work until Phase 1 exits cleanly.
+- Backend agents should keep `RegisteredBatchRuntime` as a derived cache hydrated from PostgreSQL metadata plus filesystem `source_uri`.
+- Backend agents should implement the file-state import command as explicit and idempotent, with `--dry-run` and conflict reports.
+- Redis implementation must tolerate Redis restart without losing durable platform records.
+- Lead Agent should verify these docs again after actual Alembic, import CLI, and Compose changes land.
