@@ -9,7 +9,7 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 2. Store interface extraction.
    - Status: complete. Backend protocol extraction and QA contract tests passed integration verification.
 3. PostgreSQL foundation for identity, registry, label config, import jobs, and audit.
-   - Status: dispatch in progress. Phase 3 worktrees are being prepared for backend DB foundation, QA database tests, and docs/runbook alignment.
+   - Status: integration in progress. Backend DB foundation and QA DB foundation tests are merged into `integration/TASK-019`; Docs DB foundation runbooks are pending merge.
 4. PostgreSQL migration for QC, drafts, submissions, sample pool, exports, and evaluations.
    - Status: pending.
 5. Redis runtime state for active leases, locks, session cache, and import progress.
@@ -21,14 +21,13 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 
 ## Agent Branches
 
-- `integration/TASK-019`
-- Merged: `agent/TASK-019/backend/state-contracts` at `e1d145f`
-- Merged: `agent/TASK-019/qa/test-matrix` at `d64fc60`
-- Merged: `agent/TASK-019/docs/runbooks` at `df52cae`
+- Active integration: `integration/TASK-019`
+- Phase 3 merged:
+  - `agent/TASK-019/backend/db-foundation` at `a640e85`
+  - `agent/TASK-019/qa/db-foundation-tests` at `064f7a2`
+- Phase 3 pending:
+  - `agent/TASK-019/docs/db-foundation-runbooks` at `816d862`
 - Planned later:
-  - `agent/TASK-019/backend/db-foundation`
-  - `agent/TASK-019/qa/db-foundation-tests`
-  - `agent/TASK-019/docs/db-foundation-runbooks`
   - `agent/TASK-019/backend/qc-state`
   - `agent/TASK-019/backend/redis-runtime`
   - `agent/TASK-019/backend/import-tool`
@@ -39,92 +38,27 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 - Main workspace is orchestration, planning, integration review, verification, and accepted-code synchronization only.
 - Product backend changes must happen in backend worktrees.
 - Product frontend changes must happen in frontend worktrees.
-- Dependency changes are owned by the Lead Agent or an explicitly assigned dependency owner.
 - `DATASET/` remains readonly and outside PostgreSQL.
 - Uploaded/extracted archives, media files, and export artifacts remain on the filesystem.
 - Redis must not be the authority for drafts, submissions, audit, users, roles, label config, or batch metadata.
 - `RegisteredBatchRuntime` remains a derived cache hydrated from database metadata plus filesystem `source_uri`.
 
-## Acceptance Criteria
+## Phase 3 Scope
 
-- File-backed mode remains green after each phase until database mode is the Docker default.
-- Database mode passes store contract tests and API regression tests.
-- Redis active lease is cross-process safe and does not cause data loss when Redis restarts.
-- Existing frontend API contracts remain compatible.
-- Migration tool imports existing `PLATFORM_STATE_ROOT` and `LABEL_CONFIG_STORE_ROOT` data idempotently.
-- Docker deployment defaults to PostgreSQL + Redis only after migration, import, and rollback paths are tested.
-
-## Reference
-
-Detailed sub-agent sequence and per-phase test design:
-
-- `docs/architecture/state_migration_agent_sequence.md`
-
-## Phase 1 Deliverables
-
-- Backend:
-  - Extract `PlatformStateStoreProtocol`.
-  - Extract `LabelConfigRepositoryProtocol`.
-  - Switch `FixtureRuntimeService`, `AuthService`, and `build_fixture_service` to protocol-typed dependencies.
-  - Keep default runtime wiring file-backed.
-- QA:
-  - Add file-backed state store contract tests.
-  - Add label config repository contract tests.
-  - Record baseline backend/frontend/docker-compose checks.
-- Docs:
-  - Document persistence boundaries.
-  - Document PostgreSQL/Redis migration runbook and operational gates.
-
-## Phase 1 Integration Verification
-
-- `git diff --check` -> passed.
-- `git diff --cached --check` -> passed.
-- `uv run pytest -k 'state_store_contract or label_config_repository_contract' -q` -> 4 passed.
-- `uv run pytest` -> 93 passed.
-- `npm run test` in `frontend/` with Node 20 -> 6 files passed, 114 tests passed.
-- `VITE_API_BASE_URL=/api npm run build` in `frontend/` with Node 20 -> passed.
-- `uv run python scripts/docker-compose-auto-subnet.py config` -> passed.
-
-## Phase 3 Dispatch Scope
-
-- Backend DB Foundation:
-  - Add approved Python database dependencies with `uv add`: SQLAlchemy, Alembic, and psycopg or the minimal PostgreSQL driver stack selected by the backend agent.
-  - Add database configuration for `DATABASE_URL`, `PLATFORM_STATE_BACKEND=file|database`, and `PLATFORM_DB_AUTO_MIGRATE=0|1`.
-  - Add Alembic setup and first migrations for identity, RBAC, sessions, dataset registry, batch registry, import job metadata, label config, and audit.
-  - Implement database-backed foundation repositories while preserving file-backed default behavior.
-  - Do not migrate QC drafts/submissions/sample-pool/export/evaluation state in this phase.
-- QA DB Foundation:
-  - Add database-mode contract/integration tests for config, migration bootstrap, admin/session, label config, dataset registry, import job metadata, and audit.
-  - Keep tests runnable without a local PostgreSQL server where possible, with explicit `TEST_DATABASE_URL` gating for PostgreSQL-only checks.
-- Docs DB Foundation:
-  - Update migration docs and runbook with actual dependency, env, Alembic, and verification command names produced by the backend branch.
+- Added SQLAlchemy, Alembic, and `psycopg[binary]` through `uv`.
+- Added DB config/env support:
+  - `DATABASE_URL`
+  - `PLATFORM_STATE_BACKEND=file|database`
+  - `PLATFORM_DB_AUTO_MIGRATE=0|1`
+- Added Alembic baseline and initial schema for users, role bindings, sessions, dataset registry, batch/import job metadata, label config versions/active pointers, and audit events.
+- Added transitional DB foundation storage while leaving QC/review/export/evaluation state file-backed for later phases.
+- Added gated QA database foundation tests.
 
 ## Phase 3 Exit Gate
 
 - File-backed mode remains green: `uv run pytest`.
-- Database foundation tests pass.
-- Dependency changes are documented with `pyproject.toml` and `uv.lock` updates.
+- Focused DB foundation and existing store contract tests pass.
+- Frontend tests/build remain green.
+- Docs are reconciled with actual backend command names and DB behavior.
 - No Docker default switch to database mode yet.
 - No Redis implementation yet.
-
-## Phase 3 Backend Worktree Execution (agent/TASK-019/backend/db-foundation)
-
-Status: complete
-
-1. Dependency foundation (complete)
-- Added SQLAlchemy, Alembic, and psycopg via `uv add`.
-- Updated `pyproject.toml` and `uv.lock` through uv only.
-
-2. Database infrastructure and migrations (complete)
-- Added `src/urban_violation_backend/db/` package for validated settings, engine/session helpers, ORM models, and migration bootstrap.
-- Added Alembic scaffold and initial revision for Phase 3 foundation tables.
-
-3. Runtime wiring with file-backed default (complete)
-- Added backend selection via `PLATFORM_STATE_BACKEND=file|database`.
-- Added `DATABASE_URL` and `PLATFORM_DB_AUTO_MIGRATE=0|1` support.
-- Preserved file-backed mode as default.
-- In database mode, enabled foundational DB-backed stores while keeping non-migrated QC/review/export state file-backed.
-
-4. Verification and handoff (complete)
-- Focused contract tests plus DB foundation tests pass.
-- Full pytest run executed; remaining failures are environment fixture-path dependent (`DATASET/urban` unavailable in this worktree).
