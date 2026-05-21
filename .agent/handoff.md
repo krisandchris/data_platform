@@ -207,9 +207,22 @@ No.
 
 ## 2026-05-21 Docker Network Subnet Fix
 - Added an explicit Docker Compose bridge network for `backend` and `frontend`.
-- Default subnet is `172.30.240.0/24`, configurable through `PLATFORM_DOCKER_SUBNET`.
+- Subnet is configurable through `PLATFORM_DOCKER_SUBNET`.
 - Rationale: avoid Docker daemon auto-selecting a bridge subnet that overlaps with the server LAN.
 - Verification:
   - `docker compose config` -> passed
-  - expanded compose config shows `subnet: 172.30.240.0/24`
+  - expanded compose config shows the configured subnet
   - repository search no longer finds the problematic LAN subnet literal
+
+## 2026-05-21 Docker Auto Subnet Selection Follow-Up
+- Added `scripts/docker-compose-auto-subnet.py`.
+- Removed the hardcoded compose subnet default; compose now requires `PLATFORM_DOCKER_SUBNET`.
+- The helper automatically selects an unused `/24` from `172.16.0.0/12` by inspecting Docker networks and host routes.
+- The helper reuses an existing compose project `platform` network subnet when present.
+- Deployment docs now use the helper for build/up/ps/down commands.
+- Verification:
+  - `python3 -m py_compile scripts/docker-compose-auto-subnet.py` -> passed
+  - `scripts/docker-compose-auto-subnet.py print-subnet` -> selected an available subnet
+  - `scripts/docker-compose-auto-subnet.py config` -> passed
+  - `scripts/docker-compose-auto-subnet.py build backend` -> passed
+  - `git diff --check` -> passed

@@ -51,4 +51,4 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: ${PLATFORM_DOCKER_SUBNET:-172.30.240.0/24}
+        - subnet: ${PLATFORM_DOCKER_SUBNET:?Set PLATFORM_DOCKER_SUBNET or run scripts/docker-compose-auto-subnet.py}

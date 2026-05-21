@@ -60,23 +60,30 @@ DATASET_HOST_ROOT=/data/DATASET \
 PLATFORM_STATE_HOST_ROOT=/data/urban-runtime/platform_state \
 LABEL_CONFIG_HOST_ROOT=/data/urban-runtime/label_config_state \
 FRONTEND_HTTP_PORT=8080 \
-docker compose up -d
+scripts/docker-compose-auto-subnet.py up -d
 ```
 
-Docker network override:
+Docker network selection:
 
 ```bash
-PLATFORM_DOCKER_SUBNET=172.30.240.0/24 docker compose up -d
+scripts/docker-compose-auto-subnet.py print-subnet
+scripts/docker-compose-auto-subnet.py up -d
 ```
 
-The compose file defines an explicit bridge subnet so Docker does not auto-select a range that conflicts with LAN routing on some servers. If `172.30.240.0/24` also overlaps with the host or another Docker network, choose any unused private subnet and set `PLATFORM_DOCKER_SUBNET` before `docker compose up -d`.
+The helper inspects existing Docker network IPAM subnets and host routes, then injects an unused subnet from the private `172.16.0.0/12` range as `PLATFORM_DOCKER_SUBNET`. If this project's `platform` network already exists, the helper reuses that existing subnet so later `ps`, `up`, and `down` commands stay stable. The compose file requires this variable so it does not silently fall back to a hardcoded subnet.
+
+Manual override remains available when needed:
+
+```bash
+PLATFORM_DOCKER_SUBNET=172.30.250.0/24 docker compose up -d
+```
 
 ## Build And Start
 
 ```bash
-docker compose build
-docker compose up -d
-docker compose ps
+scripts/docker-compose-auto-subnet.py build
+scripts/docker-compose-auto-subnet.py up -d
+scripts/docker-compose-auto-subnet.py ps
 curl http://127.0.0.1:8080/health
 ```
 
@@ -145,8 +152,8 @@ Run repository checks before shipping deployment changes:
 ```bash
 uv run pytest
 cd frontend && npm run test && npm run build
-docker compose build
-docker compose up -d
+scripts/docker-compose-auto-subnet.py build
+scripts/docker-compose-auto-subnet.py up -d
 curl http://127.0.0.1:8080/health
-docker compose down
+scripts/docker-compose-auto-subnet.py down
 ```

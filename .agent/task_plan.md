@@ -36,6 +36,8 @@ Objective: add a docker compose LAN deployment path with an Nginx-served Vue fro
    - Status: complete.
 16. Pin Docker Compose network subnet to avoid LAN route conflicts.
    - Status: complete.
+17. Add automatic Docker Compose subnet selection for the 172 private range.
+   - Status: complete.
 
 ## Constraints
 
@@ -67,6 +69,7 @@ Objective: add a docker compose LAN deployment path with an Nginx-served Vue fro
 - Release `v0.0.1` has synchronized backend/frontend package metadata, changelog, a clean verification record, a commit, and an annotated git tag.
 - Backend Docker image build does not require install-time bytecode compilation, so servers with lower file descriptor limits can build successfully.
 - Docker Compose does not auto-select an overlapping LAN subnet for the frontend/backend bridge network.
+- Deployment startup can compute `PLATFORM_DOCKER_SUBNET` from currently used Docker networks and host routes instead of relying on a fixed default subnet.
 
 ## Errors Encountered
 

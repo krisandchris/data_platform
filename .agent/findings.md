@@ -122,3 +122,9 @@
 - Repository search found no hardcoded LAN subnet literal in Dockerfiles, compose service config, backend source, or frontend source.
 - The risk is Docker Compose's implicit default bridge network: Docker daemon address pools can auto-select a subnet that overlaps with the server LAN.
 - The fix is to define an explicit compose bridge network with IPAM and a configurable `PLATFORM_DOCKER_SUBNET` default.
+
+## Docker Auto Subnet Selection Finding
+
+- Docker Compose YAML cannot run dynamic detection logic during variable interpolation.
+- Automatic subnet selection needs a wrapper that inspects `docker network inspect` IPAM config and host routes, then exports `PLATFORM_DOCKER_SUBNET` before invoking `docker compose`.
+- The wrapper should reuse an existing project `platform` network subnet if one exists, otherwise subsequent `ps`, `up`, or `down` commands may compute a different free subnet.

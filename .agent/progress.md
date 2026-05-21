@@ -102,12 +102,25 @@
   - `docker compose build backend` -> passed; `uv sync --frozen --no-dev` completed without bytecode compile step
 - Investigated Docker network conflict risk:
   - no hardcoded LAN subnet literal found in Dockerfile, compose service config, source, or tests
-  - added explicit compose bridge network with default `PLATFORM_DOCKER_SUBNET=172.30.240.0/24`
+  - added explicit compose bridge network with configurable `PLATFORM_DOCKER_SUBNET`
   - added deployment doc note for overriding the subnet if it overlaps with the host
 - Verification:
   - `docker compose config` -> passed
-  - expanded compose config contains `subnet: 172.30.240.0/24`
+  - expanded compose config contains the configured subnet
   - repository search no longer finds the problematic LAN subnet literal
+- Reworked Docker network handling so the subnet is no longer hardcoded in compose:
+  - added `scripts/docker-compose-auto-subnet.py`
+  - compose now requires `PLATFORM_DOCKER_SUBNET` from the wrapper or manual environment
+  - wrapper chooses an unused `/24` from `172.16.0.0/12` based on Docker network IPAM and host routes
+  - wrapper reuses an existing project `platform` network subnet for stable repeat commands
+  - deployment docs now use the wrapper for build/up/ps/down examples
+- Verification:
+  - `python3 -m py_compile scripts/docker-compose-auto-subnet.py` -> passed
+  - `scripts/docker-compose-auto-subnet.py print-subnet` -> selected an available subnet
+  - `scripts/docker-compose-auto-subnet.py config` -> passed and expanded the selected subnet
+  - repository search found no old fixed subnet default or problematic LAN subnet literal
+  - `scripts/docker-compose-auto-subnet.py build backend` -> passed
+  - `git diff --check` -> passed
 - Started BBox overlap selection follow-up.
 - Frontend agent implemented:
   - stage-level bbox hit testing
