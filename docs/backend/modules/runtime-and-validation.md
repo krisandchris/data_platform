@@ -10,7 +10,7 @@ Last updated: 2026-05-22
 - File-backed runtime state in the current local platform phase.
 - TASK-019 target state backend: PostgreSQL for durable mutable records and Redis for short-lived coordination only.
 - TASK-019 Phase 3 status: PostgreSQL foundation only. Docker defaults stay file-backed and Redis is not implemented in this phase.
-- TASK-019 Phase 4 status: backend-confirmation-dependent QC/review state migration to PostgreSQL. Docker defaults still stay file-backed and Redis is still not implemented in this phase.
+- TASK-019 Phase 4 status: QC/review state migration to PostgreSQL is merged into `integration/TASK-019`. Docker defaults still stay file-backed and Redis is still not implemented in this phase.
 - Pytest for backend regression tests.
 
 ## Runtime State
@@ -42,7 +42,7 @@ Migration boundary:
 - `DATASET/`, uploaded archive extraction directories, browser media files, and export artifact files remain filesystem content.
 - PostgreSQL is the target authority for users, roles, sessions, dataset registries, label config, import jobs, audit, QC state, drafts, submissions, snapshots, sample pool, exports, and evaluations.
 - Phase 3 database-backed scope is limited to foundation domains: users, roles, sessions, dataset registries, import job metadata, label config, and audit.
-- Phase 4, after backend confirmation, migrates QC assignments, tasks, lease history/current lease rows, drafts, batch drafts, submissions, snapshots, modification events, sample pool items, export metadata, and evaluation metadata to PostgreSQL.
+- Phase 4 migrates QC assignments, tasks, lease history/current lease rows, drafts, batch drafts, submissions, snapshots, modification events, sample pool items, export metadata, and evaluation metadata to PostgreSQL in database mode.
 - Phase 4 does not store raw files or generated export artifact bytes in PostgreSQL.
 - Redis may hold active lease locks, distributed locks, session cache, and live import progress.
 - Redis is not the authority for drafts, submissions, audit, label config, users, roles, sessions, dataset type metadata, or batch metadata.
@@ -80,13 +80,13 @@ scripts/integration-smoke.sh main
 scripts/integration-smoke.sh agent
 ```
 
-Phase 4 database-mode validation is backend-confirmation-dependent and should be reconciled with the backend and QA handoffs before running against an integration branch:
+Phase 4 database-mode validation on `integration/TASK-019`:
 
 ```bash
 DATABASE_URL="$DATABASE_URL" uv run alembic upgrade head
 TEST_DATABASE_URL="$DATABASE_URL" \
 PLATFORM_STATE_BACKEND=database \
-uv run pytest -k "qc_state or review_state or state_store_contract" -q
+uv run pytest -k "state_store_contract or db_foundation or db_qc_state" -q
 ```
 
 Phase 4 operator smoke should cover:

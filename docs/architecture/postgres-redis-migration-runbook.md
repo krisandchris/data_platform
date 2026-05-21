@@ -18,7 +18,7 @@ It intentionally separates:
 
 Phase 3 backend foundation has landed with direct Alembic commands, `alembic/` migration files, and database foundation test selectors documented below.
 
-Phase 4 backend-confirmation-dependent statements are marked explicitly because this docs worktree may be reviewed before the backend `qc-state` branch is merged.
+Phase 4 backend, QA, frontend compatibility, and docs branches have been merged into `integration/TASK-019`. The Phase 4 Alembic head revision is `20260522_0002` on top of the Phase 3 foundation revision `20260522_0001`.
 
 ## Phase 3 Foundation Scope
 
@@ -43,7 +43,7 @@ During Phase 3, database-backed foundation records may coexist with file-backed 
 
 ## Phase 4 QC/Review Scope
 
-Backend-confirmation-dependent: after the backend `qc-state` branch lands, Phase 4 is expected to database-back these durable QC/review domains:
+Phase 4 database-backs these durable QC/review domains in `PLATFORM_STATE_BACKEND=database` mode:
 
 - QC assignments and task records;
 - sample lease history and current lease rows;
@@ -359,7 +359,7 @@ Expected result:
 
 - `alembic current` reports the head revision.
 - During Phase 3, an empty database contains foundation tables for identity, RBAC, sessions, registry, import job metadata, label config, and audit after upgrade.
-- During Phase 4, backend-confirmation-dependent, an empty database also contains QC assignment, task, lease, draft, submission, snapshot, modification event, sample pool, export metadata, and evaluation metadata tables after upgrade.
+- During Phase 4, an empty database also contains QC assignment, task, lease, draft, submission, snapshot, modification event, sample pool, export metadata, and evaluation metadata tables after upgrade to revision `20260522_0002`.
 - After all TASK-019 phases are complete, an empty database also contains QC, draft, submission, snapshot, sample pool, export, and evaluation tables.
 
 Use `PLATFORM_DB_AUTO_MIGRATE=1` only if the final implementation documents and tests container startup migration behavior. The safer operator path is explicit migration before switching traffic.

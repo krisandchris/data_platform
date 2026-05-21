@@ -173,7 +173,7 @@ Parallel support:
 
 - Frontend Agent validates review and QC pages without changing contracts.
 - QA Agent adds concurrency and restart persistence tests.
-- Docs Agent updates QC/review state validation notes and operator runbooks while marking backend-confirmation-dependent details until the backend branch lands.
+- Docs Agent updates QC/review state validation notes and operator runbooks, then Lead Agent reconciles the docs with the backend and QA branches after integration.
 
 Backend tasks:
 
