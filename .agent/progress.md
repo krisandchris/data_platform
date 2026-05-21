@@ -66,12 +66,23 @@
   - `uv run python scripts/docker-compose-auto-subnet.py config` -> passed.
   - `git diff --check` -> passed.
 
+## 2026-05-21 Docs Agent Result
+
+- Added `docs/architecture/state-persistence-boundaries.md`.
+- Added `docs/architecture/postgres-redis-migration-runbook.md`.
+- Updated architecture, deployment, backend runtime, docs index, and migration sequence documents with migration links and boundary notes.
+- Docs Agent verification:
+  - Manual structure/link review -> passed.
+  - `git diff --check` -> passed.
+  - `git diff --cached --check` -> passed.
+
 ## 2026-05-21 Lead Integration
 
 - Merged latest `main` into `integration/TASK-019` to bring in dispatch and monitoring records.
 - Merged `agent/TASK-019/backend/state-contracts` into `integration/TASK-019`.
 - Merged `agent/TASK-019/qa/test-matrix` into `integration/TASK-019`.
+- Merged `agent/TASK-019/docs/runbooks` into `integration/TASK-019`.
 - Conflict resolution:
-  - Product files and test files merged without conflict.
+  - Product files, test files, and docs files merged without conflict.
   - Root `.agent` files conflicted with each worktree's local `.agent` records.
-  - Preserved Lead Agent orchestration records and merged Backend/QA completion details into root `.agent` files.
+  - Preserved Lead Agent orchestration records and merged Backend/QA/Docs completion details into root `.agent` files.

@@ -19,17 +19,19 @@ Lead Agent
 - Merged latest `main` monitoring records into `integration/TASK-019`.
 - Merged `agent/TASK-019/backend/state-contracts` into `integration/TASK-019`.
 - Merged `agent/TASK-019/qa/test-matrix` into `integration/TASK-019`.
+- Merged `agent/TASK-019/docs/runbooks` into `integration/TASK-019`.
 
-## Agent Branches
+## Agent Branches Merged
 
-- Merged: `agent/TASK-019/backend/state-contracts` at `e1d145f`.
-- Merged: `agent/TASK-019/qa/test-matrix` at `d64fc60`.
-- Pending merge: `agent/TASK-019/docs/runbooks` at `df52cae`.
+- `agent/TASK-019/backend/state-contracts` at `e1d145f`.
+- `agent/TASK-019/qa/test-matrix` at `d64fc60`.
+- `agent/TASK-019/docs/runbooks` at `df52cae`.
 
 ## Conflicts
 
 - Backend merge conflicted only in root `.agent` coordination files.
 - QA merge conflicted only in root `.agent` coordination files.
+- Docs merge conflicted only in root `.agent` coordination files.
 - Resolution: preserved Lead Agent orchestration records and merged agent completion details into `.agent/task_plan.md`, `.agent/findings.md`, and `.agent/progress.md`.
 
 ## Shared Contracts Changed
@@ -38,7 +40,8 @@ Lead Agent
   - `PlatformStateStoreProtocol`
   - `LabelConfigRepositoryProtocol`
 - Test-only contract harness added by QA Agent for current file-backed behavior.
-- No external API schema, Docker, or dependency contract changed by merged Backend/QA branches.
+- Docs-only architecture/runbook additions added by Docs Agent.
+- No external API schema, Docker Compose, dependency, or database schema contract changed in this Phase 1 integration.
 
 ## Dependencies Changed
 
@@ -57,10 +60,22 @@ No.
   - Frontend test/build commands failed because `frontend/node_modules` was absent.
   - Docker compose config render -> passed.
   - `git diff --check` -> passed.
-- Lead integration verification is pending until Docs branch is merged.
+- Docs Agent reported:
+  - Manual structure/link review -> passed.
+  - `git diff --check` -> passed.
+  - `git diff --cached --check` -> passed.
+- Lead integration verification is pending after merge commit.
 
 ## Known Risks
 
-- Root `.agent` files will likely conflict again when Docs branch is merged because each worktree maintained its own local `.agent` records.
 - Full backend verification should be rerun from an environment where `DATASET/urban` exists or with an explicit fixture symlink.
 - Frontend verification requires installing dependencies or using a workspace where `frontend/node_modules` exists.
+- The runbook includes expected future command surfaces for Alembic and file-state import. Backend implementation agents must update the runbook if final module or CLI names differ.
+- Rollback after database-mode writes remains a policy decision unless a tested reverse export tool is implemented.
+
+## Next Agent Notes
+
+- Backend agents should keep `RegisteredBatchRuntime` as a derived cache hydrated from PostgreSQL metadata plus filesystem `source_uri`.
+- Backend agents should implement the file-state import command as explicit and idempotent, with `--dry-run` and conflict reports.
+- Redis implementation must tolerate Redis restart without losing durable platform records.
+- Lead Agent should verify these docs again after actual Alembic, import CLI, and Compose changes land.

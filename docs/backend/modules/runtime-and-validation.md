@@ -1,6 +1,6 @@
 # Runtime And Validation
 
-Last updated: 2026-05-20
+Last updated: 2026-05-21
 
 ## Stack
 
@@ -8,6 +8,7 @@ Last updated: 2026-05-20
 - FastAPI and Pydantic.
 - Uvicorn for local serving.
 - File-backed runtime state in the current local platform phase.
+- TASK-019 target state backend: PostgreSQL for durable mutable records and Redis for short-lived coordination only.
 - Pytest for backend regression tests.
 
 ## Runtime State
@@ -33,6 +34,19 @@ uv run pytest
 ```
 
 Raw `DATASET/` contents must not be mutated by runtime writes.
+
+Migration boundary:
+
+- `DATASET/`, uploaded archive extraction directories, browser media files, and export artifact files remain filesystem content.
+- PostgreSQL is the target authority for users, roles, sessions, dataset registries, label config, import jobs, audit, QC state, drafts, submissions, snapshots, sample pool, exports, and evaluations.
+- Redis may hold active lease locks, distributed locks, session cache, and live import progress.
+- Redis is not the authority for drafts, submissions, audit, label config, users, roles, sessions, dataset type metadata, or batch metadata.
+- `RegisteredBatchRuntime` remains a derived runtime cache hydrated from database metadata plus filesystem `source_uri`.
+
+Detailed boundary and operator steps:
+
+- [State Persistence Boundaries](../../architecture/state-persistence-boundaries.md)
+- [PostgreSQL + Redis Migration Runbook](../../architecture/postgres-redis-migration-runbook.md)
 
 ## Validation Commands
 
