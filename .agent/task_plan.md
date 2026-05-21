@@ -32,6 +32,8 @@ Objective: add a docker compose LAN deployment path with an Nginx-served Vue fro
    - Status: complete.
 14. Prepare git release metadata, verification, commit, and `v0.0.1` tag.
    - Status: complete.
+15. Fix server Docker backend build failure caused by install-time bytecode compilation.
+   - Status: complete.
 
 ## Constraints
 
@@ -61,6 +63,7 @@ Objective: add a docker compose LAN deployment path with an Nginx-served Vue fro
 - BBoxOverlay can select a small nested box even when a larger containing box is already selected.
 - BBoxOverlay can still move the selected editable box when non-editable boxes overlap the same hit area.
 - Release `v0.0.1` has synchronized backend/frontend package metadata, changelog, a clean verification record, a commit, and an annotated git tag.
+- Backend Docker image build does not require install-time bytecode compilation, so servers with lower file descriptor limits can build successfully.
 
 ## Errors Encountered
 

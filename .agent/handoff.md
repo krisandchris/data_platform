@@ -197,3 +197,10 @@ No.
   - `docker compose build frontend backend` -> passed
 - Known release note: frontend dependency audit still reports 5 moderate findings; not remediated in this release because npm recommends `npm audit fix --force`, which may introduce breaking dependency changes.
 - Release commit is prepared for annotated `v0.0.1` tag creation.
+
+## 2026-05-21 Backend Docker Build FD Fix
+- Fixed server build failure at `RUN uv sync --frozen --no-dev`.
+- Removed `UV_COMPILE_BYTECODE=1` from `deploy/docker/backend.Dockerfile`.
+- Rationale: bytecode compilation is optional and can exhaust file descriptors on constrained servers; dependency install still succeeds without it.
+- Verification:
+  - `docker compose build backend` -> passed

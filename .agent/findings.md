@@ -109,3 +109,10 @@
 - Backend `pyproject.toml` and frontend `package.json` were still at `0.1.0`; initial release metadata should be aligned to `0.0.1`.
 - `uv lock` updates the editable backend package entry from `0.1.0` to `0.0.1`.
 - `npm install --package-lock-only` keeps the frontend lockfile synchronized after the version change and reports existing moderate audit findings without changing dependencies.
+
+## Backend Docker Build FD Finding
+
+- Server build failed at `RUN uv sync --frozen --no-dev` with `Failed to bytecode-compile Python file` and `No file descriptors available (os error 24)`.
+- `deploy/docker/backend.Dockerfile` set `UV_COMPILE_BYTECODE=1`, which makes `uv sync` run install-time bytecode compilation after dependencies install.
+- Bytecode compilation is an optional image-startup optimization and is not needed for correctness, especially with `PYTHONDONTWRITEBYTECODE=1` already set.
+- Removing `UV_COMPILE_BYTECODE=1` avoids the extra interpreter process/descriptor pressure and keeps dependency installation intact.

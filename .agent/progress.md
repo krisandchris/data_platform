@@ -94,6 +94,12 @@
   - `git diff --check` -> passed
   - `docker compose build frontend backend` -> passed
 - Created release commit for `v0.0.1`; annotated tag creation follows this committed state.
+- Investigated server-side backend Docker build failure:
+  - failure point: `RUN uv sync --frozen --no-dev`
+  - root cause: `UV_COMPILE_BYTECODE=1` triggered optional bytecode compilation and hit server file descriptor limit (`os error 24`)
+- Removed `UV_COMPILE_BYTECODE=1` from `deploy/docker/backend.Dockerfile`.
+- Verification:
+  - `docker compose build backend` -> passed; `uv sync --frozen --no-dev` completed without bytecode compile step
 - Started BBox overlap selection follow-up.
 - Frontend agent implemented:
   - stage-level bbox hit testing

@@ -2,7 +2,6 @@ FROM python:3.11-slim AS runtime
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     PATH="/app/.venv/bin:$PATH"
 
