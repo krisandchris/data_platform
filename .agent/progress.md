@@ -104,6 +104,15 @@
   - `npm run test -- routesAndPages.test.ts` -> `1 passed`, `70 passed`
   - `VITE_API_BASE_URL=/api npm run build` -> passed
   - `npm run test` -> `6 passed`, `114 passed`
+- Integrated TASK-018 backend and frontend branches into `integration/TASK-018`.
+- Resolved `.agent` file conflicts by combining backend and frontend findings/progress into a single integration handoff.
+- Integration verification passed:
+  - `uv run pytest` -> `89 passed`
+  - `npm run test` in `frontend/` -> `6 passed`, `114 passed`
+  - `VITE_API_BASE_URL=/api npm run build` in `frontend/` -> passed
+  - `scripts/docker-compose-auto-subnet.py config` -> passed and showed `PLATFORM_ENABLE_FIXTURE_BATCH: "0"`
+  - `git diff --check` -> passed
+  - `scripts/docker-compose-auto-subnet.py build backend frontend` -> passed
 - Started `v0.0.1` release preparation.
 - Confirmed no existing `v0.0.1` or `0.0.1` tag.
 - Updated release metadata:

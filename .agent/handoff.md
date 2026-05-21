@@ -42,6 +42,14 @@ No.
 - Frontend branch: `VITE_API_BASE_URL=/api npm run build` -> passed.
 - Frontend branch: `npm run test` -> passed (`6 passed`, `114 passed`).
 
+## Integration Verification
+- `uv run pytest` -> passed (`89 passed`).
+- `npm run test` in `frontend/` -> passed (`6 passed`, `114 passed`).
+- `VITE_API_BASE_URL=/api npm run build` in `frontend/` -> passed.
+- `scripts/docker-compose-auto-subnet.py config` -> passed and showed `PLATFORM_ENABLE_FIXTURE_BATCH: "0"`.
+- `git diff --check` -> passed.
+- `scripts/docker-compose-auto-subnet.py build backend frontend` -> passed.
+
 ## Known Risks
 - Running Docker containers must be recreated for the new `PLATFORM_ENABLE_FIXTURE_BATCH=0` default to apply.
 - Existing runtime state that already persisted the fixture batch may still contain old records; this change prevents clean-start fixture loading/default listing.
