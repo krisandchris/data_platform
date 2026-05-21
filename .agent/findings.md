@@ -24,3 +24,11 @@
 - Preserve file-backed implementation as rollback and contract-test baseline.
 - Use explicit file-state import command rather than automatic import on container startup.
 - Split implementation into sequential integration phases; do not start Docker rollout until database, Redis, and import tool phases pass.
+
+## Agent Monitoring Findings
+
+- Backend Phase 1 branch is complete and clean at `e1d145f`; it added internal Python protocol boundaries without dependency changes or external API schema changes.
+- QA contract baseline branch is complete and clean at `d64fc60`; new file-backed store contract tests passed repeatedly.
+- Full backend test runs in Backend/QA worktrees reported existing failures tied to missing `DATASET/urban` fixture data in those isolated worktrees, not a confirmed regression from the new protocol/test changes.
+- Frontend baseline commands in the QA worktree failed because `frontend/node_modules` was absent (`vitest` and `vue-tsc` not found); this requires dependency install or verification in the main workspace before final integration signoff.
+- Docs branch completed at `df52cae` with a clean worktree and docs-only handoff. Sub-agent status polling did not emit a completion event, so Lead Agent verified completion from git state and handoff contents.

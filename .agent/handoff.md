@@ -39,10 +39,18 @@ No.
 
 ## Next Step
 
-Create `integration/TASK-019` and the Phase 1 worktrees:
+Phase 1 work has been dispatched.
+
+Active branches and worktrees:
 
 - `agent/TASK-019/backend/state-contracts`
 - `agent/TASK-019/qa/test-matrix`
 - `agent/TASK-019/docs/runbooks`
 
-Start with Phase 1 store interface extraction and contract-test harness. Do not begin PostgreSQL dependency work until Phase 1 exits cleanly.
+Active sub-agents:
+
+- Backend Agent `019e4ade-8b46-7963-a36e-88082ac56170` (`Epicurus`)
+- QA Agent `019e4ade-c6c9-7ab2-be26-adc77748c091` (`Hegel`)
+- Docs Agent `019e4ade-f19a-7f71-bed0-ce0af9302bf3` (`Goodall`)
+
+Do not begin PostgreSQL dependency work until Phase 1 exits cleanly and the Lead Agent merges these branches through `integration/TASK-019`.

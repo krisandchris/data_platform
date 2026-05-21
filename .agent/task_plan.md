@@ -5,9 +5,9 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 ## Phases
 
 1. Baseline and contract freeze.
-   - Status: in progress.
+   - Status: in progress. Backend, QA, and Docs first-pass branches have completed; pending Lead Agent review and integration merge.
 2. Store interface extraction.
-   - Status: pending.
+   - Status: in progress in `agent/TASK-019/backend/state-contracts`; pending Lead Agent review and integration merge.
 3. PostgreSQL foundation for identity, registry, label config, import jobs, and audit.
    - Status: pending.
 4. PostgreSQL migration for QC, drafts, submissions, sample pool, exports, and evaluations.
