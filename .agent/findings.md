@@ -66,3 +66,9 @@
 - PostgreSQL and Redis references in the repository are currently documentation/planning only, not runtime implementation.
 - `build_fixture_service` already accepts injected `platform_state_store` and `label_config_repo`, which is the intended seam for database-backed foundation implementations.
 - The first database phase must preserve file-backed defaults because Docker defaults and full QC state migration are later phases.
+
+## Phase 3 QA Monitoring Findings
+
+- QA DB foundation branch completed at `064f7a2` and intentionally gates DB-mode checks until backend source contains `PLATFORM_STATE_BACKEND` and `DATABASE_URL` wiring.
+- PostgreSQL-only QA checks are additionally gated by `TEST_DATABASE_URL`.
+- Lead integration order should merge Backend DB Foundation before QA so gated tests become active against real DB wiring.
