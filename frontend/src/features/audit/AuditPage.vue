@@ -62,10 +62,7 @@ import { onMounted, reactive, ref } from 'vue';
 import { apiClient } from '../../services/urbanViolationApi';
 import type { AuditEvent, AuditEventFilters, QcProgress } from '../../shared/types/contract';
 
-const defaultDatasetId = 'urban_violation__0508_fixture';
-const filters = reactive<AuditEventFilters>({
-  datasetId: defaultDatasetId,
-});
+const filters = reactive<AuditEventFilters>({});
 const events = ref<AuditEvent[]>([]);
 const progress = ref<QcProgress>();
 const loading = ref(true);
@@ -77,9 +74,12 @@ async function load() {
   loading.value = true;
   error.value = '';
   try {
+    const progressRequest = filters.datasetId
+      ? apiClient.getQcProgress(filters.datasetId)
+      : Promise.resolve(undefined);
     const [nextEvents, nextProgress] = await Promise.all([
       apiClient.listAuditEvents(filters),
-      apiClient.getQcProgress(filters.datasetId || defaultDatasetId),
+      progressRequest,
     ]);
     events.value = nextEvents;
     progress.value = nextProgress;

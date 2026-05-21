@@ -77,6 +77,42 @@
   - `VITE_API_BASE_URL=/api npm run build` in `frontend/` -> passed
   - `git diff --check` -> passed
   - `docker compose build frontend` -> passed
+- Started TASK-018 fixture-batch disable work in a fresh backend worktree from current `main`.
+- Backend worktree implemented:
+  - `PLATFORM_ENABLE_FIXTURE_BATCH` runtime flag
+  - disabled fixture startup path that does not import `DATASET_ROOT`
+  - dataset type and label config availability with zero batches
+  - Docker default `PLATFORM_ENABLE_FIXTURE_BATCH=0`
+  - deployment documentation for the new flag
+- Backend focused verification passed:
+  - `uv run pytest tests/test_api.py -k "disable_fixture_batch or fixture_batch_from_env or dataset_type_registry or health_and_dataset_summary"` -> `4 passed`, `77 deselected`
+- Backend full verification:
+  - first `uv run pytest` in the fresh worktree failed because ignored local test data `DATASET/urban` was not present in the worktree
+  - temporarily symlinked the main workspace `DATASET/` for test-only access
+  - reran `uv run pytest` -> `89 passed`
+  - removed the temporary `DATASET` symlink after verification
+- Started TASK-018 frontend no-fixture work in a fresh frontend worktree from current `main`.
+- Frontend worktree implemented:
+  - removed the Audit page hardcoded `urban_violation__0508_fixture` default filter
+  - made QC progress loading conditional on an explicit dataset id
+  - added a regression test that audit events load without a fixture dataset assumption
+- Frontend setup and focused verification:
+  - initial `npm run test -- routesAndPages.test.ts` failed because this fresh worktree had no `node_modules`
+  - `npm ci` -> passed with existing audit warnings
+  - `npm run test -- routesAndPages.test.ts` -> `1 passed`, `70 passed`
+- Frontend broader verification passed:
+  - `npm run test -- routesAndPages.test.ts` -> `1 passed`, `70 passed`
+  - `VITE_API_BASE_URL=/api npm run build` -> passed
+  - `npm run test` -> `6 passed`, `114 passed`
+- Integrated TASK-018 backend and frontend branches into `integration/TASK-018`.
+- Resolved `.agent` file conflicts by combining backend and frontend findings/progress into a single integration handoff.
+- Integration verification passed:
+  - `uv run pytest` -> `89 passed`
+  - `npm run test` in `frontend/` -> `6 passed`, `114 passed`
+  - `VITE_API_BASE_URL=/api npm run build` in `frontend/` -> passed
+  - `scripts/docker-compose-auto-subnet.py config` -> passed and showed `PLATFORM_ENABLE_FIXTURE_BATCH: "0"`
+  - `git diff --check` -> passed
+  - `scripts/docker-compose-auto-subnet.py build backend frontend` -> passed
 - Started `v0.0.1` release preparation.
 - Confirmed no existing `v0.0.1` or `0.0.1` tag.
 - Updated release metadata:
