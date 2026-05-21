@@ -31,4 +31,16 @@
 - Merged `agent/TASK-019/docs/qc-state-runbooks` into `integration/TASK-019`.
 - Backend, QA, frontend, and docs product/test/doc files merged without content conflicts.
 - Root `.agent` files conflicted with Lead Agent integration records during each branch merge and were rewritten as integration records preserving agent findings.
-- Final integration verification is pending.
+- Reconciled docs to remove backend-confirmation-dependent placeholders after backend/QA integration.
+- Fixed QA integration test semantics:
+  - `tests/test_db_qc_state_contract.py` now verifies database mode does not fall back to old QC JSON files and can read tasks/leases from PostgreSQL-backed store.
+- Final Phase 4 integration verification:
+  - `uv sync` -> passed.
+  - `uv run pytest tests/test_db_qc_state_backend.py tests/test_db_qc_state_contract.py tests/test_db_qc_state_api.py -q` -> 8 passed, 1 skipped.
+  - `uv run pytest -k "state_store_contract or label_config_repository_contract or db_foundation or db_qc_state" -q` -> 22 passed, 2 skipped.
+  - `DATABASE_URL=sqlite+pysqlite:////tmp/... uv run alembic upgrade head && DATABASE_URL=... uv run alembic current` -> passed, current revision `20260522_0002`.
+  - `uv run pytest -q` -> passed.
+  - `cd frontend && npm run test` -> 6 files passed, 115 tests passed.
+  - `cd frontend && VITE_API_BASE_URL=/api npm run build` -> passed.
+  - `uv run python scripts/docker-compose-auto-subnet.py config` -> passed.
+  - `git diff --check` -> passed.

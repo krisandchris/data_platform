@@ -172,7 +172,7 @@ def test_db_qc_state_contract_restart_persistence_roundtrip(tmp_path: Path) -> N
     assert restarted.get_evaluation(DATASET_ID, "eval-1") is not None
 
 
-def test_db_qc_state_contract_file_backed_regression_safety_in_db_mode(tmp_path: Path) -> None:
+def test_db_qc_state_contract_does_not_fall_back_to_file_state_in_db_mode(tmp_path: Path) -> None:
     store = _build_store(tmp_path)
     ts = datetime.now(timezone.utc)
 
@@ -206,8 +206,10 @@ def test_db_qc_state_contract_file_backed_regression_safety_in_db_mode(tmp_path:
     )
 
     qc_dir = tmp_path / "platform_state" / "qc" / DATASET_ID
-    assert (qc_dir / "tasks.json").is_file()
-    assert (qc_dir / "leases.json").is_file()
+    assert not (qc_dir / "tasks.json").exists()
+    assert not (qc_dir / "leases.json").exists()
+    assert [task.task_id for task in store.list_tasks(DATASET_ID)] == ["task-safe"]
+    assert [lease.lease_id for lease in store.list_leases(DATASET_ID)] == ["lease-safe"]
 
 
 def test_db_qc_state_postgres_only_gate() -> None:

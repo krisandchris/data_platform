@@ -11,7 +11,7 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 3. PostgreSQL foundation for identity, registry, label config, import jobs, and audit.
    - Status: complete.
 4. PostgreSQL migration for QC, drafts, submissions, sample pool, exports, and evaluations.
-   - Status: verifying. Backend, QA, Frontend, and Docs branches are merged into `integration/TASK-019`; final integration checks are pending.
+   - Status: complete. Backend, QA, Frontend, and Docs branches are merged into `integration/TASK-019`; local integration verification passed with SQLite database fallback.
 5. Redis runtime state for active leases, locks, session cache, and import progress.
    - Status: pending.
 6. File-state import tool.
@@ -40,3 +40,5 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 - Frontend tests/build remain green.
 - QA database-mode tests pass with SQLite fallback and optionally with `TEST_DATABASE_URL`.
 - Docs and runbooks are reconciled with the implemented Phase 4 behavior.
+
+Exit gate status: complete for local integration. PostgreSQL-specific live validation still requires `TEST_DATABASE_URL`.

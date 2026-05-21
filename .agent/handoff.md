@@ -12,6 +12,7 @@ Lead Agent
 
 - Phase 4 subagents dispatched and completed.
 - Backend, QA, Frontend, and Docs branches merged into integration.
+- Final Phase 4 integration verification passed locally.
 
 ## Changed Files
 
@@ -39,7 +40,15 @@ No new Phase 4 dependencies.
 
 ## Verification
 
-Pending final integration verification.
+- `uv sync` -> passed.
+- `uv run pytest tests/test_db_qc_state_backend.py tests/test_db_qc_state_contract.py tests/test_db_qc_state_api.py -q` -> 8 passed, 1 skipped.
+- `uv run pytest -k "state_store_contract or label_config_repository_contract or db_foundation or db_qc_state" -q` -> 22 passed, 2 skipped.
+- `DATABASE_URL=sqlite+pysqlite:////tmp/... uv run alembic upgrade head && DATABASE_URL=... uv run alembic current` -> passed, current revision `20260522_0002`.
+- `uv run pytest -q` -> passed.
+- `cd frontend && npm run test` -> 6 files passed, 115 tests passed.
+- `cd frontend && VITE_API_BASE_URL=/api npm run build` -> passed.
+- `uv run python scripts/docker-compose-auto-subnet.py config` -> passed.
+- `git diff --check` -> passed.
 
 ## Known Risks
 
@@ -48,4 +57,4 @@ Pending final integration verification.
 
 ## Next Agent Notes
 
-- Run focused backend/QA suites, full backend suite, frontend tests/build, Alembic smoke, and diff checks.
+- Merge `integration/TASK-019` back to `main` after review, then clean completed Phase 4 worktrees.
