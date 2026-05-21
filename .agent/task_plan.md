@@ -34,11 +34,11 @@ Docs Agent
 
 ## Planned Steps
 
-1. Inspect Phase 3 docs and Phase 4 code contracts.
-2. Draft Phase 4 operator validation notes for QC assignments, leases, drafts, submissions, snapshots, sample pool, exports, and evaluations.
-3. Keep docs explicit that raw files and export artifacts stay on the filesystem.
-4. Keep docs explicit that Redis is not implemented until Phase 5.
-5. Mark any backend-confirmation-dependent statements clearly until the backend branch lands.
+1. Complete - Inspect Phase 3 docs and Phase 4 code contracts.
+2. Complete - Draft Phase 4 operator validation notes for QC assignments, leases, drafts, submissions, snapshots, sample pool, exports, and evaluations.
+3. Complete - Keep docs explicit that raw files and export artifacts stay on the filesystem.
+4. Complete - Keep docs explicit that Redis is not implemented until Phase 5.
+5. Complete - Mark any backend-confirmation-dependent statements clearly until the backend branch lands.
 
 ## Acceptance Criteria
 
@@ -51,4 +51,3 @@ Docs Agent
 
 - Manual link and structure review.
 - `git diff --check`
-
