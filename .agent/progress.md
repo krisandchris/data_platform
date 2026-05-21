@@ -77,3 +77,9 @@
   - Added Phase 4 QC/review migration validation notes and preserved filesystem/Redis/Docker boundaries.
   - `git diff --check` and manual markdown link/structure review passed.
   - Remaining reconciliation needed after backend/QA branches land: table names, revision IDs, and exact test selectors.
+- QA Boyle completed at `a3c16e9`:
+  - Added `tests/test_db_qc_state_contract.py` and `tests/test_db_qc_state_api.py`.
+  - Focused Phase 4 QA suite passed: 6 passed, 1 skipped.
+  - State-store/db-foundation/db-qc-state subset passed: 17 passed, 2 skipped.
+  - Full suite failed on existing `tests/test_api.py` `DATASET/urban` fixture/environment assumptions in the QA worktree.
+  - Race-oriented subset reran 5 times with 0 failures.
