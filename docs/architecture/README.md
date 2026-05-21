@@ -1,6 +1,6 @@
 # Overall Architecture
 
-Last updated: 2026-05-21
+Last updated: 2026-05-22
 
 ## System Shape
 
@@ -228,6 +228,13 @@ Runtime state:
 - Use `PLATFORM_STATE_ROOT` for users, roles, sessions, assignments, leases, drafts, submissions, audits, and registered batches.
 - Use `LABEL_CONFIG_STORE_ROOT` for label config state when explicitly set; otherwise use a repo-local `.runtime/label_config_state` default.
 - Do not write runtime state into raw `DATASET/`.
+
+TASK-019 Phase 3 transition:
+
+- Phase 3 introduces PostgreSQL foundation for identity, registry, import job metadata, label config, and audit domains only.
+- Phase 3 uses `DATABASE_URL`, `PLATFORM_STATE_BACKEND=file|database`, and `PLATFORM_DB_AUTO_MIGRATE=0|1` for explicit backend database-mode verification.
+- Docker deployment remains file-backed during Phase 3.
+- Redis, QC/review state migration, file-state import, and production database rollout remain later phases.
 
 Local services:
 

@@ -7,7 +7,7 @@ This deployment profile runs the platform as two containers on a LAN host:
 - `DATASET/`: mounted from the host as readonly source data.
 - Runtime state: mounted from the host as writable state for accounts, sessions, permissions, batches, drafts, label config, QC state, and audit records.
 
-Current Compose deployment is file-backed. TASK-019 will add PostgreSQL and Redis only after database migrations, file-state import, Redis restart behavior, Docker rollout, and rollback have passed. See [State Persistence Boundaries](./state-persistence-boundaries.md) and [PostgreSQL + Redis Migration Runbook](./postgres-redis-migration-runbook.md).
+Current Compose deployment is file-backed. TASK-019 Phase 3 introduces PostgreSQL foundation code and migrations only; it does not switch Docker defaults, does not require Redis, and does not make the production database rollout. TASK-019 will add PostgreSQL and Redis to Docker defaults only after database migrations, QC/review state migration, file-state import, Redis restart behavior, Docker rollout, and rollback have passed. See [State Persistence Boundaries](./state-persistence-boundaries.md) and [PostgreSQL + Redis Migration Runbook](./postgres-redis-migration-runbook.md).
 
 The public LAN entrypoint is HTTP on port `8080` by default:
 
@@ -55,6 +55,16 @@ Important backend environment variables:
 | `PLATFORM_DEV_ANON` | `0` | Disables anonymous development access. |
 | `PLATFORM_INIT_ADMIN_ID` | `platform_admin` | Bootstrap administrator id. |
 | `PLATFORM_INIT_ADMIN_PASSWORD` | `admin123456` | Bootstrap administrator password. Override this before production use. |
+
+Phase 3 PostgreSQL foundation variables are expected by the backend foundation branch, but they are not Docker defaults yet:
+
+| Variable | Phase 3 default posture | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | Unset in current file-backed Compose defaults | PostgreSQL URL for Alembic and database-backed foundation mode. Required only when `PLATFORM_STATE_BACKEND=database`. |
+| `PLATFORM_STATE_BACKEND` | `file` | Selects `file` or `database`. Keep `file` for Docker deployment until the rollout phase. |
+| `PLATFORM_DB_AUTO_MIGRATE` | `0` | Controls startup migration behavior if backend implements it. Prefer explicit Alembic commands for operator verification. |
+
+Do not add `REDIS_URL` or `PLATFORM_REDIS_ENABLED` as required deployment variables during Phase 3. Redis is a later runtime-state phase.
 
 Host path and port overrides:
 
