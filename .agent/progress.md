@@ -118,3 +118,8 @@
   - File-backed contract baseline still passes: 4 passed.
   - Full suite in isolated QA worktree still has the known 4 `DATASET/urban` fixture-path failures.
   - `git diff --check` passed.
+- Docs Agent `Schrodinger` completed branch `agent/TASK-019/docs/db-foundation-runbooks` at commit `816d862`.
+  - Updated DB foundation runbook, persistence boundaries, deployment notes, migration sequence, architecture index, and runtime/validation docs.
+  - Manual link/structure review passed.
+  - `git diff --check` and `git diff --cached --check` passed.
+  - Docs assumptions to reconcile after backend integration: exact Alembic command names, DB test selectors, PostgreSQL driver URL form, mixed file/database mode behavior, and whether `PLATFORM_DB_AUTO_MIGRATE=1` is implemented in Phase 3.

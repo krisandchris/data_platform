@@ -72,3 +72,9 @@
 - QA DB foundation branch completed at `064f7a2` and intentionally gates DB-mode checks until backend source contains `PLATFORM_STATE_BACKEND` and `DATABASE_URL` wiring.
 - PostgreSQL-only QA checks are additionally gated by `TEST_DATABASE_URL`.
 - Lead integration order should merge Backend DB Foundation before QA so gated tests become active against real DB wiring.
+
+## Phase 3 Docs Monitoring Findings
+
+- Docs DB foundation branch completed at `816d862`.
+- Docs intentionally mark some command names and behavior as backend-confirmation assumptions because Backend DB Foundation had not landed when Docs completed.
+- Lead integration must reconcile docs after backend merge if actual Alembic paths, test selectors, driver URL form, mixed-mode behavior, or auto-migrate support differ from the docs.
