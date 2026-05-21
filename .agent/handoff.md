@@ -84,3 +84,10 @@ No.
 - Backend agents should implement the file-state import command as explicit and idempotent, with `--dry-run` and conflict reports.
 - Redis implementation must tolerate Redis restart without losing durable platform records.
 - Lead Agent should verify these docs again after actual Alembic, import CLI, and Compose changes land.
+
+## Phase 3 Dispatch Notes
+
+- Phase 3 starts from verified commit `a737c5b` on `main`.
+- Backend DB Foundation Agent is authorized to modify Python dependency files for SQLAlchemy/Alembic/PostgreSQL driver dependencies only, using `uv add`.
+- QA DB Foundation Agent owns database-mode test harness additions and must not modify product backend code.
+- Docs DB Foundation Agent owns documentation alignment and must update runbook command names after backend implementation lands.

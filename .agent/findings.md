@@ -59,3 +59,10 @@
 - Uploaded archives and extracted uploaded batch sources live under `PLATFORM_STATE_ROOT/import_uploads/{dataset_type}/{batch_key}` and must remain filesystem state.
 - Export job metadata is mutable platform state, but generated export artifact files are filesystem artifacts and must not be stored as PostgreSQL blobs.
 - Redis loss must be treated as loss of active locks/progress/cache only; it must not lose drafts, submissions, audit, label configs, users, roles, or batch metadata.
+
+## Phase 3 Dispatch Findings
+
+- Current `pyproject.toml` has no database dependencies yet; backend dependencies are limited to FastAPI, pwdlib, Pydantic, and Uvicorn plus dev pytest/httpx.
+- PostgreSQL and Redis references in the repository are currently documentation/planning only, not runtime implementation.
+- `build_fixture_service` already accepts injected `platform_state_store` and `label_config_repo`, which is the intended seam for database-backed foundation implementations.
+- The first database phase must preserve file-backed defaults because Docker defaults and full QC state migration are later phases.
