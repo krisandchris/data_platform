@@ -1,4 +1,4 @@
-# TASK-019 Phase 3 Integration Handoff
+# TASK-019 Phase 4 Integration Handoff
 
 ## Agent Role
 
@@ -8,75 +8,53 @@ Lead Agent
 
 `integration/TASK-019`
 
-## Worktree
-
-`/mnt/lc/LC/ares_xtws/0_train_data/data_platform`
-
 ## Scope Completed
 
-- Merged Phase 3 Backend, QA, and Docs branches into `integration/TASK-019`.
-- Reconciled docs against actual backend DB foundation behavior.
-- Fixed integration issues found by newly activated DB tests.
-- Ran final Phase 3 integration verification.
+- Phase 4 subagents dispatched and completed.
+- Backend, QA, Frontend, and Docs branches merged into integration.
+- Final Phase 4 integration verification passed locally.
 
-## Agent Branches Merged
+## Changed Files
 
-- `agent/TASK-019/backend/db-foundation` at `a640e85`.
-- `agent/TASK-019/qa/db-foundation-tests` at `064f7a2`.
-- `agent/TASK-019/docs/db-foundation-runbooks` at `816d862`.
-
-## Conflicts
-
-- Backend merge conflicted only in root `.agent` coordination files.
-- QA merge conflicted only in root `.agent` coordination files.
-- Docs merge conflicted only in root `.agent` coordination files.
-- Resolution: product code/tests/docs were preserved; root `.agent` files were rewritten as Lead Agent integration records.
+- `alembic/versions/20260522_0002_task019_phase4_qc_state.py`
+- `src/urban_violation_backend/db/foundation.py`
+- `src/urban_violation_backend/db/models.py`
+- `tests/test_db_qc_state_backend.py`
+- `tests/test_db_qc_state_api.py`
+- `tests/test_db_qc_state_contract.py`
+- `frontend/src/test/apiClient.test.ts`
+- `docs/architecture/postgres-redis-migration-runbook.md`
+- `docs/architecture/state-persistence-boundaries.md`
+- `docs/architecture/state_migration_agent_sequence.md`
+- `docs/backend/modules/assets-media-review.md`
+- `docs/backend/modules/runtime-and-validation.md`
+- `.agent/*`
 
 ## Shared Contracts Changed
 
-- Runtime construction contract changed:
-  - `build_fixture_service(...)` accepts explicit DB-mode overrides and DB auto-migration toggle.
-  - `create_app(...)` exposes matching constructor args.
-- Internal persistence contract changed:
-  - DB foundation modules, SQLAlchemy models, Alembic migrations, and runtime selection wiring were added.
-- External API response contracts were not intentionally changed.
+Yes. Phase 4 adds database schema/migration contracts for QC/review durable state.
 
 ## Dependencies Changed
 
-- Added with `uv`:
-  - `sqlalchemy`
-  - `alembic`
-  - `psycopg[binary]`
+No new Phase 4 dependencies.
 
 ## Verification
 
-- Backend Agent reported:
-  - Focused backend DB/store tests -> 8 passed.
-  - Full suite in isolated backend worktree -> 4 failed, 93 passed due missing `DATASET/urban`.
-- QA Agent reported:
-  - New gated DB harness -> `sss.sss` before backend merge.
-  - File-backed contract baseline -> 4 passed.
-- Docs Agent reported:
-  - Manual link/structure review -> passed.
-  - `git diff --check` and `git diff --cached --check` -> passed.
-- Lead Agent ran:
-  - `uv sync` -> passed.
-  - `uv run pytest -k 'state_store_contract or label_config_repository_contract or db_foundation' -q` -> 14 passed, 1 skipped.
-  - `uv run pytest tests/test_db_foundation_contract.py tests/test_db_foundation_api.py tests/test_db_foundation_backend.py -q` -> 10 passed, 1 skipped.
-  - `DATABASE_URL=sqlite+pysqlite:////tmp/... uv run alembic upgrade head && ... alembic current` -> passed, current revision `20260522_0001`.
-  - `uv run pytest` -> 103 passed, 1 skipped.
-  - `npm run test` in `frontend/` with Node 20 -> 6 files passed, 114 tests passed.
-  - `VITE_API_BASE_URL=/api npm run build` in `frontend/` with Node 20 -> passed.
-  - `uv run python scripts/docker-compose-auto-subnet.py config` -> passed.
-  - `git diff --check` -> passed.
+- `uv sync` -> passed.
+- `uv run pytest tests/test_db_qc_state_backend.py tests/test_db_qc_state_contract.py tests/test_db_qc_state_api.py -q` -> 8 passed, 1 skipped.
+- `uv run pytest -k "state_store_contract or label_config_repository_contract or db_foundation or db_qc_state" -q` -> 22 passed, 2 skipped.
+- `DATABASE_URL=sqlite+pysqlite:////tmp/... uv run alembic upgrade head && DATABASE_URL=... uv run alembic current` -> passed, current revision `20260522_0002`.
+- `uv run pytest -q` -> passed.
+- `cd frontend && npm run test` -> 6 files passed, 115 tests passed.
+- `cd frontend && VITE_API_BASE_URL=/api npm run build` -> passed.
+- `uv run python scripts/docker-compose-auto-subnet.py config` -> passed.
+- `git diff --check` -> passed.
 
 ## Known Risks
 
-- PostgreSQL-specific runtime smoke against a real PostgreSQL service was not run; local DB foundation verification used SQLite URL fallback.
-- Transitional hybrid mode is intentional for Phase 3: QC/review/export/evaluation remain file-backed until later migration phases.
-- Docker defaults remain file-backed; Phase 3 is not a production database rollout.
+- PostgreSQL live-service verification requires `TEST_DATABASE_URL`; current local verification is expected to use SQLite fallback unless a PostgreSQL URL is provided.
+- Redis remains pending for Phase 5.
 
-## Rollback Plan
+## Next Agent Notes
 
-- Revert the Phase 3 integration merge and agent merge commits.
-- File-backed mode remains the default runtime path, so database mode can be disabled by omitting `PLATFORM_STATE_BACKEND=database`.
+- Merge `integration/TASK-019` back to `main` after review, then clean completed Phase 4 worktrees.

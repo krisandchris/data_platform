@@ -8,7 +8,7 @@ Task ID: `TASK-019`
 
 This runbook is the operator draft for migrating an existing file-backed deployment to PostgreSQL + Redis.
 
-Current TASK-019 status: Phase 3 introduces PostgreSQL foundation only. It does not switch Docker defaults to database mode, does not implement Redis, does not provide the file-state import tool, and does not move QC/review state out of the file-backed store. Treat Phase 3 as an implementation verification checkpoint, not as a production database rollout.
+Current TASK-019 status: Phase 3 introduces PostgreSQL foundation. Phase 4 is the QC/review state database migration checkpoint. It still does not switch Docker defaults to database mode, does not implement Redis, and does not provide the file-state import tool. Treat Phase 3 and Phase 4 as implementation verification checkpoints, not as a production database rollout.
 
 It intentionally separates:
 
@@ -17,6 +17,8 @@ It intentionally separates:
 - source files and generated artifacts, which stay on the filesystem.
 
 Phase 3 backend foundation has landed with direct Alembic commands, `alembic/` migration files, and database foundation test selectors documented below.
+
+Phase 4 backend, QA, frontend compatibility, and docs branches have been merged into `integration/TASK-019`. The Phase 4 Alembic head revision is `20260522_0002` on top of the Phase 3 foundation revision `20260522_0001`.
 
 ## Phase 3 Foundation Scope
 
@@ -39,6 +41,30 @@ Phase 3 does not database-back these QC/review domains yet:
 
 During Phase 3, database-backed foundation records may coexist with file-backed QC/review records. The next backend phase owns the full QC/review migration.
 
+## Phase 4 QC/Review Scope
+
+Phase 4 database-backs these durable QC/review domains in `PLATFORM_STATE_BACKEND=database` mode:
+
+- QC assignments and task records;
+- sample lease history and current lease rows;
+- sample drafts, batch drafts, and submissions;
+- annotation snapshots and modification events;
+- correction sample pool items;
+- export job metadata and generated artifact pointers;
+- evaluation run metadata and metrics payloads.
+
+Phase 4 does not move these into PostgreSQL:
+
+- raw `DATASET/` source files;
+- uploaded package archives;
+- extracted uploaded batch source directories;
+- source images, STEP outputs, visualizations, and media bytes;
+- generated export artifact files.
+
+Phase 4 also does not implement Redis. Active lease coordination may be represented by PostgreSQL state during this phase, but Redis-backed lease locks, distributed locks, live import progress, and session caches remain Phase 5 work.
+
+Docker Compose defaults must remain file-backed during Phase 4. Operators may start a database-mode backend explicitly for verification, but repository Docker defaults must not switch to `PLATFORM_STATE_BACKEND=database` until the Docker rollout phase.
+
 ## Expected Phase 3 Environment Variables
 
 | Variable | Expected values | Required when | Notes |
@@ -48,6 +74,18 @@ During Phase 3, database-backed foundation records may coexist with file-backed 
 | `PLATFORM_DB_AUTO_MIGRATE` | `0` or `1` | Backend startup | Use `0` by default. Use `1` only in controlled verification because it upgrades the configured database to Alembic head at startup. |
 
 Do not require `REDIS_URL` or `PLATFORM_REDIS_ENABLED` for Phase 3. Redis is a later phase.
+
+## Expected Phase 4 Environment Variables
+
+Backend-confirmation-dependent: Phase 4 should use the same database selection surface as Phase 3 unless the backend handoff documents an approved change.
+
+| Variable | Expected values | Required when | Notes |
+| --- | --- | --- | --- |
+| `DATABASE_URL` | SQLAlchemy database URL, for PostgreSQL use `postgresql+psycopg://user:password@host:5432/dbname` | Running Alembic or database-backed QC/review verification | SQLite URLs may be used only for local tests if supported by the backend test harness. |
+| `PLATFORM_STATE_BACKEND` | `file` or `database` | Selecting state backend | `file` remains the default for local and Docker deployment until rollout phase. |
+| `PLATFORM_DB_AUTO_MIGRATE` | `0` or `1` | Backend startup | Keep `0` for operator verification unless the backend branch documents tested startup migration behavior. |
+
+Do not require `REDIS_URL` or `PLATFORM_REDIS_ENABLED` for Phase 4. Redis is Phase 5.
 
 ## Phase 3 Foundation Verification
 
@@ -95,6 +133,92 @@ Run these checks only after the backend database foundation branch has landed on
 
 6. Phase 3 integration is complete only after the Lead Agent records final command results in `.agent/handoff.md`.
 
+## Phase 4 QC/Review Verification
+
+Backend-confirmation-dependent: run this section only after the backend `qc-state` branch has landed on the branch being verified and the backend/QA handoff identifies the exact test selectors or files.
+
+1. Confirm file-backed behavior still passes:
+
+   ```bash
+   PLATFORM_STATE_BACKEND=file uv run pytest
+   ```
+
+2. Prepare an empty PostgreSQL database for verification. Do not change repository Docker Compose defaults for Phase 4.
+
+3. Inspect and run Alembic migrations:
+
+   ```bash
+   DATABASE_URL="$DATABASE_URL" uv run alembic heads
+   DATABASE_URL="$DATABASE_URL" uv run alembic current
+   DATABASE_URL="$DATABASE_URL" uv run alembic upgrade head
+   DATABASE_URL="$DATABASE_URL" uv run alembic current
+   ```
+
+4. Run backend-confirmed Phase 4 database tests. Until the backend branch lands, treat the command below as a selector pattern to reconcile with backend/QA handoff, not as a guaranteed current test name:
+
+   ```bash
+   TEST_DATABASE_URL="$DATABASE_URL" \
+   PLATFORM_STATE_BACKEND=database \
+   uv run pytest -k "qc_state or review_state or state_store_contract" -q
+   ```
+
+5. Validate QC assignments and tasks:
+
+   - Generate or load a QC queue for a concrete batch.
+   - Assign, reassign, and release a batch through `/api/datasets/{dataset_id}/qc/assignment`.
+   - List `/api/datasets/{dataset_id}/qc/tasks` before and after backend restart.
+   - Confirm assignment status, task revision, assignee, and latest submission pointers persist in database mode.
+
+6. Validate leases:
+
+   - Acquire, heartbeat, release, and force-release sample leases through the existing lease endpoints.
+   - Confirm owner checks still reject non-owner heartbeat and release attempts.
+   - Restart the backend and verify durable lease rows and terminal lease statuses remain visible.
+   - Do not run a Redis restart check for Phase 4; Redis is not implemented until Phase 5.
+
+7. Validate drafts, batch drafts, and submissions:
+
+   - Save a sample draft, retrieve it through `my-draft`, and verify it survives backend restart.
+   - Save and autosave a batch draft through `my-batch-draft`; repeat the autosave to verify idempotent replacement semantics.
+   - Submit the assigned batch and verify submission history, task status, assignment status, and released lease count.
+   - Confirm stale revision, missing assignment, missing active label config, unsaved dirty edits, and validation-error gates remain enforced.
+
+8. Validate snapshots and modification events:
+
+   - Confirm or return a submission through the lead confirmation endpoints.
+   - Verify baseline and confirmed snapshots are readable through both snapshot endpoint families.
+   - Verify modification events and stats are derived from persisted snapshots/submissions, not frontend-only event capture.
+   - Repeat confirmation or event insertion paths covered by tests to verify duplicate event keys are not inserted twice.
+
+9. Validate sample pool:
+
+   - Confirm a submission that produces modification events.
+   - Verify `/api/sample-pool`, `/api/sample-pool/stats`, item detail, item upsert/reactivation, and soft removal.
+   - Restart the backend and verify item status, event links, attribution codes, and confirmed snapshot pointers persist.
+
+10. Validate exports:
+
+    - Create, list, detail, cancel if supported, and download export jobs through `/api/exports`.
+    - Verify export job metadata persists in PostgreSQL.
+    - Verify the generated artifact path points to a filesystem file and the download endpoint streams that file.
+    - Do not expect export artifact bytes to appear in PostgreSQL.
+
+11. Validate evaluations:
+
+    - Create, list, and detail evaluation runs.
+    - Run compare and delta-sample endpoints when source data is available.
+    - Restart the backend and verify metrics, changed sample IDs, source export references, and status persist.
+
+12. Phase 4 acceptance checks:
+
+    - File-backed mode remains green.
+    - Database mode supports review assignment, lease, draft, batch submit, confirmation/return, snapshot/event, sample pool, export metadata, and evaluation metadata flows.
+    - Existing API response shapes stay compatible for frontend review, sample pool, export, and evaluation pages.
+    - Raw files and generated export artifacts remain filesystem content.
+    - Docker Compose still defaults to file-backed runtime state.
+    - No Redis dependency, Redis service, or Redis runtime behavior is required.
+    - Backend-confirmation-dependent test names, table names, and migration revision IDs are reconciled from backend/QA handoffs before production planning.
+
 ## Non-Goals
 
 The migration must not move these into PostgreSQL:
@@ -123,7 +247,7 @@ Before starting a production migration after all TASK-019 phases:
   - `LABEL_CONFIG_HOST_ROOT`
   - export artifact root if it is separated later
 
-These production prerequisites are not met by Phase 3 alone.
+These production prerequisites are not met by Phase 3 or Phase 4 alone.
 
 ## 1. Freeze Writes
 
@@ -187,9 +311,9 @@ sha256sum "$BACKUP_ROOT"/*.tgz > "$BACKUP_ROOT/SHA256SUMS"
 
 ## 3. Prepare PostgreSQL And Redis
 
-Future production rollout step. For Phase 3, prepare only a temporary PostgreSQL database for migration verification and do not require Redis.
+Future production rollout step. For Phase 3 or Phase 4, prepare only a temporary PostgreSQL database for migration verification and do not require Redis.
 
-For Phase 3 verification, export only the PostgreSQL URL:
+For Phase 3 or Phase 4 verification, export only the PostgreSQL URL:
 
 ```bash
 export DATABASE_URL='postgresql+psycopg://urban_platform:change-me@localhost:5432/urban_platform'
@@ -235,13 +359,14 @@ Expected result:
 
 - `alembic current` reports the head revision.
 - During Phase 3, an empty database contains foundation tables for identity, RBAC, sessions, registry, import job metadata, label config, and audit after upgrade.
+- During Phase 4, an empty database also contains QC assignment, task, lease, draft, submission, snapshot, modification event, sample pool, export metadata, and evaluation metadata tables after upgrade to revision `20260522_0002`.
 - After all TASK-019 phases are complete, an empty database also contains QC, draft, submission, snapshot, sample pool, export, and evaluation tables.
 
 Use `PLATFORM_DB_AUTO_MIGRATE=1` only if the final implementation documents and tests container startup migration behavior. The safer operator path is explicit migration before switching traffic.
 
 ## 5. Dry-Run File-State Import
 
-Future production rollout step. The file-state import tool is not part of Phase 3 PostgreSQL foundation. Do not run a production import until the backend import-tool phase has landed and the command name is confirmed.
+Future production rollout step. The file-state import tool is not part of Phase 3 PostgreSQL foundation or Phase 4 QC/review state migration. Do not run a production import until the backend import-tool phase has landed and the command name is confirmed.
 
 The import tool must provide an equivalent command surface:
 
@@ -300,7 +425,7 @@ Acceptance:
 
 ## 7. Database-Mode Verification Before Traffic
 
-Future production rollout step. For Phase 3, use the smaller foundation verification checklist near the top of this runbook. Do not require Redis, full QC/review persistence, or production traffic switching during Phase 3.
+Future production rollout step after the Redis runtime and import-tool phases. For Phase 3, use the smaller foundation verification checklist near the top of this runbook. For Phase 4, use the QC/review verification checklist. Do not require Redis or production traffic switching during Phase 4.
 
 Start the backend in database mode against the migrated database:
 
@@ -339,7 +464,7 @@ After Redis restart:
 
 ## 8. Docker Rollout
 
-Future production rollout step. Phase 3 must not change Docker defaults to database mode and must not add Redis as a required runtime service.
+Future production rollout step. Phase 3 and Phase 4 must not change Docker defaults to database mode and must not add Redis as a required runtime service.
 
 Switch Compose to the migrated target defaults only after the import and verification steps pass:
 

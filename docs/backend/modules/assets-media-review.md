@@ -41,3 +41,14 @@ Design notes:
 
 - Review detail returns asset identity, image URL, STEP1 relation evidence, STEP2 verification/candidates, label config context, QC task, assignment, lease state, draft, and submissions.
 - Media endpoints must resolve only allowed runtime media files.
+
+## TASK-019 Phase 4 Persistence Notes
+
+Backend-confirmation-dependent: after the backend `qc-state` branch lands, review detail should continue to expose the same response shape while assignment, task, lease, draft, and submission state are loaded from PostgreSQL in database mode.
+
+Persistence boundaries:
+
+- `image_url` and visualization URLs remain backend media routes over filesystem files.
+- Raw source images, STEP outputs, visualization files, and other media bytes are not stored in PostgreSQL.
+- Review detail may include database-backed QC/review metadata in Phase 4, but filesystem media resolution remains unchanged.
+- Redis is not required for review detail in Phase 4.

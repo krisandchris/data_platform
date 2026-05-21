@@ -51,6 +51,30 @@ The following state remains file-backed until the next backend phase moves QC/re
 
 During this transition, a database-backed foundation store may coexist with file-backed QC/review state. Operators must treat this as an implementation checkpoint, not as a production database cutover. Docker defaults remain file-backed, and Redis is still a later phase.
 
+## Phase 4 Transitional Boundary
+
+Phase 4 is the QC/review state database migration checkpoint. Backend-confirmation-dependent: this section is the expected boundary for the backend `qc-state` branch after it lands and passes integration checks. In this docs worktree, the current database models still show the Phase 3 foundation scope only.
+
+Phase 4 may database-back these additional durable domains:
+
+- QC assignments and per-sample task records;
+- sample lease history and current lease rows;
+- sample drafts, batch drafts, and immutable submissions;
+- annotation snapshots and modification events;
+- correction sample pool items;
+- export job metadata and artifact pointers;
+- evaluation run metadata and metrics payloads.
+
+Phase 4 does not change these boundaries:
+
+- Raw dataset files, uploaded archives, extracted batch source trees, source images, STEP outputs, media bytes, and generated export artifact files remain on the filesystem.
+- PostgreSQL may store paths, content types, sizes, hashes, counts, filters, and status metadata for filesystem artifacts, but must not store file bytes as blobs.
+- Redis is not implemented in Phase 4. Active lease coordination may use PostgreSQL rows and transactions during this phase, but Redis-backed distributed locks, live progress, and lease TTL enforcement remain Phase 5 work.
+- Docker defaults do not switch to database mode in Phase 4. `PLATFORM_STATE_BACKEND=file` remains the default until the Docker rollout phase explicitly changes deployment defaults.
+- The file-state import command is still a later rollout prerequisite. Phase 4 database-mode verification can create fresh database state for tests, but it is not a production migration from existing file-backed state.
+
+Operators should treat Phase 4 as a backend verification checkpoint. A production cutover still requires the Redis runtime phase, file-state import tooling, Docker rollout changes, and integration acceptance.
+
 ## Target PostgreSQL Responsibilities
 
 The final PostgreSQL target is the authoritative store for durable mutable platform records:
@@ -126,12 +150,13 @@ At service startup, cache miss, or source refresh, backend code may hydrate a ru
 ## Migration Invariants
 
 - File-backed mode remains available until the database path passes integration checks.
-- Phase 3 database-backed behavior is limited to foundation domains; QC/review state remains file-backed until the next backend phase.
+- Phase 3 database-backed behavior is limited to foundation domains.
+- Phase 4 extends database-backed behavior to QC/review domains only after the backend `qc-state` branch lands and passes integration checks.
 - File-state import is explicit and idempotent. It must not run automatically on every container startup.
 - The import tool must not mutate `DATASET/`, uploaded archives, extracted source files, media files, or export artifacts.
 - Same-ID same-content rows are idempotent.
 - Same-ID different-content rows are conflicts and require operator action.
-- Docker must not default to database mode until PostgreSQL migrations, Redis behavior, file-state import, and rollback have all been tested.
+- Docker must not default to database mode in Phase 4; the switch is blocked until PostgreSQL migrations, Redis behavior, file-state import, Docker rollout, and rollback have all been tested.
 - Frontend API contracts stay compatible. The frontend should not need to know whether the backend state backend is `file` or `database`.
 
 ## Related Documents
