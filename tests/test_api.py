@@ -347,6 +347,51 @@ def test_health_and_dataset_summary(client: TestClient) -> None:
     assert payload["stage2_failure_count"] == 19
 
 
+def test_disable_fixture_batch_preserves_type_and_label_config(tmp_path: Path) -> None:
+    with TestClient(
+        create_app(
+            dataset_root=tmp_path / "missing_dataset",
+            label_config_store_root=tmp_path / "LABEL_CONFIG_STATE",
+            platform_state_root=tmp_path / "PLATFORM_STATE",
+            enable_fixture_batch=False,
+        )
+    ) as scoped_client:
+        datasets = scoped_client.get("/api/datasets")
+        assert datasets.status_code == 200
+        assert datasets.json() == []
+
+        fixture_summary = scoped_client.get(f"/api/datasets/{BATCH_DATASET_ID}/summary")
+        assert fixture_summary.status_code == 404
+
+        type_detail = scoped_client.get(f"/api/dataset-types/{DATASET_ID}")
+        assert type_detail.status_code == 200
+        type_payload = type_detail.json()
+        assert type_payload["dataset_type"] == DATASET_ID
+        assert type_payload["batch_count"] == 0
+        assert type_payload["batches"] == []
+        assert type_payload["active_label_config_version"] is None
+
+        saved = scoped_client.post(
+            f"/api/dataset-types/{DATASET_ID}/label-configs",
+            json={
+                "file_name": LABEL_CONFIG_PATH.name,
+                "config": _load_label_config_payload(),
+                "activate": True,
+            },
+            headers=_admin_headers(),
+        )
+        assert saved.status_code == 200
+
+        active = scoped_client.get(f"/api/dataset-types/{DATASET_ID}/label-config/active")
+        assert active.status_code == 200
+        assert active.json()["config"]["dataset_type"] == DATASET_ID
+
+        updated_type = scoped_client.get(f"/api/dataset-types/{DATASET_ID}")
+        assert updated_type.status_code == 200
+        assert updated_type.json()["active_label_config_version"] == 1
+        assert updated_type.json()["batch_count"] == 0
+
+
 def test_dataset_type_registry_can_add_ares_detection(client: TestClient) -> None:
     type_list = client.get("/api/dataset-types")
     assert type_list.status_code == 200
@@ -1462,6 +1507,23 @@ def test_build_fixture_service_explicit_dataset_root_overrides_env(
         label_config_store_root=tmp_path / "LABEL_CONFIG_STATE",
     )
     assert service._dataset_root == DEFAULT_DATASET_ROOT.resolve()  # noqa: SLF001 - runtime wiring assertion
+
+
+def test_build_fixture_service_can_disable_fixture_batch_from_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("DATASET_ROOT", str(tmp_path / "missing_dataset"))
+    monkeypatch.setenv("PLATFORM_ENABLE_FIXTURE_BATCH", "0")
+    service = build_fixture_service(
+        label_config_store_root=tmp_path / "LABEL_CONFIG_STATE",
+        platform_state_root=tmp_path / "PLATFORM_STATE",
+    )
+
+    assert service.list_datasets() == []
+    type_detail = service.get_dataset_type(DATASET_ID)
+    assert type_detail.batch_count == 0
+    assert type_detail.batches == []
 
 
 def test_create_app_passes_explicit_dataset_root_over_env(
