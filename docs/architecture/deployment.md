@@ -63,6 +63,14 @@ FRONTEND_HTTP_PORT=8080 \
 docker compose up -d
 ```
 
+Docker network override:
+
+```bash
+PLATFORM_DOCKER_SUBNET=172.30.240.0/24 docker compose up -d
+```
+
+The compose file defines an explicit bridge subnet so Docker does not auto-select a range that conflicts with LAN routing on some servers. If `172.30.240.0/24` also overlaps with the host or another Docker network, choose any unused private subnet and set `PLATFORM_DOCKER_SUBNET` before `docker compose up -d`.
+
 ## Build And Start
 
 ```bash

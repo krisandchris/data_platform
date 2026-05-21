@@ -204,3 +204,12 @@ No.
 - Rationale: bytecode compilation is optional and can exhaust file descriptors on constrained servers; dependency install still succeeds without it.
 - Verification:
   - `docker compose build backend` -> passed
+
+## 2026-05-21 Docker Network Subnet Fix
+- Added an explicit Docker Compose bridge network for `backend` and `frontend`.
+- Default subnet is `172.30.240.0/24`, configurable through `PLATFORM_DOCKER_SUBNET`.
+- Rationale: avoid Docker daemon auto-selecting a bridge subnet that overlaps with the server LAN.
+- Verification:
+  - `docker compose config` -> passed
+  - expanded compose config shows `subnet: 172.30.240.0/24`
+  - repository search no longer finds the problematic LAN subnet literal

@@ -21,6 +21,8 @@ services:
       - ${LABEL_CONFIG_HOST_ROOT:-/srv/urban-platform/runtime/label_config_state}:/data/label_config_state
     expose:
       - "8000"
+    networks:
+      - platform
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).read()"]
       interval: 15s
@@ -40,4 +42,13 @@ services:
         condition: service_healthy
     ports:
       - "${FRONTEND_HTTP_PORT:-8080}:80"
+    networks:
+      - platform
     restart: unless-stopped
+
+networks:
+  platform:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${PLATFORM_DOCKER_SUBNET:-172.30.240.0/24}

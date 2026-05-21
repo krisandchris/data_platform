@@ -100,6 +100,14 @@
 - Removed `UV_COMPILE_BYTECODE=1` from `deploy/docker/backend.Dockerfile`.
 - Verification:
   - `docker compose build backend` -> passed; `uv sync --frozen --no-dev` completed without bytecode compile step
+- Investigated Docker network conflict risk:
+  - no hardcoded LAN subnet literal found in Dockerfile, compose service config, source, or tests
+  - added explicit compose bridge network with default `PLATFORM_DOCKER_SUBNET=172.30.240.0/24`
+  - added deployment doc note for overriding the subnet if it overlaps with the host
+- Verification:
+  - `docker compose config` -> passed
+  - expanded compose config contains `subnet: 172.30.240.0/24`
+  - repository search no longer finds the problematic LAN subnet literal
 - Started BBox overlap selection follow-up.
 - Frontend agent implemented:
   - stage-level bbox hit testing

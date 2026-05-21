@@ -116,3 +116,9 @@
 - `deploy/docker/backend.Dockerfile` set `UV_COMPILE_BYTECODE=1`, which makes `uv sync` run install-time bytecode compilation after dependencies install.
 - Bytecode compilation is an optional image-startup optimization and is not needed for correctness, especially with `PYTHONDONTWRITEBYTECODE=1` already set.
 - Removing `UV_COMPILE_BYTECODE=1` avoids the extra interpreter process/descriptor pressure and keeps dependency installation intact.
+
+## Docker Network Subnet Finding
+
+- Repository search found no hardcoded LAN subnet literal in Dockerfiles, compose service config, backend source, or frontend source.
+- The risk is Docker Compose's implicit default bridge network: Docker daemon address pools can auto-select a subnet that overlaps with the server LAN.
+- The fix is to define an explicit compose bridge network with IPAM and a configurable `PLATFORM_DOCKER_SUBNET` default.
