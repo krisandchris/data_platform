@@ -10,6 +10,7 @@ Last updated: 2026-05-22
 - File-backed runtime state in the current local platform phase.
 - TASK-019 target state backend: PostgreSQL for durable mutable records and Redis for short-lived coordination only.
 - TASK-019 Phase 3 status: PostgreSQL foundation only. Docker defaults stay file-backed and Redis is not implemented in this phase.
+- TASK-019 Phase 4 status: backend-confirmation-dependent QC/review state migration to PostgreSQL. Docker defaults still stay file-backed and Redis is still not implemented in this phase.
 - Pytest for backend regression tests.
 
 ## Runtime State
@@ -41,17 +42,19 @@ Migration boundary:
 - `DATASET/`, uploaded archive extraction directories, browser media files, and export artifact files remain filesystem content.
 - PostgreSQL is the target authority for users, roles, sessions, dataset registries, label config, import jobs, audit, QC state, drafts, submissions, snapshots, sample pool, exports, and evaluations.
 - Phase 3 database-backed scope is limited to foundation domains: users, roles, sessions, dataset registries, import job metadata, label config, and audit.
-- QC/review state remains file-backed until the following backend phase migrates assignments, tasks, leases, drafts, submissions, snapshots, sample pool, exports, and evaluations.
+- Phase 4, after backend confirmation, migrates QC assignments, tasks, lease history/current lease rows, drafts, batch drafts, submissions, snapshots, modification events, sample pool items, export metadata, and evaluation metadata to PostgreSQL.
+- Phase 4 does not store raw files or generated export artifact bytes in PostgreSQL.
 - Redis may hold active lease locks, distributed locks, session cache, and live import progress.
 - Redis is not the authority for drafts, submissions, audit, label config, users, roles, sessions, dataset type metadata, or batch metadata.
+- Redis is not implemented until Phase 5; `REDIS_URL` and `PLATFORM_REDIS_ENABLED` are not Phase 4 requirements.
 - `RegisteredBatchRuntime` remains a derived runtime cache hydrated from database metadata plus filesystem `source_uri`.
 
-Phase 3 env vars:
+Phase 3 and Phase 4 env vars:
 
 | Variable | Values | Use |
 | --- | --- | --- |
 | `DATABASE_URL` | SQLAlchemy database URL; PostgreSQL uses `postgresql+psycopg://user:password@host:5432/dbname` | Required for Alembic and database-backed foundation mode. |
-| `PLATFORM_STATE_BACKEND` | `file` or `database` | Selects file-backed or database-backed foundation mode. |
+| `PLATFORM_STATE_BACKEND` | `file` or `database` | Selects file-backed or database-backed foundation/QC-review mode. |
 | `PLATFORM_DB_AUTO_MIGRATE` | `0` or `1` | Controls startup migration behavior; explicit Alembic remains safer for verification. |
 
 Detailed boundary and operator steps:
@@ -76,6 +79,23 @@ Live smoke:
 scripts/integration-smoke.sh main
 scripts/integration-smoke.sh agent
 ```
+
+Phase 4 database-mode validation is backend-confirmation-dependent and should be reconciled with the backend and QA handoffs before running against an integration branch:
+
+```bash
+DATABASE_URL="$DATABASE_URL" uv run alembic upgrade head
+TEST_DATABASE_URL="$DATABASE_URL" \
+PLATFORM_STATE_BACKEND=database \
+uv run pytest -k "qc_state or review_state or state_store_contract" -q
+```
+
+Phase 4 operator smoke should cover:
+
+- QC queue, assignment, reassign, release, and task listing persistence after backend restart.
+- Lease acquire, heartbeat, release, force release, and owner-check behavior without Redis.
+- Sample draft, batch draft/autosave, batch submit, submission history, confirmation, and return.
+- Annotation snapshots, modification events, correction sample pool, export job metadata, and evaluation metadata.
+- Export download resolving filesystem artifacts through backend routes.
 
 ## Known Risks
 

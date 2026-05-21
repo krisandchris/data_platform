@@ -23,15 +23,16 @@
 
 ## Phase 4 Frontend Findings
 
-- Frontend Phase 4 branch completed at `011df88` and is being merged into integration.
+- Frontend Phase 4 branch completed at `011df88` and is merged into integration.
 - Frontend added a focused HTTP API adapter test for database-mode review payload fields.
 - Existing coverage already protects sample switching and readonly lease warning behavior.
 - No frontend API contract change is expected.
 
 ## Phase 4 Docs Findings
 
-- Docs Phase 4 branch completed at `b4f1042`.
-- Docs need final reconciliation after backend/QA integration for exact table names, revision IDs, and test selectors.
+- Docs Phase 4 branch completed at `b4f1042` and is merged into integration.
+- Docs explicitly preserve filesystem artifact boundaries, Phase 5 Redis timing, and unchanged Docker defaults.
+- Docs may need final reconciliation if integration tests expose exact command/selector drift.
 
 ## Known Risks
 

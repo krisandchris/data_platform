@@ -11,13 +11,23 @@ Lead Agent
 ## Scope Completed
 
 - Phase 4 subagents dispatched and completed.
-- Backend branch merged.
-- QA branch merged.
-- Frontend branch merge is in progress.
+- Backend, QA, Frontend, and Docs branches merged into integration.
 
 ## Changed Files
 
-Pending final integration summary.
+- `alembic/versions/20260522_0002_task019_phase4_qc_state.py`
+- `src/urban_violation_backend/db/foundation.py`
+- `src/urban_violation_backend/db/models.py`
+- `tests/test_db_qc_state_backend.py`
+- `tests/test_db_qc_state_api.py`
+- `tests/test_db_qc_state_contract.py`
+- `frontend/src/test/apiClient.test.ts`
+- `docs/architecture/postgres-redis-migration-runbook.md`
+- `docs/architecture/state-persistence-boundaries.md`
+- `docs/architecture/state_migration_agent_sequence.md`
+- `docs/backend/modules/assets-media-review.md`
+- `docs/backend/modules/runtime-and-validation.md`
+- `.agent/*`
 
 ## Shared Contracts Changed
 
@@ -38,5 +48,4 @@ Pending final integration verification.
 
 ## Next Agent Notes
 
-- Finish merging Frontend and Docs branches.
 - Run focused backend/QA suites, full backend suite, frontend tests/build, Alembic smoke, and diff checks.

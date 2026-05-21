@@ -38,6 +38,7 @@ agent/TASK-019/qa/test-matrix
 agent/TASK-019/qa/db-foundation-tests
 agent/TASK-019/docs/runbooks
 agent/TASK-019/docs/db-foundation-runbooks
+agent/TASK-019/docs/qc-state-runbooks
 ```
 
 Do not start a later phase until the previous phase's exit gate passes on the integration branch.
@@ -172,6 +173,7 @@ Parallel support:
 
 - Frontend Agent validates review and QC pages without changing contracts.
 - QA Agent adds concurrency and restart persistence tests.
+- Docs Agent updates QC/review state validation notes and operator runbooks while marking backend-confirmation-dependent details until the backend branch lands.
 
 Backend tasks:
 
@@ -179,6 +181,7 @@ Backend tasks:
 - Replace read-all-and-overwrite logic with transactional upserts and state transitions.
 - Keep `RegisteredBatchRuntime` as a derived cache hydrated from database batch metadata plus filesystem `source_uri`.
 - Ensure batch deletion removes runtime state records but does not delete raw source data.
+- Do not implement Redis runtime behavior or change Docker defaults in Phase 4.
 
 Frontend tasks:
 
@@ -196,6 +199,7 @@ Exit gate:
 - Database mode supports the full review workflow through confirmation.
 - File-backed mode remains green.
 - Frontend tests/build remain green.
+- Runbooks state that raw files and generated export artifacts remain on the filesystem, Redis starts in Phase 5, and Docker defaults do not switch in Phase 4.
 
 ## Phase 5: Redis Runtime State
 

@@ -27,6 +27,8 @@
 
 - Merged `agent/TASK-019/backend/qc-state` into `integration/TASK-019` at merge commit `6f9f648`.
 - Merged `agent/TASK-019/qa/qc-state-tests` into `integration/TASK-019` at merge commit `4dd56fe`.
-- Started merging `agent/TASK-019/frontend/qc-db-compat`.
-- Backend, QA, and frontend product/test files merged without conflict.
-- Root `.agent` files conflicted with Lead Agent integration records and were rewritten as integration records preserving agent findings.
+- Merged `agent/TASK-019/frontend/qc-db-compat` into `integration/TASK-019` at merge commit `73c889e`.
+- Merged `agent/TASK-019/docs/qc-state-runbooks` into `integration/TASK-019`.
+- Backend, QA, frontend, and docs product/test/doc files merged without content conflicts.
+- Root `.agent` files conflicted with Lead Agent integration records during each branch merge and were rewritten as integration records preserving agent findings.
+- Final integration verification is pending.
