@@ -78,3 +78,10 @@
 - Docs DB foundation branch completed at `816d862`.
 - Docs intentionally mark some command names and behavior as backend-confirmation assumptions because Backend DB Foundation had not landed when Docs completed.
 - Lead integration must reconcile docs after backend merge if actual Alembic paths, test selectors, driver URL form, mixed-mode behavior, or auto-migrate support differ from the docs.
+
+## Phase 3 Backend Monitoring Findings
+
+- Backend DB foundation branch completed at `a640e85`.
+- The backend branch adds SQLAlchemy, Alembic, and `psycopg[binary]` dependency changes through `uv`, as authorized for Phase 3.
+- The backend branch implements a transitional hybrid mode: database-backed foundation domains, with QC/review/export/evaluation still file-backed until later phases.
+- PostgreSQL-specific smoke was not run in the backend worktree; SQLite URL fallback covered local DB foundation tests.

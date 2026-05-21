@@ -123,3 +123,11 @@
   - Manual link/structure review passed.
   - `git diff --check` and `git diff --cached --check` passed.
   - Docs assumptions to reconcile after backend integration: exact Alembic command names, DB test selectors, PostgreSQL driver URL form, mixed file/database mode behavior, and whether `PLATFORM_DB_AUTO_MIGRATE=1` is implemented in Phase 3.
+- Backend Agent `Mencius` completed branch `agent/TASK-019/backend/db-foundation` at commit `a640e85`.
+  - Added database dependencies with `uv`: SQLAlchemy, Alembic, and `psycopg[binary]`.
+  - Added Alembic baseline plus DB foundation package under `src/urban_violation_backend/db/`.
+  - Wired explicit database mode via `PLATFORM_STATE_BACKEND=database`, `DATABASE_URL`, and `PLATFORM_DB_AUTO_MIGRATE`.
+  - Preserved file-backed mode as default and kept QC/review/export/evaluation state file-backed for later phases.
+  - Focused backend verification passed: `8 passed`.
+  - Full suite in isolated backend worktree still has the known 4 `DATASET/urban` fixture-path failures.
+  - `git diff --check` passed.
