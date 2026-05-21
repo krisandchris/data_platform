@@ -19,12 +19,14 @@ def create_app(
     dataset_root: Path | None = None,
     label_config_store_root: Path | None = None,
     platform_state_root: Path | None = None,
+    enable_fixture_batch: bool | None = None,
 ) -> FastAPI:
     """Create the FastAPI application with fixture service wiring."""
     service = build_fixture_service(
         **({"dataset_root": dataset_root} if dataset_root is not None else {}),
         label_config_store_root=label_config_store_root,
         platform_state_root=platform_state_root,
+        enable_fixture_batch=enable_fixture_batch,
     )
     app = FastAPI(
         title="Urban Violation Backend API",

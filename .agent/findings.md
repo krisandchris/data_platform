@@ -129,3 +129,9 @@
 - Automatic subnet selection needs a wrapper that inspects `docker network inspect` IPAM config and host routes, then exports `PLATFORM_DOCKER_SUBNET` before invoking `docker compose`.
 - The wrapper should reuse an existing project `platform` network subnet if one exists, otherwise subsequent `ps`, `up`, or `down` commands may compute a different free subnet.
 - Low boundary slices like `172.x.0.0/24` can be risky on heterogeneous server/VPN networks even when not visible in Docker's IPAM list, so automatic ranking should prefer higher third-octet `/24` candidates first.
+
+## Fixture Batch Disable Finding
+
+- The built-in `urban_violation__0508_fixture` batch is created by `FixtureRuntimeService` during startup, so Docker deployments with a clean runtime still showed a protected default batch.
+- The `urban_violation` dataset type and label config repository do not require fixture samples; they can remain available while the batch list is empty.
+- Docker should default `PLATFORM_ENABLE_FIXTURE_BATCH=0`; local fixture-heavy tests and explicit app construction can keep the previous default enabled.

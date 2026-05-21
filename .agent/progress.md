@@ -77,6 +77,20 @@
   - `VITE_API_BASE_URL=/api npm run build` in `frontend/` -> passed
   - `git diff --check` -> passed
   - `docker compose build frontend` -> passed
+- Started TASK-018 fixture-batch disable work in a fresh backend worktree from current `main`.
+- Backend worktree implemented:
+  - `PLATFORM_ENABLE_FIXTURE_BATCH` runtime flag
+  - disabled fixture startup path that does not import `DATASET_ROOT`
+  - dataset type and label config availability with zero batches
+  - Docker default `PLATFORM_ENABLE_FIXTURE_BATCH=0`
+  - deployment documentation for the new flag
+- Backend focused verification passed:
+  - `uv run pytest tests/test_api.py -k "disable_fixture_batch or fixture_batch_from_env or dataset_type_registry or health_and_dataset_summary"` -> `4 passed`, `77 deselected`
+- Backend full verification:
+  - first `uv run pytest` in the fresh worktree failed because ignored local test data `DATASET/urban` was not present in the worktree
+  - temporarily symlinked the main workspace `DATASET/` for test-only access
+  - reran `uv run pytest` -> `89 passed`
+  - removed the temporary `DATASET` symlink after verification
 - Started `v0.0.1` release preparation.
 - Confirmed no existing `v0.0.1` or `0.0.1` tag.
 - Updated release metadata:

@@ -321,6 +321,7 @@ class FixtureRuntimeService:
         label_config_repo: InMemoryLabelConfigRepository | None = None,
         label_config_store_root: Path | None = None,
         platform_state_root: Path | None = None,
+        enable_fixture_batch: bool = True,
     ) -> None:
         self._dataset_root = dataset_root.resolve()
         self._label_config_store_root = (
@@ -334,7 +335,10 @@ class FixtureRuntimeService:
         self._legacy_dataset_id = dataset_id
         self._batch_key = "0508_fixture"
         self._dataset_id = f"{self._dataset_type}__{self._batch_key}"
-        self._accepted_dataset_ids = {self._dataset_id, self._legacy_dataset_id}
+        self._fixture_batch_enabled = enable_fixture_batch
+        self._accepted_dataset_ids: set[str] = (
+            {self._dataset_id, self._legacy_dataset_id} if enable_fixture_batch else set()
+        )
         self._field_schema_version = "2026-05-18"
         self._dataset_type_display_names: dict[str, str] = {
             self._dataset_type: "城市违规",
@@ -348,50 +352,58 @@ class FixtureRuntimeService:
             self._label_config_store_root
         )
         self._load_dataset_types_from_label_config_repo()
-        self._bundle = import_fixture_samples(dataset_root=self._dataset_root, sample_ids=sample_ids)
-        self._samples: dict[str, FixtureSample] = {
-            sample.sample_id: sample for sample in self._bundle.samples
-        }
         self._import_job_counter = 0
-        fixture_import_job = self._bundle.import_job.model_copy(
-            update={
-                "dataset_id": self._dataset_id,
-                "dataset_type": self._dataset_type,
-                "batch_key": self._batch_key,
-                "warnings": [],
-            }
-        )
-        self._import_jobs: dict[str, ImportJob] = {fixture_import_job.job_id: fixture_import_job}
+        self._samples: dict[str, FixtureSample] = {}
+        self._import_jobs: dict[str, ImportJob] = {}
         self._registered_batches: dict[str, DatasetSummaryResponse] = {}
-        self._import_job = fixture_import_job
-        self._active_import_job_id = fixture_import_job.job_id
-        self._reviews: dict[str, list[HumanReview]] = {sample_id: [] for sample_id in self._samples}
-        self._label_edits: dict[str, list[LabelEditState]] = {
-            sample_id: [] for sample_id in self._samples
-        }
+        self._active_import_job_id: str | None = None
+        self._reviews: dict[str, list[HumanReview]] = {}
+        self._label_edits: dict[str, list[LabelEditState]] = {}
         self._review_counter = 0
         self._label_edit_counter = 0
         self._updated_at = datetime.now(timezone.utc)
         self._registered_batch_runtimes: dict[str, RegisteredBatchRuntime] = {}
         self._registered_batch_runtime_errors: dict[str, str] = {}
-        self._load_registered_batches()
-        self._lifecycle_status = self._derive_lifecycle_status()
 
-        self._stage1_run_dir = discover_stage_run_dir(self._dataset_root, "stage1")
-        self._stage2_run_dir = discover_stage_run_dir(self._dataset_root, "stage2")
-        stage1_entries = read_stage1_manifest(self._dataset_root, stage1_run_dir=self._stage1_run_dir)
-        stage2_entries = read_stage2_manifest(self._dataset_root, stage2_run_dir=self._stage2_run_dir)
-        self._pairs = {
-            pair.sample_id: pair
-            for pair in pair_stage_samples(
-                stage1_entries,
-                stage2_entries,
-                sample_ids=list(self._samples.keys()),
+        if enable_fixture_batch:
+            self._bundle = import_fixture_samples(dataset_root=self._dataset_root, sample_ids=sample_ids)
+            self._samples = {
+                sample.sample_id: sample for sample in self._bundle.samples
+            }
+            fixture_import_job = self._bundle.import_job.model_copy(
+                update={
+                    "dataset_id": self._dataset_id,
+                    "dataset_type": self._dataset_type,
+                    "batch_key": self._batch_key,
+                    "warnings": [],
+                }
             )
-        }
+            self._import_jobs[fixture_import_job.job_id] = fixture_import_job
+            self._import_job = fixture_import_job
+            self._active_import_job_id = fixture_import_job.job_id
+            self._reviews = {sample_id: [] for sample_id in self._samples}
+            self._label_edits = {sample_id: [] for sample_id in self._samples}
+
+            self._stage1_run_dir = discover_stage_run_dir(self._dataset_root, "stage1")
+            self._stage2_run_dir = discover_stage_run_dir(self._dataset_root, "stage2")
+            stage1_entries = read_stage1_manifest(self._dataset_root, stage1_run_dir=self._stage1_run_dir)
+            stage2_entries = read_stage2_manifest(self._dataset_root, stage2_run_dir=self._stage2_run_dir)
+            self._pairs = {
+                pair.sample_id: pair
+                for pair in pair_stage_samples(
+                    stage1_entries,
+                    stage2_entries,
+                    sample_ids=list(self._samples.keys()),
+                )
+            }
+            self._visualizations_dir = self._stage1_run_dir / "visualizations"
+        else:
+            self._pairs: dict[str, PairedSample] = {}
+            self._visualizations_dir = self._dataset_root / "visualizations"
 
         self._image_dir = self._dataset_root / "images"
-        self._visualizations_dir = self._stage1_run_dir / "visualizations"
+        self._load_registered_batches()
+        self._lifecycle_status = self._derive_lifecycle_status()
 
         env_state_root = os.environ.get("PLATFORM_STATE_ROOT")
         self._platform_state_root = (
@@ -409,7 +421,8 @@ class FixtureRuntimeService:
             settings=AuthService.default_settings(),
         )
         self._auth_service.ensure_bootstrap_admin()
-        self._ensure_qc_tasks()
+        if self._fixture_batch_enabled:
+            self._ensure_qc_tasks()
 
     def _load_dataset_type_registry(self) -> None:
         if not self._dataset_type_registry_path.is_file():
@@ -545,7 +558,10 @@ class FixtureRuntimeService:
         if not BATCH_KEY_PATTERN.match(batch_key):
             raise ValueError(f"Invalid batch key: {batch_key}")
         batch_dataset_id = f"{dataset_type}__{batch_key}"
-        if batch_dataset_id == self._dataset_id or batch_dataset_id in self._registered_batches:
+        if (
+            batch_dataset_id in self._registered_batches
+            or (self._fixture_batch_enabled and batch_dataset_id == self._dataset_id)
+        ):
             raise ValueError(f"Dataset batch already exists: {batch_dataset_id}")
 
     def max_import_archive_bytes(self) -> int:
@@ -869,7 +885,7 @@ class FixtureRuntimeService:
         return runtime
 
     def _is_fixture_dataset(self, dataset_id: str) -> bool:
-        return dataset_id in {self._dataset_id, self._legacy_dataset_id}
+        return self._fixture_batch_enabled and dataset_id in {self._dataset_id, self._legacy_dataset_id}
 
     def _job_belongs_to_dataset(self, dataset_id: str, job: ImportJob) -> bool:
         if self._is_fixture_dataset(dataset_id):
@@ -977,6 +993,8 @@ class FixtureRuntimeService:
 
     def _derive_lifecycle_status(self) -> DatasetLifecycleStatus:
         """Derive batch lifecycle from latest import job and current review/config state."""
+        if not self._fixture_batch_enabled:
+            return DatasetLifecycleStatus.PREANNOTATION_PENDING
         latest_state = self._import_job.state
         if latest_state in {ImportJobState.DRAFT, ImportJobState.UPLOADING, ImportJobState.UPLOADED}:
             return DatasetLifecycleStatus.REGISTERED
@@ -3353,10 +3371,10 @@ class FixtureRuntimeService:
             else summary
             for summary in self._registered_batches.values()
         ]
-        return [
-            self.get_dataset_summary(self._dataset_id),
-            *sorted(registered, key=lambda item: item.dataset_id),
-        ]
+        datasets = sorted(registered, key=lambda item: item.dataset_id)
+        if self._fixture_batch_enabled:
+            return [self.get_dataset_summary(self._dataset_id), *datasets]
+        return datasets
 
     def delete_dataset_batch(self, *, dataset_id: str, context: AuthContext) -> DatasetDeleteResponse:
         """Delete one registered dataset batch and its runtime state."""
@@ -3416,7 +3434,7 @@ class FixtureRuntimeService:
         if dataset_type not in self._dataset_type_display_names:
             raise DatasetNotFoundError(f"Dataset type not found: {dataset_type}")
         batches = []
-        if dataset_type == self._dataset_type:
+        if self._fixture_batch_enabled and dataset_type == self._dataset_type:
             batches.append(self.get_dataset_summary(self._dataset_id))
         batches.extend(
             sorted(
@@ -6410,11 +6428,24 @@ DEFAULT_FIXTURE_SAMPLE_IDS = (
 )
 
 
+def _env_flag(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    return default
+
+
 def build_fixture_service(
     dataset_root: Path | None = None,
     sample_ids: Sequence[str] | None = None,
     label_config_store_root: Path | None = None,
     platform_state_root: Path | None = None,
+    enable_fixture_batch: bool | None = None,
 ) -> FixtureRuntimeService:
     """Factory for runtime service with deterministic defaults.
 
@@ -6439,4 +6470,9 @@ def build_fixture_service(
         sample_ids=sample_ids,
         label_config_store_root=resolved_store_root,
         platform_state_root=platform_state_root,
+        enable_fixture_batch=(
+            _env_flag("PLATFORM_ENABLE_FIXTURE_BATCH", True)
+            if enable_fixture_batch is None
+            else enable_fixture_batch
+        ),
     )

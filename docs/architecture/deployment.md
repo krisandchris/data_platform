@@ -48,6 +48,7 @@ Important backend environment variables:
 | `LABEL_CONFIG_STORE_ROOT` | `/data/label_config_state` | Writable label config and dataset registry state. |
 | `PLATFORM_IMPORT_ARCHIVE_MAX_BYTES` | `8589934592` | Maximum uploaded batch zip size in bytes. Compose default is 8 GiB. |
 | `PLATFORM_IMPORT_ARCHIVE_EXTRACT_MAX_BYTES` | `34359738368` | Maximum extracted archive content size in bytes. Compose default is 32 GiB. |
+| `PLATFORM_ENABLE_FIXTURE_BATCH` | `0` | Controls whether the built-in `urban_violation__0508_fixture` batch is loaded. Docker deployment disables it so only uploaded/registered batches appear. |
 | `PLATFORM_AUTH_MODE` | `session` | Enables session-token login. |
 | `PLATFORM_DEV_ANON` | `0` | Disables anonymous development access. |
 | `PLATFORM_INIT_ADMIN_ID` | `platform_admin` | Bootstrap administrator id. |
@@ -137,6 +138,7 @@ Expected behavior:
 - Unauthenticated protected API requests return an auth error.
 - `/login` loads in the browser.
 - After logging in with the configured administrator, `/datasets` opens.
+- A clean Docker deployment keeps the `urban_violation` dataset type and label config registry but does not list the built-in fixture batch unless `PLATFORM_ENABLE_FIXTURE_BATCH=1` is set.
 - Media URLs such as `/api/datasets/{batch_id}/media/images/{file_name}` load through the frontend origin.
 
 Persistence checks:
