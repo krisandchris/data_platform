@@ -54,3 +54,9 @@ Frontend Agent
 - `cd frontend && npm run test`
 - `cd frontend && VITE_API_BASE_URL=/api npm run build`
 
+## Completion Status
+
+- Steps 1-5 complete.
+- Added one focused frontend API adapter regression test for database-mode review state normalization.
+- No frontend product UI, backend code, API contract, or dependency declaration changes were made.
+- Final checks passed: `cd frontend && npm run test` and `cd frontend && VITE_API_BASE_URL=/api npm run build`.
