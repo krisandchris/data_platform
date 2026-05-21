@@ -89,3 +89,9 @@
   - `npm run test` passed: 6 files, 115 tests.
   - `VITE_API_BASE_URL=/api npm run build` passed.
   - No backend code, API contracts, or dependency declarations changed.
+- Backend Bacon completed at `254e9f0`:
+  - Added Phase 4 ORM rows and Alembic migration `20260522_0002_task019_phase4_qc_state.py`.
+  - Implemented DB-mode methods for assignments, tasks, leases, drafts, batch drafts, submissions, snapshots, modification events, sample pool, export jobs, and evaluation runs.
+  - Added focused backend tests in `tests/test_db_qc_state_backend.py`.
+  - Focused checks passed: `tests/test_db_qc_state_backend.py` -> 2 passed; `state_store_contract or db_foundation or db_qc_state` -> 13 passed, 1 skipped; DB foundation backend tests -> 4 passed; SQLite Alembic upgrade to head passed.
+  - Full suite in backend worktree failed on existing fixture/environment-dependent `DATASET/urban` API tests, not Phase 4 DB-state tests.
