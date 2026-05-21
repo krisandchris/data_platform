@@ -1,93 +1,85 @@
-# TASK-019 Integration Handoff
+# TASK-019 Phase 3 Backend Handoff
 
 ## Agent Role
 
-Lead Agent
+Backend Agent
 
 ## Branch
 
-`integration/TASK-019`
+`agent/TASK-019/backend/db-foundation`
 
 ## Worktree
 
-`/mnt/lc/LC/ares_xtws/0_train_data/data_platform`
+`/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-019-backend-db-foundation`
 
 ## Scope Completed
 
-- Dispatched Phase 1 Backend, QA, and Docs agents.
-- Monitored agent completion states and verified clean worktrees from git state.
-- Merged latest `main` monitoring records into `integration/TASK-019`.
-- Merged `agent/TASK-019/backend/state-contracts` into `integration/TASK-019`.
-- Merged `agent/TASK-019/qa/test-matrix` into `integration/TASK-019`.
-- Merged `agent/TASK-019/docs/runbooks` into `integration/TASK-019`.
+- Added PostgreSQL foundation dependencies through uv (`sqlalchemy`, `alembic`, `psycopg[binary]`).
+- Added DB config support for:
+  - `PLATFORM_STATE_BACKEND=file|database`
+  - `DATABASE_URL`
+  - `PLATFORM_DB_AUTO_MIGRATE=0|1`
+- Added Alembic setup and initial migration for foundation tables:
+  - identity/users
+  - role bindings
+  - sessions
+  - dataset type registry
+  - dataset batch registry
+  - import job metadata
+  - label config versions + active pointers
+  - audit events
+- Implemented DB-backed foundation persistence with transitional hybrid behavior:
+  - DB-backed foundation domains
+  - non-migrated QC/review/export/evaluation state remains file-backed
+- Wired app/service construction so file-backed mode remains default and database mode is explicit.
+- Added backend-focused DB foundation tests.
 
-## Agent Branches Merged
+## Files Changed
 
-- `agent/TASK-019/backend/state-contracts` at `e1d145f`.
-- `agent/TASK-019/qa/test-matrix` at `d64fc60`.
-- `agent/TASK-019/docs/runbooks` at `df52cae`.
-
-## Conflicts
-
-- Backend merge conflicted only in root `.agent` coordination files.
-- QA merge conflicted only in root `.agent` coordination files.
-- Docs merge conflicted only in root `.agent` coordination files.
-- Resolution: preserved Lead Agent orchestration records and merged agent completion details into `.agent/task_plan.md`, `.agent/findings.md`, and `.agent/progress.md`.
+- `pyproject.toml`
+- `uv.lock`
+- `src/urban_violation_backend/app.py`
+- `src/urban_violation_backend/service.py`
+- `src/urban_violation_backend/db/__init__.py`
+- `src/urban_violation_backend/db/base.py`
+- `src/urban_violation_backend/db/settings.py`
+- `src/urban_violation_backend/db/engine.py`
+- `src/urban_violation_backend/db/migrations.py`
+- `src/urban_violation_backend/db/models.py`
+- `src/urban_violation_backend/db/foundation.py`
+- `alembic.ini`
+- `alembic/env.py`
+- `alembic/script.py.mako`
+- `alembic/versions/20260522_0001_task019_phase3_foundation.py`
+- `tests/test_db_foundation_backend.py`
 
 ## Shared Contracts Changed
 
-- Internal Python protocol contracts added by Backend Agent:
-  - `PlatformStateStoreProtocol`
-  - `LabelConfigRepositoryProtocol`
-- Test-only contract harness added by QA Agent for current file-backed behavior.
-- Docs-only architecture/runbook additions added by Docs Agent.
-- No external API schema, Docker Compose, dependency, or database schema contract changed in this Phase 1 integration.
+- Runtime construction contract:
+  - `build_fixture_service(...)` accepts explicit DB-mode overrides and DB auto-migration toggle.
+  - `create_app(...)` exposes matching constructor args.
+- Internal persistence contract:
+  - Added DB foundation repository/store abstractions and runtime selection wiring.
 
 ## Dependencies Changed
 
-No.
+- Added:
+  - `sqlalchemy`
+  - `alembic`
+  - `psycopg[binary]`
 
 ## Verification
 
-- Backend Agent reported:
-  - `uv run pytest` -> `4 failed, 85 passed`; failures tied to missing `DATASET/urban` in that isolated worktree.
-  - Narrow API tests -> `2 passed`.
-  - `git diff --check` -> passed.
-- QA Agent reported:
-  - Focused contract tests -> `4 passed`.
-  - Focused flakiness loop -> `5/5 passed`.
-  - `uv run pytest` -> `4 failed, 89 passed`; failures tied to missing `DATASET/urban` in that isolated worktree.
-  - Frontend test/build commands failed because `frontend/node_modules` was absent.
-  - Docker compose config render -> passed.
-  - `git diff --check` -> passed.
-- Docs Agent reported:
-  - Manual structure/link review -> passed.
-  - `git diff --check` -> passed.
-  - `git diff --cached --check` -> passed.
-- Lead Agent ran integration verification:
-  - `git diff --check` -> passed.
-  - `git diff --cached --check` -> passed.
-  - `uv run pytest -k 'state_store_contract or label_config_repository_contract' -q` -> 4 passed.
-  - `uv run pytest` -> 93 passed.
-  - `npm run test` in `frontend/` with Node 20 -> 6 files passed, 114 tests passed.
-  - `VITE_API_BASE_URL=/api npm run build` in `frontend/` with Node 20 -> passed.
-  - `uv run python scripts/docker-compose-auto-subnet.py config` -> passed.
+- `uv run pytest -k 'state_store_contract or label_config_repository_contract or db_foundation' -q`
+  - Result: passed (`8 passed`).
+- `uv run pytest`
+  - Result: `4 failed, 93 passed`.
+  - Failure scope: manual-batch ingestion tests requiring local `DATASET/urban` path in this worktree.
+- `git diff --check`
+  - Result: passed.
 
-## Known Risks
+## Known Risks / Notes
 
-- The runbook includes expected future command surfaces for Alembic and file-state import. Backend implementation agents must update the runbook if final module or CLI names differ.
-- Rollback after database-mode writes remains a policy decision unless a tested reverse export tool is implemented.
-
-## Next Agent Notes
-
-- Backend agents should keep `RegisteredBatchRuntime` as a derived cache hydrated from PostgreSQL metadata plus filesystem `source_uri`.
-- Backend agents should implement the file-state import command as explicit and idempotent, with `--dry-run` and conflict reports.
-- Redis implementation must tolerate Redis restart without losing durable platform records.
-- Lead Agent should verify these docs again after actual Alembic, import CLI, and Compose changes land.
-
-## Phase 3 Dispatch Notes
-
-- Phase 3 starts from verified commit `a737c5b` on `main`.
-- Backend DB Foundation Agent is authorized to modify Python dependency files for SQLAlchemy/Alembic/PostgreSQL driver dependencies only, using `uv add`.
-- QA DB Foundation Agent owns database-mode test harness additions and must not modify product backend code.
-- Docs DB Foundation Agent owns documentation alignment and must update runbook command names after backend implementation lands.
+- Current full-suite failures are environment fixture-path dependent (`DATASET/urban` absent in this isolated worktree), not DB foundation schema/wiring failures.
+- Transitional hybrid store is intentional for Phase 3: QC/review/export/evaluation persistence is still file-backed until later migration branches.
+- Local DB verification used SQLite URL fallback; PostgreSQL-specific runtime smoke is not executed in this worktree due missing dedicated Postgres test target.

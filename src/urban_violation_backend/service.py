@@ -108,6 +108,17 @@ from urban_violation_backend.api_schemas import (
     RoleBindingCreateRequest,
 )
 from urban_violation_backend.errors import ApiError, conflict, forbidden
+from urban_violation_backend.db import (
+    DatabaseBackedPlatformStateStore,
+    DatabaseFoundationRegistryRepository,
+    DatabaseLabelConfigRepository,
+    DatabaseRuntimeSettings,
+    FoundationRegistryRepositoryProtocol,
+    PlatformStateBackend,
+    build_engine,
+    build_session_factory,
+    run_migrations_to_head,
+)
 from urban_violation_backend.importer.parser import (
     FixtureSample,
     PairedSample,
@@ -322,6 +333,7 @@ class FixtureRuntimeService:
         label_config_store_root: Path | None = None,
         platform_state_root: Path | None = None,
         platform_state_store: PlatformStateStoreProtocol | None = None,
+        foundation_registry_repo: FoundationRegistryRepositoryProtocol | None = None,
         enable_fixture_batch: bool = True,
     ) -> None:
         self._dataset_root = dataset_root.resolve()
@@ -347,6 +359,7 @@ class FixtureRuntimeService:
         self._dataset_type_schema_versions: dict[str, str] = {
             self._dataset_type: self._field_schema_version,
         }
+        self._foundation_registry_repo = foundation_registry_repo
         self._load_dataset_type_registry()
         self._qc_queue_id = f"qcq_{self._dataset_type}_{self._batch_key}"
         self._label_config_repo = label_config_repo or FileBackedLabelConfigRepository(
@@ -430,10 +443,13 @@ class FixtureRuntimeService:
             self._ensure_qc_tasks()
 
     def _load_dataset_type_registry(self) -> None:
-        if not self._dataset_type_registry_path.is_file():
-            return
-        payload = json.loads(self._dataset_type_registry_path.read_text(encoding="utf-8"))
-        items = payload.get("dataset_types", []) if isinstance(payload, dict) else []
+        if self._foundation_registry_repo is not None:
+            items = self._foundation_registry_repo.load_dataset_type_registry()
+        else:
+            if not self._dataset_type_registry_path.is_file():
+                return
+            payload = json.loads(self._dataset_type_registry_path.read_text(encoding="utf-8"))
+            items = payload.get("dataset_types", []) if isinstance(payload, dict) else []
         for item in items:
             if not isinstance(item, dict):
                 continue
@@ -457,7 +473,6 @@ class FixtureRuntimeService:
             self._dataset_type_schema_versions.setdefault(dataset_type, "draft")
 
     def _persist_dataset_type_registry(self) -> None:
-        self._label_config_store_root.mkdir(parents=True, exist_ok=True)
         items = [
             {
                 "dataset_type": dataset_type,
@@ -467,6 +482,11 @@ class FixtureRuntimeService:
             }
             for dataset_type in sorted(self._dataset_type_display_names)
         ]
+        if self._foundation_registry_repo is not None:
+            self._foundation_registry_repo.save_dataset_type_registry(items)
+            return
+
+        self._label_config_store_root.mkdir(parents=True, exist_ok=True)
         tmp_path = self._dataset_type_registry_path.with_suffix(".json.tmp")
         tmp_path.write_text(
             json.dumps({"dataset_types": items}, ensure_ascii=False, indent=2, sort_keys=True),
@@ -475,10 +495,13 @@ class FixtureRuntimeService:
         tmp_path.replace(self._dataset_type_registry_path)
 
     def _load_registered_batches(self) -> None:
-        if not self._batch_registry_path.is_file():
-            return
-        payload = json.loads(self._batch_registry_path.read_text(encoding="utf-8"))
-        items = payload.get("batches", []) if isinstance(payload, dict) else []
+        if self._foundation_registry_repo is not None:
+            items = self._foundation_registry_repo.load_registered_batches()
+        else:
+            if not self._batch_registry_path.is_file():
+                return
+            payload = json.loads(self._batch_registry_path.read_text(encoding="utf-8"))
+            items = payload.get("batches", []) if isinstance(payload, dict) else []
         for item in items:
             if not isinstance(item, dict):
                 continue
@@ -500,7 +523,6 @@ class FixtureRuntimeService:
                 self._hydrate_registered_batch_runtime(summary=summary, job=job)
 
     def _persist_registered_batches(self) -> None:
-        self._label_config_store_root.mkdir(parents=True, exist_ok=True)
         items: list[dict[str, Any]] = []
         for summary in sorted(self._registered_batches.values(), key=lambda item: item.dataset_id):
             job = (
@@ -514,6 +536,12 @@ class FixtureRuntimeService:
                     "import_job": job.model_dump(mode="json") if job is not None else None,
                 }
             )
+
+        if self._foundation_registry_repo is not None:
+            self._foundation_registry_repo.save_registered_batches(items)
+            return
+
+        self._label_config_store_root.mkdir(parents=True, exist_ok=True)
         tmp_path = self._batch_registry_path.with_suffix(".json.tmp")
         tmp_path.write_text(
             json.dumps({"batches": items}, ensure_ascii=False, indent=2, sort_keys=True),
@@ -6452,6 +6480,10 @@ def build_fixture_service(
     platform_state_root: Path | None = None,
     label_config_repo: LabelConfigRepositoryProtocol | None = None,
     platform_state_store: PlatformStateStoreProtocol | None = None,
+    foundation_registry_repo: FoundationRegistryRepositoryProtocol | None = None,
+    platform_state_backend: str | PlatformStateBackend | None = None,
+    database_url: str | None = None,
+    platform_db_auto_migrate: bool | None = None,
     enable_fixture_batch: bool | None = None,
 ) -> FixtureRuntimeService:
     """Factory for runtime service with deterministic defaults.
@@ -6472,13 +6504,59 @@ def build_fixture_service(
         label_config_store_root
         or (Path(env_store_root).resolve() if env_store_root else DEFAULT_RUNTIME_LABEL_CONFIG_ROOT.resolve())
     )
+    env_state_root = os.environ.get("PLATFORM_STATE_ROOT")
+    resolved_state_root = (
+        platform_state_root.resolve()
+        if platform_state_root is not None
+        else (
+            Path(env_state_root).resolve()
+            if env_state_root
+            else (resolved_store_root / "platform_state").resolve()
+        )
+    )
+
+    settings = DatabaseRuntimeSettings.from_env()
+    override_backend: PlatformStateBackend | None = None
+    if platform_state_backend is not None:
+        override_backend = (
+            platform_state_backend
+            if isinstance(platform_state_backend, PlatformStateBackend)
+            else PlatformStateBackend(platform_state_backend.strip().lower())
+        )
+    effective_backend = override_backend or settings.platform_state_backend
+    effective_db_url = database_url if database_url is not None else settings.database_url
+    effective_auto_migrate = (
+        settings.platform_db_auto_migrate
+        if platform_db_auto_migrate is None
+        else platform_db_auto_migrate
+    )
+
+    if effective_backend == PlatformStateBackend.DATABASE:
+        if not effective_db_url:
+            raise ValueError("DATABASE_URL is required when PLATFORM_STATE_BACKEND=database")
+        if effective_auto_migrate:
+            run_migrations_to_head(effective_db_url)
+
+        engine = build_engine(effective_db_url)
+        session_factory = build_session_factory(engine)
+        if label_config_repo is None:
+            label_config_repo = DatabaseLabelConfigRepository(session_factory)
+        if platform_state_store is None:
+            platform_state_store = DatabaseBackedPlatformStateStore(
+                resolved_state_root,
+                session_factory=session_factory,
+            )
+        if foundation_registry_repo is None:
+            foundation_registry_repo = DatabaseFoundationRegistryRepository(session_factory)
+
     return FixtureRuntimeService(
         dataset_root=resolved_dataset_root,
         sample_ids=sample_ids,
         label_config_repo=label_config_repo,
         label_config_store_root=resolved_store_root,
-        platform_state_root=platform_state_root,
+        platform_state_root=resolved_state_root,
         platform_state_store=platform_state_store,
+        foundation_registry_repo=foundation_registry_repo,
         enable_fixture_batch=(
             _env_flag("PLATFORM_ENABLE_FIXTURE_BATCH", True)
             if enable_fixture_batch is None
