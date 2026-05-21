@@ -73,3 +73,7 @@
   - QA Boyle: `019e4b6e-eb9d-7272-a2c9-350a437ad6fa`
   - Frontend Sagan: `019e4b6e-ebe2-7be3-9407-39009ea529ae`
   - Docs Feynman: `019e4b6e-ec21-76f2-8ab4-6189434e4c6b`
+- Docs Feynman completed at `b4f1042`:
+  - Added Phase 4 QC/review migration validation notes and preserved filesystem/Redis/Docker boundaries.
+  - `git diff --check` and manual markdown link/structure review passed.
+  - Remaining reconciliation needed after backend/QA branches land: table names, revision IDs, and exact test selectors.
