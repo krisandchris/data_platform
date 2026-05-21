@@ -232,7 +232,7 @@ Runtime state:
 TASK-019 Phase 3 transition:
 
 - Phase 3 introduces PostgreSQL foundation for identity, registry, import job metadata, label config, and audit domains only.
-- Phase 3 may use `DATABASE_URL`, `PLATFORM_STATE_BACKEND=file|database`, and `PLATFORM_DB_AUTO_MIGRATE=0|1` for backend verification after implementation lands.
+- Phase 3 uses `DATABASE_URL`, `PLATFORM_STATE_BACKEND=file|database`, and `PLATFORM_DB_AUTO_MIGRATE=0|1` for explicit backend database-mode verification.
 - Docker deployment remains file-backed during Phase 3.
 - Redis, QC/review state migration, file-state import, and production database rollout remain later phases.
 

@@ -46,13 +46,13 @@ Migration boundary:
 - Redis is not the authority for drafts, submissions, audit, label config, users, roles, sessions, dataset type metadata, or batch metadata.
 - `RegisteredBatchRuntime` remains a derived runtime cache hydrated from database metadata plus filesystem `source_uri`.
 
-Expected Phase 3 env vars, pending backend implementation confirmation:
+Phase 3 env vars:
 
 | Variable | Values | Use |
 | --- | --- | --- |
-| `DATABASE_URL` | PostgreSQL URL | Required for Alembic and database-backed foundation mode. |
+| `DATABASE_URL` | SQLAlchemy database URL; PostgreSQL uses `postgresql+psycopg://user:password@host:5432/dbname` | Required for Alembic and database-backed foundation mode. |
 | `PLATFORM_STATE_BACKEND` | `file` or `database` | Selects file-backed or database-backed foundation mode. |
-| `PLATFORM_DB_AUTO_MIGRATE` | `0` or `1` | Controls startup migration behavior if implemented; explicit Alembic remains safer for verification. |
+| `PLATFORM_DB_AUTO_MIGRATE` | `0` or `1` | Controls startup migration behavior; explicit Alembic remains safer for verification. |
 
 Detailed boundary and operator steps:
 

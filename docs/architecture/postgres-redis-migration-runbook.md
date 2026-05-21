@@ -16,11 +16,11 @@ It intentionally separates:
 - short-lived coordination state, which may use Redis;
 - source files and generated artifacts, which stay on the filesystem.
 
-Implementation agents must update this runbook if final command names differ from the expected command surface below. Until the backend Phase 3 branch lands, Alembic command names, migration locations, test selectors, and any helper module names are expected shapes and require backend confirmation.
+Phase 3 backend foundation has landed with direct Alembic commands, `alembic/` migration files, and database foundation test selectors documented below.
 
 ## Phase 3 Foundation Scope
 
-Phase 3 may database-back these foundation domains:
+Phase 3 can database-back these foundation domains:
 
 - users, role bindings, sessions, and account status;
 - dataset type registry;
@@ -43,9 +43,9 @@ During Phase 3, database-backed foundation records may coexist with file-backed 
 
 | Variable | Expected values | Required when | Notes |
 | --- | --- | --- | --- |
-| `DATABASE_URL` | PostgreSQL connection URL | Running Alembic or database-backed foundation mode | Exact URL driver form must be confirmed by the backend branch. |
+| `DATABASE_URL` | SQLAlchemy database URL, for PostgreSQL use `postgresql+psycopg://user:password@host:5432/dbname` | Running Alembic or database-backed foundation mode | SQLite URLs such as `sqlite+pysqlite:///...` are used only for local tests. |
 | `PLATFORM_STATE_BACKEND` | `file` or `database` | Selecting state backend | `file` remains the default for local and Docker deployment until rollout phase. |
-| `PLATFORM_DB_AUTO_MIGRATE` | `0` or `1` | Backend startup, if implemented | Use `0` by default. Use `1` only after backend startup migration behavior is implemented and tested. |
+| `PLATFORM_DB_AUTO_MIGRATE` | `0` or `1` | Backend startup | Use `0` by default. Use `1` only in controlled verification because it upgrades the configured database to Alembic head at startup. |
 
 Do not require `REDIS_URL` or `PLATFORM_REDIS_ENABLED` for Phase 3. Redis is a later phase.
 
@@ -61,7 +61,7 @@ Run these checks only after the backend database foundation branch has landed on
 
 2. Prepare an empty PostgreSQL database for verification. Use a local temporary database or a reviewed external service URL. Do not change repository Docker Compose defaults for Phase 3.
 
-3. Inspect and run Alembic migrations. Expected command shape, pending backend confirmation:
+3. Inspect and run Alembic migrations. The migration directory is `alembic/`, and `alembic/env.py` reads `DATABASE_URL` when set:
 
    ```bash
    DATABASE_URL="$DATABASE_URL" uv run alembic heads
@@ -70,18 +70,17 @@ Run these checks only after the backend database foundation branch has landed on
    DATABASE_URL="$DATABASE_URL" uv run alembic current
    ```
 
-   If the backend branch provides a wrapper command instead of direct `uv run alembic ...`, replace these commands with the backend-confirmed names before integration.
-
-4. Run database foundation tests. Expected selector, pending QA/backend confirmation:
+4. Run database foundation tests:
 
    ```bash
-   DATABASE_URL="$DATABASE_URL" \
-   PLATFORM_STATE_BACKEND=database \
-   PLATFORM_DB_AUTO_MIGRATE=0 \
-   uv run pytest -k "db_foundation or database_foundation"
+   uv run pytest -k "state_store_contract or label_config_repository_contract or db_foundation" -q
    ```
 
-   If the QA branch uses `TEST_DATABASE_URL`, a marker, or a different selector, record the exact command in this runbook and in the agent handoff.
+   To activate PostgreSQL-specific QA coverage, provide `TEST_DATABASE_URL`:
+
+   ```bash
+   TEST_DATABASE_URL="$DATABASE_URL" uv run pytest tests/test_db_foundation_api.py tests/test_db_foundation_contract.py -q
+   ```
 
 5. Foundation acceptance checks:
 
@@ -94,7 +93,7 @@ Run these checks only after the backend database foundation branch has landed on
    - Docker Compose still defaults to file-backed runtime state.
    - No Redis dependency, Redis service, or Redis runtime behavior is required.
 
-6. Phase 3 is not complete until docs record the backend-confirmed Alembic command names, migration directory, and verification commands.
+6. Phase 3 integration is complete only after the Lead Agent records final command results in `.agent/handoff.md`.
 
 ## Non-Goals
 
@@ -190,7 +189,7 @@ sha256sum "$BACKUP_ROOT"/*.tgz > "$BACKUP_ROOT/SHA256SUMS"
 
 Future production rollout step. For Phase 3, prepare only a temporary PostgreSQL database for migration verification and do not require Redis.
 
-For Phase 3 verification, export only the backend-confirmed PostgreSQL URL:
+For Phase 3 verification, export only the PostgreSQL URL:
 
 ```bash
 export DATABASE_URL='postgresql+psycopg://urban_platform:change-me@localhost:5432/urban_platform'
@@ -216,7 +215,7 @@ Use the actual secret and host values from deployment configuration. Do not comm
 
 ## 4. Run Alembic Migrations
 
-Expected command shape, pending backend confirmation.
+Phase 3 uses the direct Alembic command surface:
 
 From the backend environment or backend container, inspect the target migration state:
 

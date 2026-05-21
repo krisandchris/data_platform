@@ -128,9 +128,9 @@ Expected configuration surface:
 
 | Variable | Expected values | Phase 3 role |
 | --- | --- | --- |
-| `DATABASE_URL` | PostgreSQL connection URL | Required only when running database-backed foundation mode or Alembic. Exact driver URL form depends on backend implementation. |
+| `DATABASE_URL` | SQLAlchemy database URL; PostgreSQL uses `postgresql+psycopg://user:password@host:5432/dbname` | Required only when running database-backed foundation mode or Alembic. |
 | `PLATFORM_STATE_BACKEND` | `file` or `database` | Selects file-backed default or database-backed foundation mode. `file` remains the default until Docker rollout. |
-| `PLATFORM_DB_AUTO_MIGRATE` | `0` or `1` | Controls startup migration behavior if implemented. `0` is the safer default; `1` requires backend implementation and tests. |
+| `PLATFORM_DB_AUTO_MIGRATE` | `0` or `1` | Controls startup migration behavior. `0` is the safer default; `1` upgrades the configured database to Alembic head at backend startup. |
 
 Backend tasks:
 
@@ -160,7 +160,7 @@ Exit gate:
 - File-backed test suite still passes.
 - Database-mode foundation tests pass.
 - Dependency and lockfile changes are documented in handoff.
-- Alembic command names, migration locations, and database test commands are recorded in docs after backend confirmation.
+- Alembic commands use `uv run alembic ...`, migrations live under `alembic/`, and DB foundation tests use the `db_foundation` selector.
 - Docker deployment remains file-backed.
 - Redis remains unimplemented.
 
