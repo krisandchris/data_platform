@@ -36,3 +36,9 @@
 - PostgreSQL runtime validation against an actual PostgreSQL server still requires a real `TEST_DATABASE_URL`; integration used SQLite fallback plus Alembic smoke.
 - Rollback after database-mode writes remains a policy decision unless a tested reverse export tool is implemented.
 - Redis and full QC/review durable-state migration are not part of Phase 3.
+
+## Phase 4 Dispatch Findings
+
+- Phase 4 must keep frontend API contracts stable while changing the database-mode authority for QC/review/export/evaluation metadata.
+- The highest backend risk is replacing list/read-all/write-all store methods for leases and drafts with transactional writes that do not lose concurrent autosave or submit changes.
+- The frontend agent is assigned compatibility validation rather than broad UI changes because Phase 4 is intended to be backend-state transparent.

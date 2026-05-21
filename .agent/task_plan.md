@@ -11,7 +11,7 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 3. PostgreSQL foundation for identity, registry, label config, import jobs, and audit.
    - Status: complete. Backend, QA, and Docs Phase 3 branches were merged and verified on `integration/TASK-019`.
 4. PostgreSQL migration for QC, drafts, submissions, sample pool, exports, and evaluations.
-   - Status: pending.
+   - Status: in_progress. Phase 4 worktrees have been created and agents are being dispatched.
 5. Redis runtime state for active leases, locks, session cache, and import progress.
    - Status: pending.
 6. File-state import tool.
@@ -45,3 +45,25 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 - Docs are reconciled with actual backend command names and DB behavior.
 - No Docker default switch to database mode yet.
 - No Redis implementation yet.
+
+## Phase 4 Agent Branches
+
+- In progress: `agent/TASK-019/backend/qc-state`
+- In progress: `agent/TASK-019/qa/qc-state-tests`
+- In progress: `agent/TASK-019/frontend/qc-db-compat`
+- In progress: `agent/TASK-019/docs/qc-state-runbooks`
+
+## Phase 4 Scope
+
+- Move authoritative QC assignments, task records, lease history, drafts, batch drafts, submissions, annotation snapshots, modification events, sample pool items, export job metadata, and evaluation run metadata to PostgreSQL in database mode.
+- Preserve file-backed mode and existing frontend API response contracts.
+- Keep raw dataset files, uploaded archives, extracted source trees, media files, and export artifacts on the filesystem.
+- Do not introduce Redis or switch Docker defaults in this phase.
+
+## Phase 4 Exit Gate
+
+- Database mode supports the full review workflow through confirmation and persistence across service recreation.
+- File-backed test suite remains green.
+- Frontend tests/build remain green.
+- QA database-mode tests pass with SQLite fallback and optionally with `TEST_DATABASE_URL`.
+- Docs and runbooks are reconciled with the implemented Phase 4 behavior.
