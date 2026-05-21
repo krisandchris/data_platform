@@ -9,9 +9,9 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 2. Store interface extraction.
    - Status: complete.
 3. PostgreSQL foundation for identity, registry, label config, import jobs, and audit.
-   - Status: complete. Backend, QA, and Docs Phase 3 branches were merged and verified on `integration/TASK-019`.
+   - Status: complete.
 4. PostgreSQL migration for QC, drafts, submissions, sample pool, exports, and evaluations.
-   - Status: in_progress. Phase 4 Backend branch is being integrated; QA, Frontend, and Docs branches are ready to integrate.
+   - Status: in_progress. Backend is merged into integration; QA is being merged; Frontend and Docs are ready to integrate.
 5. Redis runtime state for active leases, locks, session cache, and import progress.
    - Status: pending.
 6. File-state import tool.
@@ -25,31 +25,10 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 - Merged: `agent/TASK-019/qa/db-foundation-tests` at `064f7a2`
 - Merged: `agent/TASK-019/docs/db-foundation-runbooks` at `816d862`
 
-## Phase 3 Scope
-
-- Added SQLAlchemy, Alembic, and `psycopg[binary]` through `uv`.
-- Added DB config/env support:
-  - `DATABASE_URL`
-  - `PLATFORM_STATE_BACKEND=file|database`
-  - `PLATFORM_DB_AUTO_MIGRATE=0|1`
-- Added Alembic baseline and initial schema for users, role bindings, sessions, dataset registry, batch/import job metadata, label config versions/active pointers, and audit events.
-- Added transitional DB foundation storage while leaving QC/review/export/evaluation state file-backed for later phases.
-- Added gated QA database foundation tests.
-- Updated Phase 3 documentation and runbooks.
-
-## Phase 3 Exit Gate
-
-- File-backed mode remains green: `uv run pytest` -> 103 passed, 1 skipped.
-- Focused DB foundation and existing store contract tests pass -> 14 passed, 1 skipped.
-- Frontend tests/build remain green -> 114 tests passed and production build passed.
-- Docs are reconciled with actual backend command names and DB behavior.
-- No Docker default switch to database mode yet.
-- No Redis implementation yet.
-
 ## Phase 4 Agent Branches
 
-- Integrating: `agent/TASK-019/backend/qc-state` at `254e9f0`
-- Ready to integrate: `agent/TASK-019/qa/qc-state-tests` at `a3c16e9`
+- Merged into integration: `agent/TASK-019/backend/qc-state` at `254e9f0`
+- Integrating: `agent/TASK-019/qa/qc-state-tests` at `a3c16e9`
 - Ready to integrate: `agent/TASK-019/frontend/qc-db-compat` at `011df88`
 - Ready to integrate: `agent/TASK-019/docs/qc-state-runbooks` at `b4f1042`
 
