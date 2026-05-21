@@ -1,4 +1,4 @@
-# TASK-019 Integration Handoff Draft
+# TASK-019 Integration Handoff
 
 ## Agent Role
 
@@ -64,12 +64,17 @@ No.
   - Manual structure/link review -> passed.
   - `git diff --check` -> passed.
   - `git diff --cached --check` -> passed.
-- Lead integration verification is pending after merge commit.
+- Lead Agent ran integration verification:
+  - `git diff --check` -> passed.
+  - `git diff --cached --check` -> passed.
+  - `uv run pytest -k 'state_store_contract or label_config_repository_contract' -q` -> 4 passed.
+  - `uv run pytest` -> 93 passed.
+  - `npm run test` in `frontend/` with Node 20 -> 6 files passed, 114 tests passed.
+  - `VITE_API_BASE_URL=/api npm run build` in `frontend/` with Node 20 -> passed.
+  - `uv run python scripts/docker-compose-auto-subnet.py config` -> passed.
 
 ## Known Risks
 
-- Full backend verification should be rerun from an environment where `DATASET/urban` exists or with an explicit fixture symlink.
-- Frontend verification requires installing dependencies or using a workspace where `frontend/node_modules` exists.
 - The runbook includes expected future command surfaces for Alembic and file-state import. Backend implementation agents must update the runbook if final module or CLI names differ.
 - Rollback after database-mode writes remains a policy decision unless a tested reverse export tool is implemented.
 
