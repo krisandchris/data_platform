@@ -21,7 +21,7 @@ from urban_violation_backend.schemas import (
     UserRole,
     UserStatus,
 )
-from urban_violation_backend.state_store import PlatformStateStore
+from urban_violation_backend.state_store import PlatformStateStoreProtocol
 
 
 _PASSWORD_HASHER = PasswordHash.recommended()
@@ -70,7 +70,7 @@ class AuthContext:
 class AuthService:
     """Internal account/session management."""
 
-    def __init__(self, store: PlatformStateStore, settings: AuthSettings) -> None:
+    def __init__(self, store: PlatformStateStoreProtocol, settings: AuthSettings) -> None:
         self.store = store
         self.settings = settings
 

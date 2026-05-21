@@ -24,3 +24,12 @@
 - Preserve file-backed implementation as rollback and contract-test baseline.
 - Use explicit file-state import command rather than automatic import on container startup.
 - Split implementation into sequential integration phases; do not start Docker rollout until database, Redis, and import tool phases pass.
+
+## Phase 1 Backend Findings (State Contract Extraction)
+
+- `FixtureRuntimeService` had direct concrete coupling to both `PlatformStateStore` and `FileBackedLabelConfigRepository`, which blocked later store substitution without touching service logic.
+- `AuthService` also typed directly to `PlatformStateStore`; this was updated to the protocol boundary so auth/session logic can operate with future database-backed stores.
+- Extracted protocol surface reflects real current usage:
+  - state store methods used by runtime/auth (users, sessions, RBAC bindings, QC state, drafts/submissions, snapshots/events, sample pool, exports/evaluations).
+  - label config repository methods used by runtime (list/save/activate/get_active/reload_active).
+- Full `uv run pytest` in this worktree is currently affected by local fixture path assumptions (`DATASET/urban` not present in this worktree), with 4 preannotation/manual-batch tests failing for source ingestion expectations; protocol extraction itself does not alter API schemas or route payload structure.

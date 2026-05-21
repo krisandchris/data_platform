@@ -6,7 +6,7 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 from pydantic import Field, ValidationError, field_validator, model_validator
 
@@ -184,6 +184,30 @@ class StoredLabelConfig(StrictModel):
     file_name: str
     validation: LabelConfigValidationReport
     config: DatasetLabelConfig
+
+
+class LabelConfigRepositoryProtocol(Protocol):
+    """Interface boundary for label config persistence and activation logic."""
+
+    def list_dataset_ids(self) -> list[str]: ...
+
+    def list_configs(self, dataset_id: str) -> list[StoredLabelConfig]: ...
+
+    def save(
+        self,
+        dataset_id: str,
+        file_name: str,
+        report: LabelConfigValidationReport,
+        config: DatasetLabelConfig,
+        activate: bool,
+        save_as_new_version: bool = False,
+    ) -> StoredLabelConfig: ...
+
+    def activate(self, dataset_id: str, config_id: str) -> StoredLabelConfig: ...
+
+    def get_active(self, dataset_id: str) -> StoredLabelConfig: ...
+
+    def reload_active(self, dataset_id: str) -> StoredLabelConfig: ...
 
 
 class LabelSuggestionResponse(StrictModel):
