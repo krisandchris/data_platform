@@ -14,22 +14,20 @@ Lead Agent
 
 ## Scope Completed
 
-- Dispatched Phase 3 Backend, QA, and Docs agents.
-- Recorded completion of all three Phase 3 agent branches on `main`.
-- Merged `agent/TASK-019/backend/db-foundation` into `integration/TASK-019`.
-- Merged `agent/TASK-019/qa/db-foundation-tests` into `integration/TASK-019`.
+- Merged Phase 3 Backend, QA, and Docs branches into `integration/TASK-019`.
 
-## Agent Branches
+## Agent Branches Merged
 
-- Merged: `agent/TASK-019/backend/db-foundation` at `a640e85`.
-- Merged: `agent/TASK-019/qa/db-foundation-tests` at `064f7a2`.
-- Pending merge: `agent/TASK-019/docs/db-foundation-runbooks` at `816d862`.
+- `agent/TASK-019/backend/db-foundation` at `a640e85`.
+- `agent/TASK-019/qa/db-foundation-tests` at `064f7a2`.
+- `agent/TASK-019/docs/db-foundation-runbooks` at `816d862`.
 
 ## Conflicts
 
 - Backend merge conflicted only in root `.agent` coordination files.
 - QA merge conflicted only in root `.agent` coordination files.
-- Resolution: preserved Lead Agent orchestration records and merged agent completion details.
+- Docs merge conflicted only in root `.agent` coordination files.
+- Resolution: product code/tests/docs were preserved; root `.agent` files were rewritten as Lead Agent integration records.
 
 ## Shared Contracts Changed
 
@@ -50,21 +48,21 @@ Lead Agent
 ## Verification So Far
 
 - Backend Agent reported:
-  - `uv run pytest -k 'state_store_contract or label_config_repository_contract or db_foundation' -q` -> 8 passed.
-  - `uv run pytest` -> 4 failed, 93 passed; failures tied to missing `DATASET/urban` in the isolated backend worktree.
-  - `git diff --check` -> passed.
+  - Focused backend DB/store tests -> 8 passed.
+  - Full suite in isolated backend worktree -> 4 failed, 93 passed due missing `DATASET/urban`.
 - QA Agent reported:
   - New gated DB harness -> `sss.sss` before backend merge.
-  - 5x rerun -> 0 failures.
   - File-backed contract baseline -> 4 passed.
-  - `git diff --check` -> passed.
-- Lead integration verification is pending until Docs branch is merged.
+- Docs Agent reported:
+  - Manual link/structure review -> passed.
+  - `git diff --check` and `git diff --cached --check` -> passed.
+- Lead integration verification is pending.
 
 ## Known Risks
 
 - PostgreSQL-specific runtime smoke was not run in agent worktrees; local DB foundation verification used SQLite URL fallback.
 - Transitional hybrid mode is intentional for Phase 3: QC/review/export/evaluation remain file-backed until later migration phases.
-- Docs must be reconciled against actual backend Alembic paths, DB env behavior, and migration command surfaces after all Phase 3 branches are merged.
+- Docs reconciliation and final integration verification are still pending.
 
 ## Rollback Plan
 

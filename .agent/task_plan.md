@@ -5,11 +5,11 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 ## Phases
 
 1. Baseline and contract freeze.
-   - Status: complete. Backend, QA, and Docs first-pass branches were merged and verified on `integration/TASK-019`.
+   - Status: complete.
 2. Store interface extraction.
-   - Status: complete. Backend protocol extraction and QA contract tests passed integration verification.
+   - Status: complete.
 3. PostgreSQL foundation for identity, registry, label config, import jobs, and audit.
-   - Status: integration in progress. Backend DB foundation and QA DB foundation tests are merged into `integration/TASK-019`; Docs DB foundation runbooks are pending merge.
+   - Status: integration verification pending. Backend, QA, and Docs Phase 3 branches are merged into `integration/TASK-019`.
 4. PostgreSQL migration for QC, drafts, submissions, sample pool, exports, and evaluations.
    - Status: pending.
 5. Redis runtime state for active leases, locks, session cache, and import progress.
@@ -19,29 +19,11 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 7. Docker rollout and full acceptance.
    - Status: pending.
 
-## Agent Branches
+## Phase 3 Agent Branches
 
-- Active integration: `integration/TASK-019`
-- Phase 3 merged:
-  - `agent/TASK-019/backend/db-foundation` at `a640e85`
-  - `agent/TASK-019/qa/db-foundation-tests` at `064f7a2`
-- Phase 3 pending:
-  - `agent/TASK-019/docs/db-foundation-runbooks` at `816d862`
-- Planned later:
-  - `agent/TASK-019/backend/qc-state`
-  - `agent/TASK-019/backend/redis-runtime`
-  - `agent/TASK-019/backend/import-tool`
-  - `agent/TASK-019/frontend/progress-and-lease`
-
-## Constraints
-
-- Main workspace is orchestration, planning, integration review, verification, and accepted-code synchronization only.
-- Product backend changes must happen in backend worktrees.
-- Product frontend changes must happen in frontend worktrees.
-- `DATASET/` remains readonly and outside PostgreSQL.
-- Uploaded/extracted archives, media files, and export artifacts remain on the filesystem.
-- Redis must not be the authority for drafts, submissions, audit, users, roles, label config, or batch metadata.
-- `RegisteredBatchRuntime` remains a derived cache hydrated from database metadata plus filesystem `source_uri`.
+- Merged: `agent/TASK-019/backend/db-foundation` at `a640e85`
+- Merged: `agent/TASK-019/qa/db-foundation-tests` at `064f7a2`
+- Merged: `agent/TASK-019/docs/db-foundation-runbooks` at `816d862`
 
 ## Phase 3 Scope
 
@@ -53,6 +35,7 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 - Added Alembic baseline and initial schema for users, role bindings, sessions, dataset registry, batch/import job metadata, label config versions/active pointers, and audit events.
 - Added transitional DB foundation storage while leaving QC/review/export/evaluation state file-backed for later phases.
 - Added gated QA database foundation tests.
+- Updated Phase 3 documentation and runbooks.
 
 ## Phase 3 Exit Gate
 
