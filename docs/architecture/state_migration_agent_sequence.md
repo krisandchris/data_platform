@@ -1,6 +1,6 @@
 # PostgreSQL + Redis Migration Agent Sequence
 
-Last updated: 2026-05-21
+Last updated: 2026-05-22
 
 Task ID: `TASK-019`
 
@@ -35,12 +35,14 @@ agent/TASK-019/backend/redis-runtime
 agent/TASK-019/backend/import-tool
 agent/TASK-019/frontend/progress-and-lease
 agent/TASK-019/qa/test-matrix
+agent/TASK-019/qa/db-foundation-tests
 agent/TASK-019/docs/runbooks
+agent/TASK-019/docs/db-foundation-runbooks
 ```
 
 Do not start a later phase until the previous phase's exit gate passes on the integration branch.
 
-## Phase 0: Baseline And Contract Freeze
+## Phase 1: Baseline And Contract Freeze
 
 Primary owner: Lead Agent.
 
@@ -76,7 +78,7 @@ Exit gate:
 - State contract inventory is documented.
 - No product code changes are merged in this phase.
 
-## Phase 1: Store Interface Extraction
+## Phase 2: Store Interface Extraction
 
 Primary owner: Backend Agent on `agent/TASK-019/backend/state-contracts`.
 
@@ -110,7 +112,7 @@ Exit gate:
 - Frontend tests/build pass.
 - `FixtureRuntimeService` no longer imports concrete file store types except at factory wiring.
 
-## Phase 2: PostgreSQL Foundation
+## Phase 3: PostgreSQL Foundation
 
 Primary owner: Backend Agent on `agent/TASK-019/backend/db-foundation`.
 
@@ -120,6 +122,16 @@ Parallel support:
 - QA Agent prepares PostgreSQL integration test harness.
 - Docs Agent starts migration runbook skeleton.
 
+This is a foundation phase, not the production database rollout. It introduces the database configuration and foundation tables/repositories only. It must not switch Docker defaults, must not implement Redis, and must not move QC/review state yet.
+
+Expected configuration surface:
+
+| Variable | Expected values | Phase 3 role |
+| --- | --- | --- |
+| `DATABASE_URL` | PostgreSQL connection URL | Required only when running database-backed foundation mode or Alembic. Exact driver URL form depends on backend implementation. |
+| `PLATFORM_STATE_BACKEND` | `file` or `database` | Selects file-backed default or database-backed foundation mode. `file` remains the default until Docker rollout. |
+| `PLATFORM_DB_AUTO_MIGRATE` | `0` or `1` | Controls startup migration behavior if implemented. `0` is the safer default; `1` requires backend implementation and tests. |
+
 Backend tasks:
 
 - Add SQLAlchemy, psycopg, and Alembic using `uv add`.
@@ -127,6 +139,9 @@ Backend tasks:
 - Create Alembic migrations for identity, registry, import job, label config, and audit tables.
 - Implement database-backed identity, role binding, session, dataset type, dataset batch, import job, label config, and audit operations.
 - Preserve file-backed mode as the default for local tests unless `PLATFORM_STATE_BACKEND=database`.
+- Leave QC assignments, tasks, leases, drafts, submissions, snapshots, modification events, sample pool, exports, and evaluations file-backed until the next backend phase.
+- Do not add `REDIS_URL`, `PLATFORM_REDIS_ENABLED`, Redis dependencies, or Redis runtime behavior in this phase.
+- Do not change Compose defaults to `PLATFORM_STATE_BACKEND=database` in this phase.
 
 Frontend tasks:
 
@@ -138,14 +153,18 @@ QA tasks:
 - Add database-mode backend tests using `TEST_DATABASE_URL`.
 - Verify Alembic upgrade on an empty database.
 - Verify database mode can bootstrap admin, login, save label config, create a batch, and list audit events.
+- Verify QC/review endpoints either continue using the file-backed store in mixed mode or are explicitly outside the Phase 3 database-mode gate.
 
 Exit gate:
 
 - File-backed test suite still passes.
 - Database-mode foundation tests pass.
 - Dependency and lockfile changes are documented in handoff.
+- Alembic command names, migration locations, and database test commands are recorded in docs after backend confirmation.
+- Docker deployment remains file-backed.
+- Redis remains unimplemented.
 
-## Phase 3: QC, Draft, Submission, And Review State
+## Phase 4: QC, Draft, Submission, And Review State
 
 Primary owner: Backend Agent on `agent/TASK-019/backend/qc-state`.
 
@@ -178,7 +197,7 @@ Exit gate:
 - File-backed mode remains green.
 - Frontend tests/build remain green.
 
-## Phase 4: Redis Runtime State
+## Phase 5: Redis Runtime State
 
 Primary owner: Backend Agent on `agent/TASK-019/backend/redis-runtime`.
 
@@ -215,7 +234,7 @@ Exit gate:
 - Active lease is cross-process safe.
 - Frontend import progress remains usable when Redis progress expires.
 
-## Phase 5: File-State Import Tool
+## Phase 6: File-State Import Tool
 
 Primary owner: Backend Agent on `agent/TASK-019/backend/import-tool`.
 
@@ -251,7 +270,7 @@ Exit gate:
 - Import tool never mutates `DATASET/`.
 - Failure report is clear enough for operator rollback.
 
-## Phase 6: Docker Rollout And Full Acceptance
+## Phase 7: Docker Rollout And Full Acceptance
 
 Primary owner: Lead Agent.
 
@@ -302,13 +321,13 @@ Exit gate:
 ## Agent Start Order
 
 1. Lead Agent creates `integration/TASK-019` and the first backend/QA/docs worktrees.
-2. Backend Agent starts Phase 1 state contracts.
-3. QA Agent starts Phase 1 contract test harness in parallel.
+2. Backend Agent starts Phase 2 state contracts.
+3. QA Agent starts Phase 2 contract test harness in parallel.
 4. Docs Agent records state architecture and migration runbook skeleton in parallel.
-5. Lead merges Phase 1 only after backend and QA handoffs pass.
-6. Backend DB Foundation starts Phase 2 after Phase 1 integration.
-7. Frontend Agent starts only lightweight compatibility checks during Phases 1-3.
-8. Backend Redis and Frontend progress work start together in Phase 4.
+5. Lead merges Phase 2 only after backend and QA handoffs pass.
+6. Backend DB Foundation starts Phase 3 after Phase 2 integration.
+7. Frontend Agent starts only lightweight compatibility checks during Phases 2-4.
+8. Backend Redis and Frontend progress work start together in Phase 5.
 9. Import tool starts after database schema and database store are stable.
 10. Docker rollout starts last, after import tool and Redis tests pass.
 

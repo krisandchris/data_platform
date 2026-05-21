@@ -1,6 +1,6 @@
 # State Persistence Boundaries
 
-Last updated: 2026-05-21
+Last updated: 2026-05-22
 
 Task ID: `TASK-019`
 
@@ -29,9 +29,31 @@ The migration goal is not to move every file into a database. It is to move auth
 | Process-local registries | `FixtureRuntimeService` fields such as `_registered_batches`, `_import_jobs`, `_accepted_dataset_ids` | In-process cache plus file reload | Target must hydrate these from PostgreSQL metadata and source files at startup or on demand. |
 | Derived runtime | `RegisteredBatchRuntime` objects in `_registered_batch_runtimes` | Derived cache | Rebuild from database batch metadata plus filesystem `source_uri`. Do not make this object a database authority. |
 
+## Phase 3 Transitional Boundary
+
+Phase 3 is the PostgreSQL foundation phase only. It may introduce database-backed implementations for foundation domains:
+
+- users, role bindings, sessions, and account status;
+- dataset type metadata;
+- dataset batch metadata and source pointers;
+- import job metadata, lifecycle status, validation summaries, and diagnostics;
+- label config versions, normalized payload, content hash, and active pointer;
+- audit events.
+
+The following state remains file-backed until the next backend phase moves QC/review state:
+
+- QC assignments, task records, and lease history;
+- active editor lease behavior;
+- drafts, batch drafts, submissions, snapshots, and modification events;
+- correction sample pool items;
+- export job metadata and generated export artifact pointers;
+- evaluation run metadata.
+
+During this transition, a database-backed foundation store may coexist with file-backed QC/review state. Operators must treat this as an implementation checkpoint, not as a production database cutover. Docker defaults remain file-backed, and Redis is still a later phase.
+
 ## Target PostgreSQL Responsibilities
 
-PostgreSQL is the authoritative store for durable mutable platform records:
+The final PostgreSQL target is the authoritative store for durable mutable platform records:
 
 - users, role bindings, sessions, and account status;
 - dataset type metadata and dataset batch metadata;
@@ -104,6 +126,7 @@ At service startup, cache miss, or source refresh, backend code may hydrate a ru
 ## Migration Invariants
 
 - File-backed mode remains available until the database path passes integration checks.
+- Phase 3 database-backed behavior is limited to foundation domains; QC/review state remains file-backed until the next backend phase.
 - File-state import is explicit and idempotent. It must not run automatically on every container startup.
 - The import tool must not mutate `DATASET/`, uploaded archives, extracted source files, media files, or export artifacts.
 - Same-ID same-content rows are idempotent.

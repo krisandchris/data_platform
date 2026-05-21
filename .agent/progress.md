@@ -106,3 +106,39 @@
   - QA: `../_worktrees/data_platform/TASK-019-qa-db-foundation-tests` on `agent/TASK-019/qa/db-foundation-tests`
   - Docs: `../_worktrees/data_platform/TASK-019-docs-db-foundation-runbooks` on `agent/TASK-019/docs/db-foundation-runbooks`
 - Lead Agent explicitly designates the Backend DB Foundation Agent as the Phase 3 Python dependency owner for database dependencies only.
+
+## 2026-05-22 Docs DB Foundation Runbooks
+
+- Re-read required skills:
+  - `~/.agents/skills/planning-with-files/SKILL.md`
+  - `~/.codex/skills/multi-agent-worktree/SKILL.md`
+- Verified current worktree:
+  - Worktree: `/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-019-docs-db-foundation-runbooks`
+  - Branch: `agent/TASK-019/docs/db-foundation-runbooks`
+  - Start commit: `c04223a`
+  - Worktree status: clean
+- Re-read required files:
+  - `AGENTS.md`
+  - `.agent/task_plan.md`
+  - `.agent/findings.md`
+  - `.agent/progress.md`
+  - `.agent/handoff.md`
+  - `docs/architecture/state_migration_agent_sequence.md`
+  - `docs/architecture/state-persistence-boundaries.md`
+  - `docs/architecture/postgres-redis-migration-runbook.md`
+  - `docs/architecture/deployment.md`
+- Updated `.agent/task_plan.md` to this Docs Agent's local scope and acceptance criteria.
+- Updated `.agent/findings.md` with Phase 3 documentation findings and the pending backend-confirmation assumptions.
+- Noted one harmless discovery error: an initial `rg` included absent `README.md`; the search was rerun against existing `docs` and `.agent` paths.
+- Updated docs to make Phase 3 PostgreSQL foundation explicit:
+  - added Phase 3 scope/env/verification sections to `docs/architecture/postgres-redis-migration-runbook.md`;
+  - added Phase 3 transitional database/file-backed boundary to `docs/architecture/state-persistence-boundaries.md`;
+  - clarified `docs/architecture/deployment.md` remains file-backed and Redis-free in Phase 3;
+  - aligned `docs/architecture/state_migration_agent_sequence.md` with Phase 3 DB foundation branch/test/docs worktrees;
+  - added concise Phase 3 notes to `docs/architecture/README.md` and `docs/backend/modules/runtime-and-validation.md`.
+- Manual structure review:
+  - Reviewed headings in touched docs.
+  - Reviewed markdown links in touched docs and verified all relative file targets exist.
+- Verification:
+  - `git diff --check` -> passed.
+- Completed `.agent/handoff.md` for Lead Agent integration review.

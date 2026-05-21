@@ -66,3 +66,25 @@
 - PostgreSQL and Redis references in the repository are currently documentation/planning only, not runtime implementation.
 - `build_fixture_service` already accepts injected `platform_state_store` and `label_config_repo`, which is the intended seam for database-backed foundation implementations.
 - The first database phase must preserve file-backed defaults because Docker defaults and full QC state migration are later phases.
+
+## Phase 3 Docs Agent Findings
+
+- Worktree and branch verified:
+  - Worktree: `/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-019-docs-db-foundation-runbooks`
+  - Branch: `agent/TASK-019/docs/db-foundation-runbooks`
+  - Base commit at start: `c04223a`
+- Required files re-read:
+  - `AGENTS.md`
+  - `.agent/task_plan.md`
+  - `.agent/findings.md`
+  - `docs/architecture/state_migration_agent_sequence.md`
+  - `docs/architecture/state-persistence-boundaries.md`
+  - `docs/architecture/postgres-redis-migration-runbook.md`
+  - `docs/architecture/deployment.md`
+- The current docs over-describe the final PostgreSQL + Redis production migration relative to Phase 3. They need a clearer Phase 3 foundation checkpoint and "not production rollout yet" language.
+- The current repository content has no runtime Alembic, SQLAlchemy, psycopg, Redis, `DATABASE_URL`, `PLATFORM_STATE_BACKEND`, or `PLATFORM_DB_AUTO_MIGRATE` implementation outside docs. Exact command names must remain pending backend confirmation.
+- Phase 3 docs should focus database scope on identity, RBAC, sessions, dataset type registry, dataset batch registry, import job metadata, label config, and audit.
+- QC/review state remains transitional in Phase 3: assignments, tasks, leases, drafts, submissions, snapshots, modification events, sample pool, exports, and evaluations may remain file-backed until the following backend phase.
+- Docker deployment remains file-backed in Phase 3. Operators must not treat PostgreSQL foundation migrations as a production database rollout or Compose default switch.
+- Redis remains a later phase. Phase 3 docs can mention Redis only as a future boundary and should not require `REDIS_URL` or Redis restart checks for Phase 3 verification.
+- Discovery note: an initial `rg` command included a missing root `README.md` path and returned an expected "No such file or directory" message for that path. The follow-up search was scoped to existing `docs` and `.agent` paths.
