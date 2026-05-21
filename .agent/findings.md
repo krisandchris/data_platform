@@ -85,3 +85,13 @@
 - The backend branch adds SQLAlchemy, Alembic, and `psycopg[binary]` dependency changes through `uv`, as authorized for Phase 3.
 - The backend branch implements a transitional hybrid mode: database-backed foundation domains, with QC/review/export/evaluation still file-backed until later phases.
 - PostgreSQL-specific smoke was not run in the backend worktree; SQLite URL fallback covered local DB foundation tests.
+
+## Phase 3 Backend Findings (DB Foundation)
+
+- File-backed behavior remains the default runtime path; DB mode is explicitly opt-in via `PLATFORM_STATE_BACKEND=database`.
+- A transitional hybrid store is in place for this phase:
+  - Database authority: users, role bindings, sessions, audit events, dataset type registry, dataset batch registry/import job metadata, label config versions and active pointers.
+  - File-backed authority (unchanged for later phases): QC assignments/tasks/leases, drafts/submissions, snapshots/modification events, sample pool, exports, evaluations.
+- `build_fixture_service` now supports constructor/env selection for backend mode and database migration bootstrap.
+- Alembic initial schema covers requested foundation domains and is compatible with local SQLite fallback for tests.
+- Full-suite failures in this worktree are tied to missing local fixture tree `DATASET/urban`, which causes manual-batch ingestion tests to remain in `Draft` instead of `Imported`.

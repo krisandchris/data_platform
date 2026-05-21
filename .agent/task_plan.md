@@ -106,3 +106,25 @@ Detailed sub-agent sequence and per-phase test design:
 - Dependency changes are documented with `pyproject.toml` and `uv.lock` updates.
 - No Docker default switch to database mode yet.
 - No Redis implementation yet.
+
+## Phase 3 Backend Worktree Execution (agent/TASK-019/backend/db-foundation)
+
+Status: complete
+
+1. Dependency foundation (complete)
+- Added SQLAlchemy, Alembic, and psycopg via `uv add`.
+- Updated `pyproject.toml` and `uv.lock` through uv only.
+
+2. Database infrastructure and migrations (complete)
+- Added `src/urban_violation_backend/db/` package for validated settings, engine/session helpers, ORM models, and migration bootstrap.
+- Added Alembic scaffold and initial revision for Phase 3 foundation tables.
+
+3. Runtime wiring with file-backed default (complete)
+- Added backend selection via `PLATFORM_STATE_BACKEND=file|database`.
+- Added `DATABASE_URL` and `PLATFORM_DB_AUTO_MIGRATE=0|1` support.
+- Preserved file-backed mode as default.
+- In database mode, enabled foundational DB-backed stores while keeping non-migrated QC/review/export state file-backed.
+
+4. Verification and handoff (complete)
+- Focused contract tests plus DB foundation tests pass.
+- Full pytest run executed; remaining failures are environment fixture-path dependent (`DATASET/urban` unavailable in this worktree).
