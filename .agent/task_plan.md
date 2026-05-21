@@ -1,47 +1,56 @@
-# TASK-019 PostgreSQL + Redis State Migration Plan
+# TASK-019 Phase 4 Frontend Compatibility Plan
 
-Objective: migrate mutable platform state from file-backed JSON/JSONL stores to PostgreSQL, use Redis for active leases/locks/progress, preserve current frontend API behavior, and provide a safe import path from existing runtime state.
+## Goal
 
-## Phases
+Verify that review, QC, sample pool, export, and evaluation frontend behavior does not depend on file-backed backend internals and remains stable when the backend runs in database mode.
 
-1. Baseline and contract freeze.
-   - Status: complete.
-2. Store interface extraction.
-   - Status: complete.
-3. PostgreSQL foundation for identity, registry, label config, import jobs, and audit.
-   - Status: complete. Backend, QA, and Docs Phase 3 branches were merged and verified on `integration/TASK-019`.
-4. PostgreSQL migration for QC, drafts, submissions, sample pool, exports, and evaluations.
-   - Status: pending.
-5. Redis runtime state for active leases, locks, session cache, and import progress.
-   - Status: pending.
-6. File-state import tool.
-   - Status: pending.
-7. Docker rollout and full acceptance.
-   - Status: pending.
+## Role
 
-## Phase 3 Agent Branches
+Frontend Agent
 
-- Merged: `agent/TASK-019/backend/db-foundation` at `a640e85`
-- Merged: `agent/TASK-019/qa/db-foundation-tests` at `064f7a2`
-- Merged: `agent/TASK-019/docs/db-foundation-runbooks` at `816d862`
+## Branch
 
-## Phase 3 Scope
+`agent/TASK-019/frontend/qc-db-compat`
 
-- Added SQLAlchemy, Alembic, and `psycopg[binary]` through `uv`.
-- Added DB config/env support:
-  - `DATABASE_URL`
-  - `PLATFORM_STATE_BACKEND=file|database`
-  - `PLATFORM_DB_AUTO_MIGRATE=0|1`
-- Added Alembic baseline and initial schema for users, role bindings, sessions, dataset registry, batch/import job metadata, label config versions/active pointers, and audit events.
-- Added transitional DB foundation storage while leaving QC/review/export/evaluation state file-backed for later phases.
-- Added gated QA database foundation tests.
-- Updated Phase 3 documentation and runbooks.
+## Worktree
 
-## Phase 3 Exit Gate
+`/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-019-frontend-qc-db-compat`
 
-- File-backed mode remains green: `uv run pytest` -> 103 passed, 1 skipped.
-- Focused DB foundation and existing store contract tests pass -> 14 passed, 1 skipped.
-- Frontend tests/build remain green -> 114 tests passed and production build passed.
-- Docs are reconciled with actual backend command names and DB behavior.
-- No Docker default switch to database mode yet.
-- No Redis implementation yet.
+## Assigned Scope
+
+- `frontend/src/features/review-workbench/**`
+- `frontend/src/features/qc/**`
+- `frontend/src/features/sample-pool/**`
+- `frontend/src/features/batch-overview/**`, if evaluation/export UI is located there
+- `frontend/src/services/**`, only for type-safe compatibility checks if backend response contracts require it
+- Frontend tests under `frontend/src/**`
+- `.agent/**`
+
+## Out Of Scope
+
+- Backend product code
+- API contract changes
+- Redis progress UI, unless a current Phase 4 backend response already exposes a compatible optional field
+- Dependency changes
+
+## Planned Steps
+
+1. Inspect current API client types and affected pages for assumptions about leases, drafts, submissions, sample pool, exports, and evaluations.
+2. Run frontend tests/build on the Phase 4 base.
+3. Add or adjust lightweight tests only if the current frontend lacks coverage for stable review/QC/sample pool rendering under unchanged response shapes.
+4. Verify that sample switching and lease readonly indicators remain stable and do not introduce layout jitter.
+5. Document whether any backend response change would require frontend coordination.
+
+## Acceptance Criteria
+
+- `npm run test` passes.
+- `VITE_API_BASE_URL=/api npm run build` passes.
+- No frontend API contract change is required for Phase 4.
+- Any discovered UI risk is documented in `.agent/findings.md` and `.agent/handoff.md`.
+
+## Expected Checks
+
+- `nvm use $(cat .nvmrc)` from repo root or equivalent Node 20 setup
+- `cd frontend && npm run test`
+- `cd frontend && VITE_API_BASE_URL=/api npm run build`
+
