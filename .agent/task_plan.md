@@ -1,58 +1,29 @@
-# TASK-019 PostgreSQL + Redis State Migration Plan
+# TASK-019 QA Test Matrix Plan
 
-Objective: migrate mutable platform state from file-backed JSON/JSONL stores to PostgreSQL, use Redis for active leases/locks/progress, preserve current frontend API behavior, and provide a safe import path from existing runtime state.
+## Role / Branch / Worktree
+- Role: QA Agent
+- Branch: `agent/TASK-019/qa/test-matrix`
+- Worktree: `/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-019-qa-test-matrix`
 
-## Phases
+## Scope (Phase 0/1)
+1. Add reusable file-backed store contract tests for `PlatformStateStore`.
+2. Add label config repository contract tests for `FileBackedLabelConfigRepository`.
+3. Run baseline commands and record outcomes:
+   - `uv run pytest`
+   - `npm run test` (frontend)
+   - `VITE_API_BASE_URL=/api npm run build` (frontend)
+   - `uv run python scripts/docker-compose-auto-subnet.py config`
+4. Update `.agent/findings.md`, `.agent/progress.md`, `.agent/handoff.md`.
 
-1. Baseline and contract freeze.
-   - Status: in progress.
-2. Store interface extraction.
-   - Status: pending.
-3. PostgreSQL foundation for identity, registry, label config, import jobs, and audit.
-   - Status: pending.
-4. PostgreSQL migration for QC, drafts, submissions, sample pool, exports, and evaluations.
-   - Status: pending.
-5. Redis runtime state for active leases, locks, session cache, and import progress.
-   - Status: pending.
-6. File-state import tool.
-   - Status: pending.
-7. Docker rollout and full acceptance.
-   - Status: pending.
+## Guardrails
+- Only modify `tests/` and `.agent/*`.
+- No dependency changes.
+- No backend/frontend product code changes.
+- Record failures as findings; only fix test harness issues.
 
-## Agent Branches
-
-- `integration/TASK-019`
-- `agent/TASK-019/backend/state-contracts`
-- `agent/TASK-019/backend/db-foundation`
-- `agent/TASK-019/backend/qc-state`
-- `agent/TASK-019/backend/redis-runtime`
-- `agent/TASK-019/backend/import-tool`
-- `agent/TASK-019/frontend/progress-and-lease`
-- `agent/TASK-019/qa/test-matrix`
-- `agent/TASK-019/docs/runbooks`
-
-## Constraints
-
-- Main workspace is orchestration, planning, integration review, verification, and accepted-code synchronization only.
-- Product backend changes must happen in backend worktrees.
-- Product frontend changes must happen in frontend worktrees.
-- Dependency changes are owned by the Lead Agent or an explicitly assigned dependency owner.
-- `DATASET/` remains readonly and outside PostgreSQL.
-- Uploaded/extracted archives, media files, and export artifacts remain on the filesystem.
-- Redis must not be the authority for drafts, submissions, audit, users, roles, label config, or batch metadata.
-- `RegisteredBatchRuntime` remains a derived cache hydrated from database metadata plus filesystem `source_uri`.
-
-## Acceptance Criteria
-
-- File-backed mode remains green after each phase until database mode is the Docker default.
-- Database mode passes store contract tests and API regression tests.
-- Redis active lease is cross-process safe and does not cause data loss when Redis restarts.
-- Existing frontend API contracts remain compatible.
-- Migration tool imports existing `PLATFORM_STATE_ROOT` and `LABEL_CONFIG_STORE_ROOT` data idempotently.
-- Docker deployment defaults to PostgreSQL + Redis only after migration, import, and rollback paths are tested.
-
-## Reference
-
-Detailed sub-agent sequence and per-phase test design:
-
-- `docs/architecture/state_migration_agent_sequence.md`
+## Status
+- [x] Add state store contract tests.
+- [x] Add label config repository contract tests.
+- [x] Run focused pytest + flakiness loop (5 reruns).
+- [x] Run baseline commands.
+- [x] Update `.agent/*` records and handoff.

@@ -1,26 +1,30 @@
-# TASK-019 Migration Findings
+# TASK-019 QA Findings
 
-## Current Architecture Facts
+## New Contract Coverage
+- Added `tests/test_state_store_contract.py` to baseline file-backed contract behavior for:
+  - users / role bindings / sessions / audit events
+  - assignment / tasks / leases
+  - drafts / batch drafts / submissions
+  - snapshots / modification events
+  - sample pool / exports / evaluations
+  - cleanup methods (`clear_assignment`, `remove_sample_pool_items_for_dataset`, `clear_qc_dataset_state`)
+- Added `tests/test_label_config_repository_contract.py` to validate repository contract behavior for:
+  - save default activation behavior
+  - same hash dedup behavior
+  - same version + different content conflict behavior
+  - reload active behavior without creating new versions
 
-- `FixtureRuntimeService` currently combines business logic, file-backed registries, and process-local runtime caches.
-- `PlatformStateStore` persists mutable collaboration state under `PLATFORM_STATE_ROOT` as JSON and JSONL files.
-- `FileBackedLabelConfigRepository` persists label config versions, active pointers, and registry files under `LABEL_CONFIG_STORE_ROOT`.
-- Registered batch metadata is currently persisted in label config store files, while `RegisteredBatchRuntime` is rehydrated from `source_uri`.
-- Upload archives extract under `PLATFORM_STATE_ROOT/import_uploads/...`; this remains filesystem state.
-- Frontend API client already covers login/session, import upload progress, label config, assignment, lease, draft, audit, sample pool, export, and evaluation flows.
+## Baseline Command Findings
+- `uv run pytest` in this worktree failed with 4 existing API tests in `tests/test_api.py`:
+  - `test_manual_batch_creation_ingests_accessible_source_directory`: expected state `Imported`, actual `Draft`.
+  - `test_preannotated_registered_batch_generates_batch_scoped_qc_queue`: expected code `label_config_required`, actual `source_not_ingested`.
+  - `test_manual_batch_0520_preannotated_hydration_and_qc_queue_generation`: expected state `Imported`, actual `Draft`.
+  - `test_dataset_batch_delete_admin_cleans_runtime_state_and_keeps_source_data`: fixture source dir `DATASET/urban` missing in QA worktree.
+- Frontend baselines failed due to missing local frontend deps in current installation state:
+  - `npm run test` -> `vitest: not found`
+  - `VITE_API_BASE_URL=/api npm run build` -> `vue-tsc: not found`
+- `uv run python scripts/docker-compose-auto-subnet.py config` passed and rendered compose config.
 
-## Migration Risks
-
-- Replacing files with database tables directly would break process-local assumptions around `_registered_batches`, `_import_jobs`, and `_accepted_dataset_ids`.
-- Moving `RegisteredBatchRuntime` into PostgreSQL would duplicate source data and make media/sample hydration brittle.
-- Redis must not become the authority for durable state; Redis restart must not lose drafts, submissions, audit, label configs, users, or batch metadata.
-- Current file writes often read all rows and rewrite full JSON files; database mode must replace these with transactional updates.
-- Frontend should not need to know whether backend is in file or database mode.
-
-## Decisions
-
-- Use PostgreSQL as authoritative state store.
-- Use Redis for active lease, locks, session cache, and import progress only.
-- Preserve file-backed implementation as rollback and contract-test baseline.
-- Use explicit file-state import command rather than automatic import on container startup.
-- Split implementation into sequential integration phases; do not start Docker rollout until database, Redis, and import tool phases pass.
+## Flakiness
+- Focused contract tests (`state_store_contract` + `label_config_repository_contract`) rerun 5 times: 5/5 passed, 0 failures.
+- Observed failure rate: 0% for new contract harness.
