@@ -1,47 +1,54 @@
-# TASK-019 PostgreSQL + Redis State Migration Plan
+# TASK-019 Phase 4 Docs Plan
 
-Objective: migrate mutable platform state from file-backed JSON/JSONL stores to PostgreSQL, use Redis for active leases/locks/progress, preserve current frontend API behavior, and provide a safe import path from existing runtime state.
+## Goal
 
-## Phases
+Update migration documentation and operator runbooks for the Phase 4 QC/review state database migration while preserving the documented filesystem and Redis boundaries.
 
-1. Baseline and contract freeze.
-   - Status: complete.
-2. Store interface extraction.
-   - Status: complete.
-3. PostgreSQL foundation for identity, registry, label config, import jobs, and audit.
-   - Status: complete. Backend, QA, and Docs Phase 3 branches were merged and verified on `integration/TASK-019`.
-4. PostgreSQL migration for QC, drafts, submissions, sample pool, exports, and evaluations.
-   - Status: pending.
-5. Redis runtime state for active leases, locks, session cache, and import progress.
-   - Status: pending.
-6. File-state import tool.
-   - Status: pending.
-7. Docker rollout and full acceptance.
-   - Status: pending.
+## Role
 
-## Phase 3 Agent Branches
+Docs Agent
 
-- Merged: `agent/TASK-019/backend/db-foundation` at `a640e85`
-- Merged: `agent/TASK-019/qa/db-foundation-tests` at `064f7a2`
-- Merged: `agent/TASK-019/docs/db-foundation-runbooks` at `816d862`
+## Branch
 
-## Phase 3 Scope
+`agent/TASK-019/docs/qc-state-runbooks`
 
-- Added SQLAlchemy, Alembic, and `psycopg[binary]` through `uv`.
-- Added DB config/env support:
-  - `DATABASE_URL`
-  - `PLATFORM_STATE_BACKEND=file|database`
-  - `PLATFORM_DB_AUTO_MIGRATE=0|1`
-- Added Alembic baseline and initial schema for users, role bindings, sessions, dataset registry, batch/import job metadata, label config versions/active pointers, and audit events.
-- Added transitional DB foundation storage while leaving QC/review/export/evaluation state file-backed for later phases.
-- Added gated QA database foundation tests.
-- Updated Phase 3 documentation and runbooks.
+## Worktree
 
-## Phase 3 Exit Gate
+`/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-019-docs-qc-state-runbooks`
 
-- File-backed mode remains green: `uv run pytest` -> 103 passed, 1 skipped.
-- Focused DB foundation and existing store contract tests pass -> 14 passed, 1 skipped.
-- Frontend tests/build remain green -> 114 tests passed and production build passed.
-- Docs are reconciled with actual backend command names and DB behavior.
-- No Docker default switch to database mode yet.
-- No Redis implementation yet.
+## Assigned Scope
+
+- `docs/architecture/state-persistence-boundaries.md`
+- `docs/architecture/postgres-redis-migration-runbook.md`
+- `docs/architecture/state_migration_agent_sequence.md`
+- `docs/backend/modules/runtime-and-validation.md`
+- `docs/backend/modules/assets-media-review.md`
+- `.agent/**`
+
+## Out Of Scope
+
+- Product frontend/backend code
+- Tests
+- Docker default switch to database mode
+- Redis implementation details beyond preserving the existing boundary
+
+## Planned Steps
+
+1. Inspect Phase 3 docs and Phase 4 code contracts.
+2. Draft Phase 4 operator validation notes for QC assignments, leases, drafts, submissions, snapshots, sample pool, exports, and evaluations.
+3. Keep docs explicit that raw files and export artifacts stay on the filesystem.
+4. Keep docs explicit that Redis is not implemented until Phase 5.
+5. Mark any backend-confirmation-dependent statements clearly until the backend branch lands.
+
+## Acceptance Criteria
+
+- Documentation matches actual Phase 4 implementation after integration reconciliation.
+- No docs claim Docker defaults switch to database mode in Phase 4.
+- Runbook has concrete validation commands and rollback notes.
+- `.agent/handoff.md` lists changed docs and manual review result.
+
+## Expected Checks
+
+- Manual link and structure review.
+- `git diff --check`
+
