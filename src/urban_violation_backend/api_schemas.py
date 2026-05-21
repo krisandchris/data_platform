@@ -325,6 +325,88 @@ class LabelEditDraftResponse(StrictModel):
     updated_at: datetime
 
 
+class BatchDraftValidationState(StrictModel):
+    """Validation summary attached to one batch draft sample entry."""
+
+    valid: bool = True
+    error_count: int = Field(default=0, ge=0)
+    warning_count: int = Field(default=0, ge=0)
+    errors: list[LabelEditValidationIssue] = Field(default_factory=list)
+    warnings: list[LabelEditValidationIssue] = Field(default_factory=list)
+
+
+class BatchDraftEntryRequest(StrictModel):
+    """One sample-level draft entry in batch save/autosave payload."""
+
+    sample_id: str = Field(min_length=1)
+    lease_id: str | None = None
+    base_revision: int | None = Field(default=None, ge=0)
+    label_config_id: str | None = None
+    label_config_version: str | None = None
+    operations: list[LabelEditOperation] = Field(default_factory=list)
+    dirty: bool = False
+    saved: bool = True
+    validation: BatchDraftValidationState | None = None
+
+
+class BatchDraftSaveRequest(StrictModel):
+    """Batch draft save/autosave payload."""
+
+    entries: list[BatchDraftEntryRequest] = Field(default_factory=list)
+
+
+class BatchDraftSampleState(StrictModel):
+    """Server-side batch draft state for one sample."""
+
+    sample_id: str
+    draft_id: str | None = None
+    task_id: str | None = None
+    lease_id: str | None = None
+    base_revision: int | None = Field(default=None, ge=0)
+    label_config_id: str | None = None
+    label_config_version: str | None = None
+    operations: list[LabelEditOperation] = Field(default_factory=list)
+    dirty: bool = False
+    saved: bool = True
+    validation: BatchDraftValidationState | None = None
+    updated_at: datetime | None = None
+
+
+class BatchDraftSummaryResponse(StrictModel):
+    """Current user's batch-level draft workspace summary."""
+
+    dataset_id: str
+    user_id: str
+    assignment_id: str | None = None
+    sample_count: int = Field(default=0, ge=0)
+    dirty_count: int = Field(default=0, ge=0)
+    saved_count: int = Field(default=0, ge=0)
+    validation_error_count: int = Field(default=0, ge=0)
+    entries: list[BatchDraftSampleState] = Field(default_factory=list)
+    updated_at: datetime | None = None
+
+
+class BatchSubmitRequest(StrictModel):
+    """Batch-level final submit gate payload."""
+
+    unsaved_dirty_sample_ids: list[str] = Field(default_factory=list)
+    validation_error_sample_ids: list[str] = Field(default_factory=list)
+    notes: str | None = Field(default=None, max_length=400)
+
+
+class BatchSubmitResponse(StrictModel):
+    """Batch-level final submit result."""
+
+    submitted: bool
+    dataset_id: str
+    assignment_id: str
+    assignee_user_id: str
+    status: BatchAssignmentStatus
+    submitted_sample_count: int = Field(ge=0)
+    released_lease_count: int = Field(ge=0)
+    submitted_at: datetime
+
+
 class LabelEditSubmissionResponse(StrictModel):
     """Immutable submission payload."""
 
@@ -715,6 +797,15 @@ class DatasetTypeResponse(StrictModel):
     status: Literal["active", "archived"] = "active"
     batch_count: int = Field(ge=0)
     batches: list[DatasetSummaryResponse] = Field(default_factory=list)
+
+
+class DatasetDeleteResponse(StrictModel):
+    """Delete result for one registered dataset batch."""
+
+    deleted: bool
+    dataset_id: str
+    dataset_type: str
+    batch_key: str
 
 
 class CountDistributionItem(StrictModel):

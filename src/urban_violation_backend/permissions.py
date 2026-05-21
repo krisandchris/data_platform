@@ -12,6 +12,7 @@ ROLE_PERMISSIONS: dict[UserRole, set[str]] = {
         "users:manage",
         "roles:manage",
         "dataset_type:create",
+        "dataset_batch:delete",
         "label_config:manage",
         "import_job:manage",
         "batch_assignment:manage",

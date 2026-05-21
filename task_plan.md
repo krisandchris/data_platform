@@ -47,7 +47,7 @@ After human review and verification, accepted changes are synchronized into the 
 | Real dataset registration | Complete | `DATASET/urban_violation` registered as the main fixture. |
 | QC review workbench | Complete/protected | Focused single-screen review UI, bbox editing, zoom, color semantics, Relation/Candidate layout, and bottom action bar are accepted. |
 | Label field editing | Complete baseline | Validate, save draft, submit modification, and field legality validation exist. |
-| Label config upload | Complete baseline | Frontend upload, validate, save, activate, active read, suggestions, reload are implemented. Duplicate-version idempotency remains a backlog item. |
+| Label config upload | Complete/hardened | Frontend upload, validate, upload-update, active read, suggestions, reload, readonly unique history, duplicate-content reuse, same-version conflict, and runtime root isolation are implemented. |
 | Dataset management | Complete baseline | Dataset type plus batch model, manual batch scan/register/ingest, assets, import job, preannotation, and QC queue generation are implemented. |
 | Multi-user collaboration | Complete baseline | Internal accounts, sessions, RBAC, batch assignment, leases, private drafts, submissions, qc_lead confirmation, and audit are implemented. |
 | User center | Complete baseline | `/account`, `/account/permissions`, `/account/audit`, topbar entry, permission guards, and legacy redirects are implemented. |
@@ -82,6 +82,377 @@ Protected behavior:
 - Use `scripts/agent-dev-stack.sh` to run agent worktree code for review.
 - After implementation agents finish, use integration validation against the combined frontend/backend product before syncing accepted code into main.
 - After every service-based verification, stop frontend/backend services and check no tracked local listeners remain.
+
+### P0 - Documentation Split And Login Design
+
+Status: completed as documentation/design.
+
+Goal:
+
+- Split frontend and backend documentation so neither side depends on a single large README.
+- Organize frontend documentation by page hierarchy.
+- Organize backend documentation by API module.
+- Design an independent login page where users must authenticate before entering the platform.
+
+Output:
+
+- Frontend index: `docs/frontend/README.md`.
+- Frontend page documents:
+  - `docs/frontend/pages/login.md`;
+  - `docs/frontend/pages/dataset-type-pages.md`;
+  - `docs/frontend/pages/batch-workspace-pages.md`;
+  - `docs/frontend/pages/sample-review.md`;
+  - `docs/frontend/pages/sample-pool.md`;
+  - `docs/frontend/pages/user-center.md`.
+- Frontend shared documents:
+  - `docs/frontend/shell-and-navigation.md`;
+  - `docs/frontend/shared-components-and-states.md`;
+  - `docs/frontend/api-and-permissions.md`.
+- Backend index: `docs/backend/README.md`.
+- Backend API modules under `docs/backend/modules/`.
+
+Independent login design:
+
+- `/login` is a full-screen standalone page outside `AppShell`.
+- Protected routes redirect to `/login?redirect=<target>` when no current user exists.
+- Login success routes to the original target or `/datasets`.
+- Login design uses a restrained technical operations style with Chinese UI text, high-contrast form fields, explicit loading/error states, and optional dev user switch only in dev/fixture mode.
+
+Implementation note:
+
+- Product implementation must be assigned to the frontend agent worktree if the design is approved for build.
+
+### P0 - Independent Login Page Implementation
+
+Status: complete. Frontend agent implementation was verified and synchronized into the main workspace.
+
+Goal:
+
+- Implement `/login` as a standalone full-screen page outside `AppShell`.
+- Preserve existing protected-route guard behavior: unauthenticated users go to `/login?redirect=<target>`.
+- Preserve login success redirect to the original target or `/datasets`.
+- Keep all visible login UI text in Chinese and match the restrained technical platform style documented in `docs/frontend/pages/login.md`.
+
+Frontend agent scope:
+
+- `frontend/src/app/App.vue`
+- `frontend/src/features/auth/LoginPage.vue`
+- `frontend/src/test/routesAndPages.test.ts`
+- Minimal shared style edits only if required.
+
+Guardrails:
+
+- Do not touch protected review workbench files.
+- Do not change backend contracts or dependencies.
+- Keep dev user switch available only in existing dev/fixture mode.
+
+Acceptance:
+
+- `/login` renders without sidebar/topbar/app shell.
+- Protected routes still redirect unauthenticated users to login with `redirect`.
+- Login success returns to redirect target or `/datasets`.
+- Login failure shows an error state without entering the platform.
+- Frontend tests and build pass in the frontend agent worktree before synchronization.
+- Main `dev-stack` and `agent-dev-stack` default to session auth with anonymous dev auth disabled, so the local platform also requires login.
+
+Verification:
+
+- Frontend agent: `npm run test -- routesAndPages` passed with 67 tests.
+- Frontend agent: `npm run test` passed with 105 tests.
+- Frontend agent: `npm run build` passed.
+- Main workspace: `cd frontend && npm run test -- routesAndPages` passed with 67 tests.
+- Main workspace: `cd frontend && npm run test` passed with 105 tests.
+- Main workspace: `cd frontend && npm run build` passed.
+- Main browser smoke: unauthenticated `/datasets` redirected to `/login?redirect=/datasets`; login page rendered without app shell/sidebar/topbar; login with `platform_admin` entered `/datasets`.
+
+### P0 - QC Batch Assignment Repair
+
+Status: complete. Frontend/backend agent worktree fixes were implemented, integration-tested, and synchronized into the main workspace.
+
+Root cause:
+
+- `QcPage` uses `/api/users` to populate assignee options.
+- `/api/users` is gated by `users:manage`, while batch assignment managers normally only need `batch_assignment:manage`.
+- When `/api/users` returns 403, `QcPage` silently falls back to the current user only, so `qc_lead`/`batch_manager` cannot select annotators even though the backend assignment API can assign a known active user.
+- `releaseBatchAssignment` sends no body, but backend release route requires `BatchAssignmentActionRequest`; live API returns 422.
+- Assignment actions do not surface action-level API errors, making failures appear as no-op.
+
+Implemented fix:
+
+- Backend added `GET /api/datasets/{dataset_id}/qc/assignable-users`, scoped by `batch_assignment:manage` on the concrete batch and limited to active users.
+- `/api/users` remains admin-only behind `users:manage`.
+- Backend release accepts an empty/no-body request and frontend sends `{}` for compatibility.
+- `QcPage` now uses the assignment-scoped user endpoint, keeps disabled users out, and shows pending/success/error messages for assign/reassign/release.
+- Backend/frontend tests cover scoped assignee listing, release, user-directory permission boundary, frontend selector loading, fallback/error states, and release UI.
+
+Verification:
+
+- Agent integration passed against `../data_platform_backend_agent` and `../data_platform_frontend_agent`.
+- Main workspace focused backend: `7 passed, 54 deselected`.
+- Main workspace focused frontend: `69 passed`.
+- Main workspace full backend: `67 passed`.
+- Main workspace frontend build: passed.
+- `git diff --check`: passed.
+- Protected review workbench diff: empty.
+
+### P1 - Project Test Case Suite Design
+
+Status: completed as architecture specification.
+
+Goal:
+
+- Design a functionally complete project-level test case suite.
+- Define a concrete `>90%` boundary-coverage denominator and release threshold.
+- Cover backend API, frontend component/route behavior, integration smoke, browser smoke, multi-user/RBAC, dataset import, label editing, QC closed loop, export/evaluation, service hygiene, and protected review-workbench behavior.
+
+Output:
+
+- `docs/architecture/README.md` now contains `Project Test Case Suite`.
+- The suite defines 182 required domain-boundary points and a minimum automated target of 170 points, giving a target boundary coverage of 93.4%.
+- Test cases are organized as backend API cases, frontend cases, integration/E2E cases, boundary checklist, and required quality gates.
+
+Acceptance:
+
+- Future frontend/backend implementation tasks can be assigned against the matrix without inventing a new coverage model.
+- Main workspace remains orchestration/documentation-only; product test implementation still happens in the relevant agent worktrees before sync.
+
+### P0 - Admin Batch Deletion
+
+Status: complete. Frontend/backend agent worktree fixes were implemented, integration-tested, and synchronized into the main workspace.
+
+Goal:
+
+- Add a destructive batch deletion action on the batch overview page.
+- The action is visible and executable only for administrator accounts.
+- Deletion requires a second confirmation dialog before the backend call.
+- Raw files under `DATASET/` must not be deleted.
+
+Backend contract:
+
+- Add `DELETE /api/datasets/{dataset_id}` for registered dataset batches only.
+- Built-in fixture datasets and dataset-type ids must not be deletable through this endpoint.
+- Require a dedicated `dataset_batch:delete` permission granted only to `platform_admin`.
+- Delete platform runtime state for the batch:
+  - registered batch summary,
+  - registered runtime,
+  - active/import jobs for that batch,
+  - accepted dataset id,
+  - mutable QC state under `PLATFORM_STATE_ROOT/qc/{dataset_id}`,
+  - batch sample-pool entries if present.
+- Preserve audit history and raw source files.
+
+Frontend contract:
+
+- Add `deleteDatasetBatch(batchId)` to the API client.
+- In `DatasetOverviewPage.vue`, show a destructive `删除批次` action only when current user has `dataset_batch:delete` or is `platform_admin`.
+- Open a confirmation modal/drawer with batch id, batch name, and a warning that source files are not deleted but platform state will be removed.
+- Require an explicit second confirmation action before calling the API. Prefer typing the batch id or checking a confirm control before enabling the final button.
+- On success, navigate to `/datasets/types/{datasetType}` or `/datasets` if the type cannot be resolved.
+- On 403/404/409, show Chinese error feedback.
+
+Acceptance:
+
+- `platform_admin` can delete a registered batch and it disappears from dataset list/type detail.
+- `dataset_admin`, `batch_manager`, `qc_lead`, and `annotator` cannot delete the batch.
+- Deleting a built-in fixture dataset or dataset type id returns conflict/not allowed.
+- Deletion removes QC assignment/tasks/leases/drafts/submissions/snapshots/evaluations/modification event state for that batch.
+- Protected review workbench files remain untouched.
+
+Verification:
+
+- Agent integration passed against `../data_platform_backend_agent` and `../data_platform_frontend_agent`.
+- Main workspace focused backend: `6 passed, 58 deselected`.
+- Main workspace focused frontend: `74 passed`.
+- Main workspace full backend: `70 passed`.
+- Main workspace full frontend: `90 passed`.
+- Main workspace frontend build: passed.
+- `git diff --check`: passed.
+- Protected review workbench diff: empty.
+
+### P0 - 0520 Preannotated Batch QC Queue Repair
+
+Status: complete. Backend agent worktree fix was implemented, integration-tested, and synchronized into the main workspace.
+
+Problem:
+
+- `urban_violation__urban_violation_0520` is persisted as `Imported` and `preannotation_ready`, but QC queue generation returns `source_not_ingested`.
+- Runtime hydration is failing internally and being collapsed into the generic missing-runtime error.
+- Current failure evidence:
+  - STEP1 manifest contains retry/failure history rows with `status=failed`.
+  - `Stage1ManifestEntry` only accepts successful STEP1 rows and aborts on the first failed history row.
+  - STEP1 final state is still valid: all 505 unique STEP1 ids have final success rows.
+  - STEP2 has 496 final successes, 8 final failures, and 1 STEP1-success sample missing from STEP2 manifest.
+
+Backend repair contract:
+
+- Parse STEP1 manifest rows using deterministic last-write-wins semantics, matching the STEP2 reader behavior.
+- Support STEP1 failed/retry rows without aborting the whole manifest read.
+- Keep samples whose final STEP1 state is successful.
+- Exclude or diagnose samples whose final STEP1 state is failed; do not create normal QC label samples from them.
+- Prevent missing STEP2 rows from breaking whole-batch runtime hydration. Represent them as `stage2_missing` diagnostics or skip them from queueable QC items while preserving import diagnostics.
+- Improve QC generation/import diagnostics so hydration failures do not surface only as `Batch source must be ingested before QC queue generation.`
+
+Acceptance:
+
+- `DATASET/urban_violation_0520` can hydrate a registered runtime from `stage1_run_0520` / `stage2_run_0520`.
+- QC queue generation for `urban_violation__urban_violation_0520` succeeds after active label config is available.
+- Generated queue includes STEP2 success and STEP2 failure samples as supported by the current QC workflow, and handles the one missing STEP2 sample deterministically.
+- Existing fixture behavior for `DATASET/urban_violation` remains unchanged.
+- Backend parser/API tests cover STEP1 failed retry rows, final STEP1 failure handling, missing STEP2 handling, and the 0520 registered-batch flow.
+- Protected review workbench files remain untouched.
+
+Verification:
+
+- Backend agent full test suite: `74 passed`.
+- Integration agent live API: `POST /api/datasets/urban_violation__urban_violation_0520/qc/generate` returned `200`, queue `total=505`, status distribution `success=496`, `failure=9`.
+- Main workspace parser tests: `8 passed`.
+- Main workspace focused API tests: `3 passed, 63 deselected`.
+- Main workspace full backend tests: `74 passed`.
+- Main workspace frontend route/API tests: `74 passed`.
+- Main workspace frontend build: passed.
+- `git diff --check`: passed.
+- Protected review workbench diff: empty.
+- Dev services were stopped and ports `8000/5173/18031/15195` were released.
+
+### P1 - QC Review Keyboard Shortcuts
+
+Status: completed.
+
+Goal:
+
+- Add keyboard shortcuts for high-frequency sample review operations without changing the accepted visual layout of the QC review workbench.
+- Use the accepted batch-draft/batch-submit lifecycle: shortcuts must never turn batch finalization into an instant action.
+
+Suspension note:
+
+- Previous shortcut work was paused until `保存草稿` and `提交修改` were reworked into batch-draft and batch-submit actions.
+- Batch-draft/batch-submit lifecycle is now implemented and verified, so implementation may resume.
+- Batch submit still remains modal-confirmed only; no instant submit shortcut is approved.
+
+Shortcut contract:
+
+- Previous sample: `ArrowLeft` or `A`.
+- Next sample: `ArrowRight` or `D`.
+- Skip sample: `X`.
+- Validate edits: `V`.
+- Save draft: `S`.
+- Submit edits: none. `提交批次修改` remains a mouse/touch/modal-confirmed final action.
+
+Guardrails:
+
+- Shortcuts are active only on the sample review route.
+- Shortcuts are ignored while focus is in text inputs, selects, textareas, contenteditable nodes, buttons, or while IME composition is active.
+- Pending validate/save/submit blocks duplicate shortcut execution.
+- Shortcuts must use the same disabled logic as visible buttons.
+- Dirty navigation or skip must not silently discard unsaved edits; use the same save-before-leave or non-destructive guard as visible controls.
+- `Ctrl/Cmd+S` is reserved by browsers for saving the page. Do not bind it in the first implementation; if product later enables it, the handler must call `preventDefault()` only inside the review route and only outside editable fields.
+- Relation selection should remain click-first through image bbox or relation index buttons; do not add Relation keyboard cycling in the first implementation.
+- No persistent visible shortcut legend should be added to the review canvas.
+
+Implementation task shape:
+
+- Frontend agent updated the review-workbench shortcut handling in the frontend worktree.
+- Tests cover key handling, disabled gates, input-focus ignore behavior, dirty/save guard, no `Ctrl/Cmd+S`, and no submit shortcut.
+- Integration checks verified keyboard flow on the live review route.
+
+Acceptance:
+
+- Keyboard navigation moves to previous/next queue sample and keeps the silent refresh behavior.
+- Bottom bar shortcut actions call the same handlers as visible buttons.
+- `校验修改` still validates only.
+- `保存草稿` maps to batch draft persistence, not a single-sample-only save.
+- `提交批次修改` has no instant shortcut and remains modal-confirmed.
+- The first implementation does not bind `Ctrl/Cmd+S`, so browser save-page behavior remains untouched.
+- Text editing in Relation/Candidate fields is not interrupted by letter shortcuts.
+- Protected bbox behavior and accepted review layout remain unchanged.
+
+Verification:
+
+- Frontend agent: `npm run test -- routesAndPages` passed, `npm run test` passed, `npm run build` passed.
+- Main workspace: `cd frontend && npm run test` passed, `cd frontend && npm run build` passed, `git diff --check` passed.
+- Browser smoke confirmed `S` saves batch draft, `D` moves to the next sample, `V` validates only, `Ctrl/Cmd+S` and `Ctrl/Cmd+Enter` do not trigger review actions, editable-field focus ignores letter shortcuts, and submit remains button/modal confirmed.
+
+### P0 - QC Review Draft Autosave And Batch Submission Redesign
+
+Status: completed.
+
+Goal:
+
+- Redesign the QC review bottom bar so draft persistence covers all operator edits in the current assigned batch, and final submit represents completion of the entire batch QC modification work.
+- Preserve the accepted single-screen review layout and bbox behavior.
+
+Current mismatch:
+
+- `保存草稿` currently posts only the active sample patch to `POST /api/datasets/{batch_id}/samples/{sample_id}/label-edits` with `submitAction=save_draft`.
+- `提交修改` currently validates and submits only the active sample patch with `submitAction=submit_changes`, then releases only the active sample lease.
+- This does not match the intended workflow where the operator works through a batch and submits the whole batch only after all required samples are reviewed.
+
+Target interaction contract:
+
+- `跳过样本`: leave current sample without submitting; if dirty edits exist, trigger save-before-leave or an explicit non-destructive confirmation.
+- `校验修改`: validate field legality for the current sample only; no save, no submit, no status finalization.
+- `保存草稿`: manually persist all dirty sample drafts in the current batch review session. It should include the current sample plus any previously modified samples tracked by the batch draft workspace.
+- Auto-save: every 2-5 minutes while dirty edits exist; default design target is 3 minutes. It must not submit, must avoid overlapping saves, and must surface last-save/error status in the bottom bar.
+- `提交修改`: rename in UI to `提交批次修改` or equivalent. It opens a confirmation modal and finalizes the entire assigned batch only when required draft saves and field validations pass.
+
+Frontend task shape:
+
+- Add a batch draft workspace state above the active sample editor: dirty sample ids, validation state, save status, last autosave time, failed autosave reason, and batch submit readiness.
+- Keep local edits responsive while autosave is pending; do not blank or remount the review screen during autosave.
+- Bottom bar should show compact status chips: current sample change count, batch draft saved count, autosave state, validation issue count.
+- Manual `保存草稿` should flush all dirty sample drafts and update the batch draft status chip.
+- `提交批次修改` should open a modal with total tasks, saved drafts, unsaved dirty samples, validation errors, skipped/unmodified samples, and final confirmation.
+- Disable batch submit when autosave is pending, dirty edits are unsaved, validation has errors, assignment is missing, label config is missing, or current user is not the batch assignee.
+
+Backend/API task shape:
+
+- Keep the existing sample-level validate endpoint for current-sample legality checks.
+- Add or extend batch draft APIs so the frontend can persist and reload a user's batch-level draft manifest.
+- Add a batch submit endpoint that atomically finalizes the assigned batch and records a batch-level submission/audit record.
+- Batch submit should create or reference per-sample submissions from saved drafts, mark the batch assignment/submission as submitted for lead review, and reject stale revisions or missing required validations.
+- Autosave writes must remain draft-only and idempotent.
+
+Acceptance:
+
+- Restarting frontend/backend preserves the user's saved batch draft progress.
+- Auto-save runs within the configured 2-5 minute window only when there are dirty edits.
+- Save draft never marks the batch or sample as final submitted.
+- Batch submit cannot complete with unsaved dirty edits or validation errors.
+- Successful batch submit produces one durable batch-level finalization record and an audit event.
+- The current accepted review layout, bbox rendering, zoom/pan, and field editor placement remain unchanged.
+
+Execution assignment:
+
+- Backend agent worktree: `/mnt/lc/LC/ares_xtws/0_train_data/data_platform_backend_agent`, branch `agent/backend-implementation`.
+- Frontend agent worktree: `/mnt/lc/LC/ares_xtws/0_train_data/data_platform_frontend_agent`, branch `agent/frontend-implementation`.
+- Frontend and backend handoffs are complete.
+- Main workspace must not directly edit product frontend/backend code for this task.
+
+Integration result:
+
+- Frontend request/response payloads were corrected to match the backend `entries[]` and `submit-batch` contracts.
+- Live agent-stack API smoke verified batch draft read/save/autosave, blocked submit, missing-config non-500 handling, and successful batch submit after activating the test label config.
+- Headless Chrome CDP smoke verified the review page renders the new bottom-bar chips/buttons and opens the batch submit confirmation modal.
+- Main workspace regression checks passed: backend pytest, frontend Vitest, frontend build, and `git diff --check`.
+
+### P1 - Project Test Case Suite Execution
+
+Status: completed by integration/test agent.
+
+Execution:
+
+- Test agent executed static checks, backend pytest, frontend Vitest/build, main-stack smoke, and supplemental browser automation.
+- Browser verification used Playwright/system Chrome automation because Chrome MCP was not available in the current tool surface.
+- Test report saved at `test_reports/project_test_report_2026-05-20.md`.
+
+Result:
+
+- Backend: `60 passed`; `tests/test_manifest_parser.py`: `6 passed`; `tests/test_api.py`: `54 passed`.
+- Frontend: `82 passed` across 6 test files; build passed.
+- Integration smoke: `scripts/integration-smoke.sh main` passed.
+- Supplemental browser checks passed for dataset routes, label-config route, permission console, and review page bbox visibility.
+- Estimated automated boundary coverage: `170 / 182 = 93.4%`.
+- Services were stopped and ports `8000/5173/18031/15195` were confirmed released.
 
 ### P1 - Frontend Architecture Repair
 
@@ -146,6 +517,68 @@ Dispatch status:
 - Integration/test agent: passed protected-file checks, backend/frontend tests, agent stack smoke, live API idempotency verification, browser smoke for `另存为新版本`, and service shutdown checks.
 - Main workspace: synchronized accepted code, passed backend/frontend tests, passed `scripts/integration-smoke.sh main`, and confirmed services/ports released.
 
+### P1 - Label Config History Deduplication And Runtime Store Hardening
+
+Status: completed and accepted into main.
+
+Problem:
+
+- Historical versions must remain available for comparison.
+- The same label config version/content must not appear multiple times.
+- Current historical data shows repeated `label-config-*` records with identical `content_hash`, `version`, and `file_name`.
+- The old default runtime path can write label-config state into `DATASET/urban_violation/label_configs` when `LABEL_CONFIG_STORE_ROOT` is not set.
+- Existing UI still exposes `另存为新版本` and per-row `激活`, which encourages version-history operations instead of a simple manual upload/update workflow.
+
+Target behavior:
+
+- Keep a version history, but define one unique history item as one semantic config version.
+- Same `content_hash` for the same dataset type always reuses the existing config entry.
+- Same `config.version` with different `content_hash` should not silently create a second row with the same version label. It must return a clear `version_conflict` unless an explicit user action changes the version field.
+- A new history entry is created only when a manually uploaded config has a new `config.version` and new `content_hash`.
+- Upload/save should activate the accepted current config by default.
+- History rows are comparison/read-only entries; historical activation should be removed unless a future rollback feature is explicitly designed.
+- Runtime label config state should default to `.runtime/label_config_state`, not raw `DATASET/`.
+- A one-time cleanup/migration should collapse duplicate historical entries, preserving one active entry and moving/removing redundant same-hash records from runtime state.
+
+Backend tasks:
+
+- Treat the normal save API as a manual upload/update operation. `save_as_new_version` may remain accepted for backward compatibility, but it must not create a duplicate same-hash row.
+- Add repository lookup by `content_hash` and by `config.version`.
+- For duplicate `content_hash`: return existing config and activate it if requested.
+- For duplicate `config.version` but different hash: return 409 `label_config_version_conflict`.
+- For new version+hash: create a new history record and archive previous active.
+- Fix active pointer consistency so `registry.json` and `active.json` cannot diverge.
+- Add a migration/repair function for duplicate persisted configs that preserves one canonical entry and moves, ignores, or rewrites redundant same-hash rows without mutating raw `DATASET/`.
+- Change dev/runtime default store root away from `DATASET/`; update backend factory defaults and stack scripts so `.runtime/label_config_state` is used when `LABEL_CONFIG_STORE_ROOT` is omitted.
+- Add backend tests for duplicate hash, duplicate version different hash, new version, active pointer consistency, migration repair, restart persistence, and default root isolation.
+
+Frontend tasks:
+
+- Remove `另存为新版本` from the normal label-config management UI.
+- Rename primary action to `上传并更新配置` or `保存并激活配置`.
+- Keep history visible as comparison records, but remove row-level `激活` unless rollback is later designed.
+- Show duplicate-content reuse as `配置未变化，已复用当前版本`.
+- Show duplicate-version conflict as a clear instruction to bump `version` inside the uploaded JSON.
+- Update API types/adapters so the frontend no longer sends `saveAsNewVersion` in normal operation.
+- Keep all visible copy Chinese.
+
+Integration/test tasks:
+
+- Start from a dirty historical store containing duplicate same-hash entries and verify repair collapses duplicates.
+- Upload same file twice and verify version count stays stable.
+- Upload changed config with same `version` and verify 409 conflict.
+- Upload changed config with bumped `version` and verify one new history entry plus active pointer update.
+- Verify no writes occur under raw `DATASET/` when using dev stack defaults.
+- Browser verify `/datasets/types/urban_violation/label-config` shows `上传并更新配置`, does not show `另存为新版本`, and has no history-row `激活`.
+- Stop all main/agent services after validation and confirm ports `8000/5173/18031/15195` are released.
+
+Dispatch status:
+
+- Backend agent: completed repository semantics, runtime root hardening, repair, API error, stack-script support, and backend tests in `../data_platform_backend_agent`.
+- Frontend agent: completed label-config UI/API workflow, follow-up reload-button wording fix, and frontend tests in `../data_platform_frontend_agent`.
+- Integration/test agent: passed combined worktree validation after a first UI wording failure was fixed.
+- Main workspace: accepted patches synchronized, backend/frontend tests passed, `scripts/integration-smoke.sh main` passed, and services/ports were released.
+
 ### P1 - Dataset Type Detail Navigation And Label Config Relocation
 
 Status: completed and accepted into main.
@@ -203,7 +636,7 @@ Integration/test tasks:
 - Browser-smoke `/datasets/types/urban_violation/label-config` and verify:
   - The label config panel is visible.
   - Existing active config/version list loads.
-  - `保存配置` and `另存为新版本` remain present.
+  - The current accepted baseline showed `保存配置` and `另存为新版本`; the follow-up hardening phase replaces this with the single `上传并更新配置` path and readonly history.
 - Browser-smoke a batch overview whose lifecycle needs config and verify `管理类型配置` opens the child label-config route.
 - Stop all services and confirm project ports are released.
 
@@ -587,3 +1020,27 @@ Then verify no project `uvicorn`, Vite, or tracked backend/frontend listener rem
 - Whether import validation history should become persistent audit data in the first production hardening pass.
 - Whether frontend operation telemetry should be added after backend-derived attribution is stable, and which privacy/storage limits it should use.
 - Whether rollback should be enabled in the first version-history release or kept as an admin-only recovery operation.
+
+## Autosave Persistence Completion
+
+- Status: complete.
+- Backend save/autosave now treats successful persistence as authoritative: returned and reloaded batch draft entries are `dirty=false` and `saved=true`.
+- Frontend save/autosave parsing now treats top-level `BatchDraftSummaryResponse` as authoritative `result.draft`.
+- Frontend fallback merge no longer reuses the original dirty request payload as saved state.
+- Acceptance verified:
+  - dirty autosave payload returns `saved_count=1`, `dirty_count=0`;
+  - reloading `my-batch-draft` preserves `saved=true`, `dirty=false`;
+  - batch submit readiness no longer remains blocked by stale dirty flags after successful save/autosave.
+
+## Autosave Scheduling Optimization
+
+- Replaced fixed idle autosave interval with dirty-only one-shot scheduling.
+- Added stale in-flight save protection: if a sample changes while autosave is pending, the older response cannot mark the newer draft as saved.
+- Added frontend regression coverage for dirty-only autosave and stale autosave response handling.
+
+## Autosave Interval Control Completion
+
+- Status: complete.
+- Added bottom-bar autosave interval control with `1分钟`, `2分钟`, `3分钟`, and `5分钟` options.
+- Default remains `3分钟`; the reviewer selection is stored locally in the browser.
+- Changing the interval while dirty reschedules the next autosave without cancelling any in-flight save request.

@@ -2,27 +2,39 @@
   <div
     ref="shellRef"
     class="bbox-shell"
-    :class="{ 'bbox-shell--pannable': viewport.zoom > MIN_ZOOM, 'bbox-shell--panning': isPanning }"
-    :style="{ '--bbox-aspect': `${imageWidth} / ${imageHeight}` }"
+    :class="{
+      'bbox-shell--pannable': viewport.zoom > MIN_ZOOM,
+      'bbox-shell--panning': isPanning,
+      'bbox-shell--loading-next': imageLoading,
+    }"
+    :style="{ '--bbox-aspect': `${displayedImageWidth} / ${displayedImageHeight}` }"
     @pointerdown="startImagePan"
     @wheel.prevent="handleWheelZoom"
     @auxclick.prevent
   >
     <div ref="stageRef" class="bbox-shell__stage" :style="stageStyle">
       <img
-        v-if="safeImageUrl"
+        v-if="displayedImageUrl"
         class="bbox-shell__image"
-        :src="safeImageUrl"
-        :alt="alt"
-        @error="imageFailed = true"
+        :src="displayedImageUrl"
+        :alt="displayedAlt"
+        @error="handleDisplayedImageError"
       />
-      <div v-if="imageFailed || !safeImageUrl" class="bbox-shell__fallback">
+      <div v-if="imageFailed && displayedImageUrl" class="bbox-shell__image-status bbox-shell__image-status--error">
+        <ImageOff :size="16" />
+        <span>Image load failed</span>
+      </div>
+      <div v-else-if="imageLoading && displayedImageUrl" class="bbox-shell__image-status">
+        <Loader2 :size="16" class="bbox-shell__spinner" />
+        <span>正在加载图像</span>
+      </div>
+      <div v-if="imageFailed && !displayedImageUrl" class="bbox-shell__fallback">
         <ImageOff :size="28" />
         <span>Media preview pending from backend URL</span>
       </div>
 
       <div
-        v-for="box in boxes"
+        v-for="box in displayedBoxes"
         :key="box.id"
         class="bbox-shell__box"
         :class="[
@@ -31,12 +43,12 @@
         ]"
         :style="boxStyle(box.bbox)"
         role="button"
-        tabindex="0"
+        :tabindex="imageLoading ? -1 : 0"
         :aria-label="box.label"
-        @click.stop="emit('selectBox', box)"
+        @click.stop="selectDisplayedBox(box)"
         @auxclick.stop.prevent
-        @keydown.enter.prevent="emit('selectBox', box)"
-        @keydown.space.prevent="emit('selectBox', box)"
+        @keydown.enter.prevent="selectDisplayedBox(box)"
+        @keydown.space.prevent="selectDisplayedBox(box)"
         @pointerdown.stop="handleBoxPointerDown($event, box, 'move')"
       >
         <button
@@ -55,7 +67,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { ImageOff } from 'lucide-vue-next';
+import { ImageOff, Loader2 } from 'lucide-vue-next';
 import { toBrowserMediaUrl } from '../../services/media';
 import type { BBox } from '../types/contract';
 
@@ -90,6 +102,12 @@ const emit = defineEmits<{
 }>();
 
 const imageFailed = ref(false);
+const imageLoading = ref(false);
+const displayedImageUrl = ref<string>();
+const displayedAlt = ref(props.alt);
+const displayedImageWidth = ref(props.imageWidth);
+const displayedImageHeight = ref(props.imageHeight);
+const displayedBoxes = ref<OverlayBox[]>(props.boxes);
 const shellRef = ref<HTMLElement>();
 const stageRef = ref<HTMLElement>();
 const shellSize = ref({ width: 0, height: 0 });
@@ -115,9 +133,10 @@ let panDragState:
       startPan: { x: number; y: number };
     }
   | undefined;
+let imageLoadSequence = 0;
 
 const stageDimensions = computed(() => {
-  const aspect = props.imageWidth / props.imageHeight;
+  const aspect = displayedImageWidth.value / displayedImageHeight.value;
   const width = shellSize.value.width;
   const height = shellSize.value.height;
 
@@ -151,10 +170,19 @@ const stageStyle = computed(() => {
   };
 });
 
-watch([safeImageUrl, () => props.imageWidth, () => props.imageHeight], () => {
-  imageFailed.value = false;
-  resetViewport();
-});
+watch([safeImageUrl, () => props.imageWidth, () => props.imageHeight, () => props.alt], ([nextUrl]) => {
+  updateDisplayedImage(nextUrl);
+}, { immediate: true });
+
+watch(
+  () => props.boxes,
+  () => {
+    if (!imageLoading.value && displayedImageUrl.value === safeImageUrl.value) {
+      displayedBoxes.value = props.boxes;
+    }
+  },
+  { deep: true },
+);
 
 onMounted(() => {
   if (typeof ResizeObserver === 'undefined') {
@@ -193,6 +221,80 @@ const boxStyle = (bbox: BBox) => {
     height: quantizedToPercent(y2 - y1),
   };
 };
+
+function applyDisplayedSnapshot(imageUrl: string) {
+  displayedImageUrl.value = imageUrl;
+  displayedAlt.value = props.alt;
+  displayedImageWidth.value = props.imageWidth;
+  displayedImageHeight.value = props.imageHeight;
+  displayedBoxes.value = props.boxes;
+  imageLoading.value = false;
+  imageFailed.value = false;
+  resetViewport();
+}
+
+function clearDisplayedSnapshot() {
+  displayedImageUrl.value = undefined;
+  displayedAlt.value = props.alt;
+  displayedImageWidth.value = props.imageWidth;
+  displayedImageHeight.value = props.imageHeight;
+  displayedBoxes.value = props.boxes;
+  imageLoading.value = false;
+  imageFailed.value = true;
+  resetViewport();
+}
+
+function updateDisplayedImage(nextUrl: string | undefined) {
+  const sequence = ++imageLoadSequence;
+  if (!nextUrl) {
+    clearDisplayedSnapshot();
+    return;
+  }
+
+  if (!displayedImageUrl.value || displayedImageUrl.value === nextUrl) {
+    applyDisplayedSnapshot(nextUrl);
+    return;
+  }
+
+  imageLoading.value = true;
+  imageFailed.value = false;
+
+  if (typeof window === 'undefined' || typeof window.Image === 'undefined') {
+    applyDisplayedSnapshot(nextUrl);
+    return;
+  }
+
+  const image = new window.Image();
+  image.onload = () => {
+    if (sequence !== imageLoadSequence) {
+      return;
+    }
+    applyDisplayedSnapshot(nextUrl);
+  };
+  image.onerror = () => {
+    if (sequence !== imageLoadSequence) {
+      return;
+    }
+    imageLoading.value = false;
+    imageFailed.value = true;
+  };
+  image.src = nextUrl;
+  if (image.complete) {
+    applyDisplayedSnapshot(nextUrl);
+  }
+}
+
+function handleDisplayedImageError() {
+  imageLoading.value = false;
+  imageFailed.value = true;
+}
+
+function selectDisplayedBox(box: OverlayBox) {
+  if (imageLoading.value) {
+    return;
+  }
+  emit('selectBox', box);
+}
 
 function updateShellSize() {
   const rect = shellRef.value?.getBoundingClientRect();
@@ -244,6 +346,9 @@ function resetViewport() {
 }
 
 function handleBoxPointerDown(event: PointerEvent, box: OverlayBox, mode: 'move' | 'resize') {
+  if (imageLoading.value) {
+    return;
+  }
   if (isMiddleButton(event)) {
     startImagePan(event);
     return;
@@ -510,6 +615,33 @@ function roundPan(value: number) {
   object-fit: cover;
 }
 
+.bbox-shell__image-status {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 8;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(79, 140, 255, 0.45);
+  border-radius: 999px;
+  background: rgba(13, 16, 21, 0.88);
+  color: #bfdbfe;
+  padding: 5px 9px;
+  font-size: 12px;
+  font-weight: 800;
+  pointer-events: none;
+}
+
+.bbox-shell__image-status--error {
+  border-color: rgba(245, 101, 101, 0.5);
+  color: #fed7d7;
+}
+
+.bbox-shell__spinner {
+  animation: bbox-spin 0.9s linear infinite;
+}
+
 .bbox-shell__fallback {
   position: absolute;
   inset: 0;
@@ -550,6 +682,10 @@ function roundPan(value: number) {
 
 .bbox-shell__box--editable:hover {
   opacity: 1;
+}
+
+.bbox-shell--loading-next .bbox-shell__box {
+  pointer-events: none;
 }
 
 .bbox-shell__resize {
@@ -601,5 +737,11 @@ function roundPan(value: number) {
 
 .bbox-shell__box--teal {
   color: #2dd4bf;
+}
+
+@keyframes bbox-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

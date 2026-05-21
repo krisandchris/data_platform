@@ -1,0 +1,69 @@
+# Docker LAN Deployment Progress
+
+## 2026-05-21
+
+- Read planning-with-files and multi-agent-worktree skills.
+- Checked memory registry for prior `data_platform` worktree context.
+- Inspected local `AGENTS.md`, existing `.agent` files, git status, worktree list, backend app/service routing, frontend Vite config, and package metadata.
+- Replaced stale `.agent/` documentation-task files with the current Docker LAN deployment task plan, findings, and progress log.
+- Spawned backend and frontend worktree agents for scoped backend env support and frontend production-build verification.
+- Added lead-owned Docker deployment files and deployment documentation in the main workspace.
+- Reviewed frontend handoff: `VITE_API_BASE_URL=/api npm run build` passed; no frontend source change required.
+- Reviewed backend handoff: targeted `DATASET_ROOT` tests and full `uv run pytest` passed in backend worktree.
+- Synchronized the isolated backend `DATASET_ROOT` factory change and focused tests into the main workspace.
+- Main verification passed:
+  - `uv run pytest tests/test_api.py -k "DATASET_ROOT or dataset_root"` -> `4 passed, 73 deselected`.
+  - `VITE_API_BASE_URL=/api npm run build` in `frontend/` -> passed.
+  - `docker compose config` -> passed.
+  - `uv run pytest` -> `85 passed`.
+  - `git diff --check` -> passed.
+- Attempted `docker compose build`; stopped it after about ten minutes because external base image pulls were still incomplete. No Docker smoke container was started.
+- Started archive-upload batch creation redesign for Docker deployment.
+- Confirmed existing backend uses JSON `ImportJobCreateRequest` and `source_uri` server-side path resolution.
+- Confirmed there is no `python-multipart` dependency; chose raw zip body streaming to avoid dependency and lockfile changes.
+- Backend agent implemented archive upload endpoint, safe extraction, and regression coverage.
+- Frontend agent implemented zip upload UI/API wiring and regression coverage.
+- Synchronized verified archive-upload changes from agent worktrees into the main workspace.
+- Main verification passed:
+  - `uv run pytest tests/test_api.py -k "archive_upload or manual_batch"` -> `7 passed, 72 deselected`
+  - `npm run test -- apiClient.test.ts routesAndPages.test.ts` in `frontend/` -> `2 passed`, `92 passed`
+  - `VITE_API_BASE_URL=/api npm run build` in `frontend/` -> passed
+  - `uv run pytest` -> `87 passed`
+  - `git diff --check` -> passed
+  - `docker compose config` -> passed
+  - `docker compose build backend frontend` -> passed
+- Existing compose containers remain running and healthy; they were not recreated after image rebuild.
+- Investigated batch upload `Request Entity Too Large`.
+- Raised Docker deployment upload limits:
+  - Nginx `client_max_body_size`: `2048m`
+  - `PLATFORM_IMPORT_ARCHIVE_MAX_BYTES`: `2147483648`
+  - `PLATFORM_IMPORT_ARCHIVE_EXTRACT_MAX_BYTES`: `4294967296`
+- Updated deployment documentation with archive upload size guidance.
+- Adjusted deployment for frequent 3-5 GiB batch zip uploads:
+  - Nginx `client_max_body_size`: `8192m`
+  - Nginx `/api/`: `proxy_request_buffering off`
+  - Nginx upload/proxy timeouts: `3600s`
+  - `PLATFORM_IMPORT_ARCHIVE_MAX_BYTES`: `8589934592`
+  - `PLATFORM_IMPORT_ARCHIVE_EXTRACT_MAX_BYTES`: `34359738368`
+- Frontend agent added archive upload progress support and verified:
+  - `npm run test -- apiClient.test.ts routesAndPages.test.ts` -> `2 passed`, `93 passed`
+  - `VITE_API_BASE_URL=/api npm run build` -> passed
+- Synchronized archive upload progress changes into the main workspace.
+- Main verification passed:
+  - `npm run test -- apiClient.test.ts routesAndPages.test.ts` in `frontend/` -> `2 passed`, `93 passed`
+  - `VITE_API_BASE_URL=/api npm run build` in `frontend/` -> passed
+  - `git diff --check` -> passed
+  - `docker compose build frontend` -> passed
+- Started Sample Review sample-switching UX optimization.
+- Confirmed route-level page mounting is stable; likely flicker source is the image overlay swapping `<img src>` directly and the lack of an in-place switching indicator.
+- Frontend agent implemented the Sample Review switching UX optimization and verified targeted tests/build there.
+- Synchronized verified frontend patches into the main workspace:
+  - `ReviewWorkbenchPage.vue` now passes switching state and target sample to the shell.
+  - `ReviewWorkbenchShell.vue` shows an inline switching status and disables repeated actions while switching.
+  - `BBoxOverlay.vue` buffers the displayed image/boxes until the next image load completes.
+  - `bboxOverlay.test.ts` and `routesAndPages.test.ts` cover the new behavior.
+- Main verification passed:
+  - `npm run test -- routesAndPages.test.ts bboxOverlay.test.ts` in `frontend/` -> first run hit an unrelated label-config conflict assertion, immediate rerun passed with `2 passed`, `80 passed`
+  - `VITE_API_BASE_URL=/api npm run build` in `frontend/` -> passed
+  - `git diff --check` -> passed
+  - `docker compose build frontend` -> passed

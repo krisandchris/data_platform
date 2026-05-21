@@ -39,6 +39,15 @@ class Stage1ManifestEntry(StrictModel):
     record_path: str
 
 
+class Stage1ManifestFailureEntry(StrictModel):
+    """Failed stage1 manifest row retained as retry/history diagnostic."""
+
+    id: str
+    status: str = "failed"
+    request_path: str
+    failure_path: str
+
+
 class Stage2ManifestSuccessEntry(StrictModel):
     """Successful stage2 manifest row."""
 
@@ -128,17 +137,37 @@ def read_stage1_manifest(
     dataset_root: Path,
     stage1_run_dir: Path | None = None,
 ) -> dict[str, Stage1ManifestEntry]:
-    """Read stage1 manifest as a map keyed by sample id."""
+    """Read final successful stage1 rows keyed by sample id."""
+    entries, _ = read_stage1_manifest_with_failures(dataset_root, stage1_run_dir=stage1_run_dir)
+    return entries
+
+
+def read_stage1_manifest_with_failures(
+    dataset_root: Path,
+    stage1_run_dir: Path | None = None,
+) -> tuple[dict[str, Stage1ManifestEntry], dict[str, Stage1ManifestFailureEntry]]:
+    """Read stage1 manifest with deterministic final-row-by-id semantics."""
     stage_dir = _resolve_stage_run_dir(dataset_root, "stage1", stage1_run_dir)
     manifest_path = stage_dir / "meta" / "manifest.jsonl"
     entries: dict[str, Stage1ManifestEntry] = {}
+    failed_entries: dict[str, Stage1ManifestFailureEntry] = {}
     for line_no, line in _manifest_line_iter(manifest_path):
         try:
-            entry = Stage1ManifestEntry.model_validate_json(line)
+            payload = json.loads(line)
+        except json.JSONDecodeError as exc:  # pragma: no cover - defensive
+            raise ValueError(f"Invalid JSON in stage1 manifest line {line_no}: {exc}") from exc
+        try:
+            if payload.get("status") == "failed":
+                failed_entry = Stage1ManifestFailureEntry.model_validate(payload)
+                failed_entries[failed_entry.id] = failed_entry
+                entries.pop(failed_entry.id, None)
+                continue
+            entry = Stage1ManifestEntry.model_validate(payload)
         except Exception as exc:  # pragma: no cover - defensive context enrichment
             raise ValueError(f"Invalid stage1 manifest line {line_no}: {exc}") from exc
         entries[entry.id] = entry
-    return entries
+        failed_entries.pop(entry.id, None)
+    return entries, failed_entries
 
 
 def read_stage2_manifest(
@@ -227,18 +256,23 @@ def _load_stage1_preannotation(
 def _extract_source_image_path(
     dataset_root: Path,
     stage1_record_path: str,
-    stage2_input_path: str,
+    stage2_input_path: str | None,
     stage1_run_dir: Path | None = None,
     stage2_run_dir: Path | None = None,
 ) -> str:
     """Extract source image path from stage1 record and fall back to stage2 input."""
     stage1_dir = _resolve_stage_run_dir(dataset_root, "stage1", stage1_run_dir)
-    stage2_dir = _resolve_stage_run_dir(dataset_root, "stage2", stage2_run_dir)
     stage1_record = _read_json_file(stage1_dir / stage1_record_path)
     images = stage1_record.get("images", []) if isinstance(stage1_record, dict) else []
     if images and isinstance(images[0], str):
         return images[0]
 
+    if stage2_input_path is None:
+        raise ValueError(
+            "Unable to resolve source image path from stage1 record because stage2 manifest row is missing"
+        )
+
+    stage2_dir = _resolve_stage_run_dir(dataset_root, "stage2", stage2_run_dir)
     stage2_input = _read_json_file(stage2_dir / stage2_input_path)
     image_path = stage2_input.get("image_path") if isinstance(stage2_input, dict) else None
     if isinstance(image_path, str) and image_path:
@@ -301,31 +335,51 @@ def import_fixture_samples(
     """Import all dataset samples, or a deterministic subset when sample ids are provided."""
     stage1_run_dir = discover_stage_run_dir(dataset_root, "stage1")
     stage2_run_dir = discover_stage_run_dir(dataset_root, "stage2")
-    stage1_entries = read_stage1_manifest(dataset_root, stage1_run_dir=stage1_run_dir)
+    stage1_entries, stage1_failed_entries = read_stage1_manifest_with_failures(
+        dataset_root,
+        stage1_run_dir=stage1_run_dir,
+    )
     stage2_entries = read_stage2_manifest(dataset_root, stage2_run_dir=stage2_run_dir)
-    target_sample_ids = list(sample_ids) if sample_ids is not None else sorted(stage1_entries)
+    if sample_ids is None:
+        target_sample_ids = sorted(stage1_entries)
+    else:
+        target_sample_ids = []
+        for sample_id in sample_ids:
+            if sample_id in stage1_entries:
+                target_sample_ids.append(sample_id)
+                continue
+            if sample_id in stage1_failed_entries:
+                continue
+            raise KeyError(f"Sample {sample_id} missing in stage1 manifest")
     pairs = pair_stage_samples(stage1_entries, stage2_entries, sample_ids=target_sample_ids)
 
     fixtures: list[FixtureSample] = []
     for pair in pairs:
-        if pair.stage2 is None:
-            raise KeyError(f"Sample {pair.sample_id} missing in stage2 manifest")
-
         stage1 = _load_stage1_preannotation(
             dataset_root,
             pair.stage1,
             stage1_run_dir=stage1_run_dir,
         )
-        stage2, stage2_failure = _load_stage2(
-            dataset_root,
-            pair.stage2,
-            stage2_run_dir=stage2_run_dir,
-        )
+        if pair.stage2 is None:
+            stage2 = None
+            stage2_failure = Stage2PreannotationFailure(
+                sample_id=pair.sample_id,
+                error_type="Stage2MissingError",
+                message="Stage2 manifest entry missing for this sample.",
+            )
+            stage2_input_path: str | None = None
+        else:
+            stage2, stage2_failure = _load_stage2(
+                dataset_root,
+                pair.stage2,
+                stage2_run_dir=stage2_run_dir,
+            )
+            stage2_input_path = pair.stage2.input_path
 
         source_image_path = _extract_source_image_path(
             dataset_root,
             stage1_record_path=pair.stage1.record_path,
-            stage2_input_path=pair.stage2.input_path,
+            stage2_input_path=stage2_input_path,
             stage1_run_dir=stage1_run_dir,
             stage2_run_dir=stage2_run_dir,
         )

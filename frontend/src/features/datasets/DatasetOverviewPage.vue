@@ -36,11 +36,63 @@
           <ShieldCheck :size="17" />
           {{ primaryAction.label }}
         </RouterLink>
+        <button
+          v-if="summary && canDeleteBatch"
+          class="button button--danger"
+          type="button"
+          @click="openDeleteDialog"
+        >
+          <Trash2 :size="17" />
+          删除批次
+        </button>
       </div>
     </header>
     <p v-if="actionMessage" class="overview-action-message" :class="{ error: actionMessageIsError }">
       {{ actionMessage }}
     </p>
+
+    <div v-if="showDeleteDialog && summary" class="delete-modal-backdrop" @click.self="closeDeleteDialog">
+      <section class="delete-modal" role="dialog" aria-modal="true" aria-labelledby="delete-batch-title">
+        <header>
+          <h2 id="delete-batch-title">删除批次</h2>
+        </header>
+        <div class="delete-modal__body">
+          <p class="delete-warning">
+            删除只移除平台批次记录和质检状态，不删除 DATASET 原始文件；删除后无法从平台恢复。
+          </p>
+          <dl class="delete-target">
+            <div>
+              <dt>批次名称</dt>
+              <dd>{{ deleteBatchName }}</dd>
+            </div>
+            <div>
+              <dt>批次 ID</dt>
+              <dd>{{ id }}</dd>
+            </div>
+            <div>
+              <dt>数据集类型</dt>
+              <dd>{{ explicitDatasetType ?? '未记录' }}</dd>
+            </div>
+          </dl>
+          <label class="delete-confirm-field">
+            <span>输入完整批次 ID 后确认删除</span>
+            <input v-model.trim="deleteConfirmId" :disabled="deletingBatch" :placeholder="id" />
+          </label>
+          <p v-if="deleteError" class="delete-error">{{ deleteError }}</p>
+        </div>
+        <footer>
+          <button class="button" type="button" :disabled="deletingBatch" @click="closeDeleteDialog">取消</button>
+          <button
+            class="button button--danger"
+            type="button"
+            :disabled="!deleteConfirmMatches || deletingBatch"
+            @click="confirmDeleteBatch"
+          >
+            {{ deletingBatch ? '删除中...' : '确认删除' }}
+          </button>
+        </footer>
+      </section>
+    </div>
 
     <div v-if="loading" class="loading-state">正在加载数据集概览...</div>
     <div v-else-if="error" class="error-state">{{ error }}</div>
@@ -203,12 +255,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, getCurrentInstance, onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
-import { FileSearch, Settings2, ShieldCheck, Table2, TriangleAlert } from 'lucide-vue-next';
+import type { Router } from 'vue-router';
+import { FileSearch, Settings2, ShieldCheck, Table2, Trash2, TriangleAlert } from 'lucide-vue-next';
+import { ApiClientError } from '../../services/http';
 import { apiClient } from '../../services/urbanViolationApi';
 import StatusChip from '../../shared/components/StatusChip.vue';
 import { useAsyncState } from '../../shared/composables/useAsyncState';
+import { useAuthState } from '../auth/authState';
 import DatasetDashboardCards from './components/DatasetDashboardCards.vue';
 import DistributionPanel from './components/DistributionPanel.vue';
 import ModelEvaluationPanel from './components/ModelEvaluationPanel.vue';
@@ -216,6 +271,8 @@ import QcAnalysisPanel from './components/QcAnalysisPanel.vue';
 import VersionHistoryPanel from './components/VersionHistoryPanel.vue';
 
 const props = defineProps<{ id: string }>();
+const router = getCurrentInstance()?.appContext.config.globalProperties.$router as Router | undefined;
+const { roles, permissions, loadCurrentUser } = useAuthState();
 const { data, loading, error, reload } = useAsyncState(() => apiClient.getDatasetBatchSummary(props.id), {
   watch: () => props.id,
   resetOnExecute: true,
@@ -223,14 +280,28 @@ const { data, loading, error, reload } = useAsyncState(() => apiClient.getDatase
 const summary = computed(() => data.value);
 const lifecycleStatus = computed(() => summary.value?.dataset.lifecycleStatus ?? summary.value?.dataset.status ?? 'draft');
 const latestImportJobId = computed(() => summary.value?.latestImportJob?.id ?? summary.value?.dataset.activeImportJobId);
-const datasetType = computed(() => summary.value?.dataset.datasetType ?? summary.value?.assetSummary?.datasetType ?? props.id);
+const explicitDatasetType = computed(() => summary.value?.dataset.datasetType ?? summary.value?.assetSummary?.datasetType);
+const datasetType = computed(() => explicitDatasetType.value ?? props.id);
 const typeConfigTarget = computed(() => `/datasets/types/${encodeURIComponent(datasetType.value)}/label-config`);
 const generatingQcQueue = ref(false);
 const actionMessage = ref('');
 const actionMessageIsError = ref(false);
+const showDeleteDialog = ref(false);
+const deletingBatch = ref(false);
+const deleteConfirmId = ref('');
+const deleteError = ref('');
 const canGenerateQcQueue = computed(
   () => lifecycleStatus.value === 'preannotation_ready' && !summary.value?.dataset.qcQueueId,
 );
+const canDeleteBatch = computed(
+  () => roles.value.includes('platform_admin') || hasPermission(permissions.value, 'dataset_batch:delete'),
+);
+const deleteBatchName = computed(() => summary.value?.dataset.batchName ?? summary.value?.dataset.name ?? props.id);
+const deleteConfirmMatches = computed(() => deleteConfirmId.value === props.id);
+
+onMounted(() => {
+  void loadCurrentUser();
+});
 
 const primaryAction = computed(() => {
   const status = lifecycleStatus.value;
@@ -269,6 +340,69 @@ async function generateQcQueue() {
   } finally {
     generatingQcQueue.value = false;
   }
+}
+
+function openDeleteDialog() {
+  deleteConfirmId.value = '';
+  deleteError.value = '';
+  showDeleteDialog.value = true;
+}
+
+function closeDeleteDialog() {
+  if (deletingBatch.value) {
+    return;
+  }
+  showDeleteDialog.value = false;
+  deleteConfirmId.value = '';
+  deleteError.value = '';
+}
+
+async function confirmDeleteBatch() {
+  if (!deleteConfirmMatches.value || deletingBatch.value) {
+    return;
+  }
+  deletingBatch.value = true;
+  deleteError.value = '';
+  try {
+    await apiClient.deleteDatasetBatch(props.id);
+    actionMessageIsError.value = false;
+    actionMessage.value = `批次 ${props.id} 已删除`;
+    showDeleteDialog.value = false;
+    await router?.push(explicitDatasetType.value ? `/datasets/types/${encodeURIComponent(explicitDatasetType.value)}` : '/datasets');
+  } catch (err) {
+    deleteError.value = deleteBatchErrorMessage(err);
+  } finally {
+    deletingBatch.value = false;
+  }
+}
+
+function deleteBatchErrorMessage(err: unknown) {
+  if (err instanceof ApiClientError) {
+    if (err.status === 403) {
+      return '当前账号没有删除批次权限。';
+    }
+    if (err.status === 404) {
+      return '批次不存在或已被删除。';
+    }
+    if (err.status === 409) {
+      return err.payload?.message ?? '批次仍有关联任务或状态冲突，请处理后重试。';
+    }
+    return err.payload?.message ?? '删除批次失败，请稍后重试。';
+  }
+  return err instanceof Error ? err.message : '删除批次失败，请稍后重试。';
+}
+
+function hasPermission(actual: string[], required: string) {
+  const normalized = new Set(actual.flatMap(permissionVariants));
+  return permissionVariants(required).some((item) => normalized.has(item));
+}
+
+function permissionVariants(permission: string) {
+  const trimmed = permission.trim();
+  if (!trimmed) {
+    return [];
+  }
+  return Array.from(new Set([trimmed, trimmed.replace(/\./g, ':'), trimmed.replace(/:/g, '.')]));
 }
 
 const lifecycleHint = computed(() => {
@@ -364,6 +498,111 @@ function runStatusLabel(status: string) {
 
 .overview-action-message.error {
   color: var(--red);
+}
+
+.button--danger {
+  border-color: #fecaca;
+  background: #fff5f5;
+  color: #b4232a;
+}
+
+.delete-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(15, 23, 42, 0.24);
+}
+
+.delete-modal {
+  display: grid;
+  width: min(520px, 100%);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.22);
+}
+
+.delete-modal header,
+.delete-modal footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.delete-modal footer {
+  justify-content: flex-end;
+  border-top: 1px solid var(--line);
+  border-bottom: 0;
+}
+
+.delete-modal h2 {
+  margin: 0;
+  font-size: 21px;
+}
+
+.delete-modal__body {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.delete-warning,
+.delete-error {
+  margin: 0;
+  border-radius: 8px;
+  padding: 11px 12px;
+  font-weight: 800;
+}
+
+.delete-warning {
+  border: 1px solid #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.delete-error {
+  border: 1px solid #ffd1d1;
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.delete-target {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+}
+
+.delete-target div,
+.delete-confirm-field {
+  display: grid;
+  gap: 5px;
+}
+
+.delete-target dt,
+.delete-confirm-field span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.delete-target dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-weight: 800;
+}
+
+.delete-confirm-field input {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 11px;
 }
 
 .batch-context {

@@ -10,6 +10,13 @@ import type {
   AuditEvent,
   AuditEventFilters,
   BatchAssignmentPayload,
+  BatchLabelEditDraft,
+  BatchLabelEditDraftPayload,
+  BatchLabelEditDraftSaveResult,
+  BatchLabelEditDraftSample,
+  BatchLabelEditDraftValidation,
+  BatchLabelEditSubmitPayload,
+  BatchLabelEditSubmitResult,
   BatchAssignmentStatus,
   BatchQcAssignment,
   BackendAuditArtifact,
@@ -33,6 +40,7 @@ import type {
   DatasetTypeId,
   FactVerification,
   HumanReview,
+  ImportArchiveUploadPayload,
   ImportJobCreatePayload,
   ImportJobDetail,
   ImportJobId,
@@ -142,6 +150,7 @@ export interface UrbanViolationApi {
   logout(): Promise<void>;
   getCurrentUser(): Promise<CurrentUser>;
   listUsers(): Promise<UserAccount[]>;
+  listBatchAssignableUsers(datasetId: DatasetId): Promise<UserAccount[]>;
   createUser(payload: UserCreatePayload): Promise<UserAccount>;
   updateUser(userId: string, payload: UserUpdatePayload): Promise<UserAccount>;
   listRoleBindings(): Promise<RoleBinding[]>;
@@ -152,6 +161,7 @@ export interface UrbanViolationApi {
   listDatasetTypes(): Promise<DatasetType[]>;
   getDatasetType(datasetType: DatasetTypeId): Promise<DatasetType>;
   createDatasetType(payload: DatasetTypeCreatePayload): Promise<DatasetType>;
+  deleteDatasetBatch(batchId: DatasetBatchId): Promise<void>;
   getDatasetBatchSummary(batchId: DatasetBatchId): Promise<DatasetSummary>;
   getDatasetSummary(datasetId: DatasetId): Promise<DatasetSummary>;
   getDatasetBatchAssetSummary(batchId: DatasetBatchId): Promise<AssetSummary>;
@@ -162,6 +172,7 @@ export interface UrbanViolationApi {
   listImportJobs(datasetId: DatasetId): Promise<ImportJobSummary[]>;
   createDatasetBatchImportJob(batchId: DatasetBatchId, payload: ImportJobCreatePayload): Promise<ImportJobDetail>;
   createImportJob(datasetId: DatasetId, payload: ImportJobCreatePayload): Promise<ImportJobDetail>;
+  createImportJobArchive(datasetId: DatasetId, payload: ImportArchiveUploadPayload): Promise<ImportJobDetail>;
   getDatasetBatchImportJob(batchId: DatasetBatchId, jobId: ImportJobId): Promise<ImportJobDetail>;
   getImportJob(datasetId: DatasetId, jobId: ImportJobId): Promise<ImportJobDetail>;
   getDatasetBatchPreannotationSummary(batchId: DatasetBatchId): Promise<PreannotationSummary>;
@@ -251,6 +262,19 @@ export interface UrbanViolationApi {
     sampleId: SampleId,
     payload: LabelEditSubmitPayload,
   ): Promise<LabelEditSubmitResult>;
+  getMyBatchLabelEditDraft(datasetId: DatasetId): Promise<BatchLabelEditDraft>;
+  saveMyBatchLabelEditDraft(
+    datasetId: DatasetId,
+    payload: BatchLabelEditDraftPayload,
+  ): Promise<BatchLabelEditDraftSaveResult>;
+  autosaveMyBatchLabelEditDraft(
+    datasetId: DatasetId,
+    payload: BatchLabelEditDraftPayload,
+  ): Promise<BatchLabelEditDraftSaveResult>;
+  submitBatchLabelEdits(
+    datasetId: DatasetId,
+    payload: BatchLabelEditSubmitPayload,
+  ): Promise<BatchLabelEditSubmitResult>;
   confirmLabelEditSubmission(
     datasetId: DatasetId,
     sampleId: SampleId,
@@ -300,10 +324,16 @@ export class HttpUrbanViolationApi implements UrbanViolationApi {
     return listPayload(response, 'users').map((item) => normalizeUserAccount(item));
   }
 
+  async listBatchAssignableUsers(datasetId: DatasetId): Promise<UserAccount[]> {
+    const response = await this.http.get<unknown>(
+      `/datasets/${encodeURIComponent(datasetId)}/qc/assignable-users`,
+    );
+    return listPayload(response, 'users').map((item) => normalizeUserAccount(item));
+  }
+
   async createUser(payload: UserCreatePayload): Promise<UserAccount> {
     const response = await this.http.post<unknown>('/users', {
       user_id: payload.userId ?? payload.username,
-      username: payload.username,
       display_name: payload.displayName,
       email: payload.email,
       password: payload.password,
@@ -388,6 +418,10 @@ export class HttpUrbanViolationApi implements UrbanViolationApi {
     return normalizeDatasetType(response);
   }
 
+  async deleteDatasetBatch(batchId: DatasetBatchId): Promise<void> {
+    await this.http.delete<unknown>(`/datasets/${encodeURIComponent(batchId)}`);
+  }
+
   async getDatasetBatchSummary(batchId: DatasetBatchId): Promise<DatasetSummary> {
     return this.getDatasetSummary(batchId);
   }
@@ -456,6 +490,35 @@ export class HttpUrbanViolationApi implements UrbanViolationApi {
     const response = await this.http.post<unknown>(
       `/datasets/${encodeURIComponent(datasetId)}/import-jobs`,
       toBackendImportJobCreatePayload(payload),
+    );
+    return normalizeImportJob(response, datasetId, 'new-import-job');
+  }
+
+  async createImportJobArchive(datasetId: DatasetId, payload: ImportArchiveUploadPayload): Promise<ImportJobDetail> {
+    const search = new URLSearchParams();
+    search.set('batch_key', payload.batchKey);
+    if (payload.batchName) {
+      search.set('batch_name', payload.batchName);
+    }
+    if (payload.datasetType) {
+      search.set('dataset_type', payload.datasetType);
+    }
+    if (payload.sourceStructure) {
+      search.set('source_structure', payload.sourceStructure);
+    }
+    if (payload.description) {
+      search.set('description', payload.description);
+    }
+    search.set('archive_file_name', payload.archiveFileName ?? payload.archiveFile.name);
+    const response = await this.http.postRawWithProgress<unknown>(
+      `/datasets/${encodeURIComponent(datasetId)}/import-jobs/archive?${search.toString()}`,
+      payload.archiveFile,
+      {
+        headers: {
+          'content-type': payload.archiveFile.type || 'application/zip',
+        },
+        onUploadProgress: payload.onUploadProgress,
+      },
     );
     return normalizeImportJob(response, datasetId, 'new-import-job');
   }
@@ -710,7 +773,7 @@ export class HttpUrbanViolationApi implements UrbanViolationApi {
   }
 
   async releaseBatchAssignment(datasetId: DatasetId): Promise<BatchQcAssignment | undefined> {
-    const response = await this.http.post<unknown>(`/datasets/${encodeURIComponent(datasetId)}/qc/assignment/release`);
+    const response = await this.http.post<unknown>(`/datasets/${encodeURIComponent(datasetId)}/qc/assignment/release`, {});
     return normalizeBatchAssignment(response, datasetId);
   }
 
@@ -907,6 +970,46 @@ export class HttpUrbanViolationApi implements UrbanViolationApi {
       }
       throw error;
     }
+  }
+
+  async getMyBatchLabelEditDraft(datasetId: DatasetId): Promise<BatchLabelEditDraft> {
+    const response = await this.http.get<unknown>(
+      `/datasets/${encodeURIComponent(datasetId)}/label-edits/my-batch-draft`,
+    );
+    return normalizeBatchLabelEditDraft(response, datasetId);
+  }
+
+  async saveMyBatchLabelEditDraft(
+    datasetId: DatasetId,
+    payload: BatchLabelEditDraftPayload,
+  ): Promise<BatchLabelEditDraftSaveResult> {
+    const response = await this.http.put<unknown>(
+      `/datasets/${encodeURIComponent(datasetId)}/label-edits/my-batch-draft`,
+      toBackendBatchLabelEditDraftPayload(payload),
+    );
+    return normalizeBatchLabelEditDraftSave(response, datasetId, payload);
+  }
+
+  async autosaveMyBatchLabelEditDraft(
+    datasetId: DatasetId,
+    payload: BatchLabelEditDraftPayload,
+  ): Promise<BatchLabelEditDraftSaveResult> {
+    const response = await this.http.post<unknown>(
+      `/datasets/${encodeURIComponent(datasetId)}/label-edits/my-batch-draft/autosave`,
+      toBackendBatchLabelEditDraftPayload(payload),
+    );
+    return normalizeBatchLabelEditDraftSave(response, datasetId, payload);
+  }
+
+  async submitBatchLabelEdits(
+    datasetId: DatasetId,
+    payload: BatchLabelEditSubmitPayload,
+  ): Promise<BatchLabelEditSubmitResult> {
+    const response = await this.http.post<unknown>(
+      `/datasets/${encodeURIComponent(datasetId)}/label-edits/submit-batch`,
+      toBackendBatchLabelEditSubmitPayload(payload),
+    );
+    return normalizeBatchLabelEditSubmit(response, datasetId);
   }
 
   async confirmLabelEditSubmission(
@@ -2290,6 +2393,64 @@ const toBackendLabelEditPayload = (payload: LabelEditPatchPayload | LabelEditSub
   return body;
 };
 
+const toBackendLabelEditOperations = (operations: LabelEditOperation[]) =>
+  operations.map((operation) => ({
+    scope: operation.scope,
+    field: operation.field,
+    op: operation.op,
+    before: operation.before,
+    after: operation.after,
+    tag_payload: operation.tagPayload
+      ? {
+          raw_text: operation.tagPayload.rawText,
+          normalized_text: operation.tagPayload.normalizedText,
+          canonical_code: operation.tagPayload.canonicalCode ?? null,
+          source: operation.tagPayload.source,
+          status: operation.tagPayload.status,
+        }
+      : undefined,
+  }));
+
+const toBackendBatchValidation = (validation?: BatchLabelEditDraftValidation) => ({
+  valid: validation?.valid ?? true,
+  error_count: validation?.errorCount ?? validation?.errors.length ?? 0,
+  warning_count: validation?.warningCount ?? validation?.warnings.length ?? 0,
+  errors: (validation?.errors ?? []).map((issue) => ({
+    operation_index: issue.operationIndex,
+    scope: issue.scope,
+    field: issue.field,
+    code: issue.code,
+    message: issue.message,
+  })),
+  warnings: (validation?.warnings ?? []).map((issue) => ({
+    operation_index: issue.operationIndex,
+    scope: issue.scope,
+    field: issue.field,
+    code: issue.code,
+    message: issue.message,
+  })),
+});
+
+const toBackendBatchLabelEditDraftPayload = (payload: BatchLabelEditDraftPayload) => ({
+  entries: payload.entries.map((entry) => ({
+    sample_id: entry.sampleId,
+    lease_id: entry.leaseId ?? null,
+    base_revision: entry.baseRevision ?? null,
+    label_config_id: entry.labelConfigId ?? null,
+    label_config_version: entry.labelConfigVersion ?? null,
+    operations: toBackendLabelEditOperations(entry.operations),
+    dirty: entry.dirty,
+    saved: entry.saved,
+    validation: toBackendBatchValidation(entry.validation),
+  })),
+});
+
+const toBackendBatchLabelEditSubmitPayload = (payload: BatchLabelEditSubmitPayload) => ({
+  unsaved_dirty_sample_ids: payload.unsavedDirtySampleIds,
+  validation_error_sample_ids: payload.validationErrorSampleIds,
+  notes: payload.notes ?? null,
+});
+
 const toBackendImportJobCreatePayload = (payload: ImportJobCreatePayload) => ({
   dataset_type: payload.datasetType,
   batch_key: payload.batchKey,
@@ -2423,6 +2584,149 @@ const normalizeLabelEditSubmit = (
     updatedAt: state?.updatedAt ?? optionalString(record.updated_at ?? record.updatedAt),
     state,
     validation: validationValue ? normalizeLabelEditValidation(validationValue) : undefined,
+  };
+};
+
+const revisionValue = (value: unknown): number | string | undefined =>
+  typeof value === 'number' || (typeof value === 'string' && value) ? value : undefined;
+
+const nullableStringValue = (value: unknown): string | null | undefined => {
+  if (value === null) {
+    return null;
+  }
+  return optionalString(value);
+};
+
+const nullableRevisionValue = (value: unknown): number | string | null | undefined => {
+  if (value === null) {
+    return null;
+  }
+  return revisionValue(value);
+};
+
+const normalizeBatchLabelEditValidation = (value: unknown): BatchLabelEditDraftValidation | undefined => {
+  const record = isRecord(value) ? value : undefined;
+  if (!record) {
+    return undefined;
+  }
+  const errors = normalizeLabelEditIssues(record.errors);
+  const warnings = normalizeLabelEditIssues(record.warnings);
+  return {
+    valid: booleanValue(record.valid, errors.length === 0),
+    errorCount: numberValue(record.error_count ?? record.errorCount, errors.length),
+    warningCount: numberValue(record.warning_count ?? record.warningCount, warnings.length),
+    errors,
+    warnings,
+  };
+};
+
+const normalizeBatchLabelEditDraftSample = (value: unknown, fallbackSampleId = ''): BatchLabelEditDraftSample | undefined => {
+  const record = isRecord(value) ? value : undefined;
+  if (!record) {
+    return undefined;
+  }
+  const sampleId = stringValue(record.sample_id ?? record.sampleId, fallbackSampleId);
+  if (!sampleId) {
+    return undefined;
+  }
+  const validationValue = firstRecord(record.validation, record.field_validation);
+  return {
+    sampleId,
+    labelConfigId: nullableStringValue(record.label_config_id ?? record.labelConfigId),
+    labelConfigVersion: nullableStringValue(record.label_config_version ?? record.labelConfigVersion),
+    leaseId: nullableStringValue(record.lease_id ?? record.leaseId),
+    baseRevision: nullableRevisionValue(record.base_revision ?? record.baseRevision),
+    operations: normalizeLabelEditOperations(record.operations),
+    dirty: booleanValue(record.dirty),
+    saved: booleanValue(record.saved),
+    validation: validationValue ? normalizeBatchLabelEditValidation(validationValue) : undefined,
+  };
+};
+
+const normalizeBatchLabelEditDraft = (value: unknown, datasetId: DatasetId): BatchLabelEditDraft => {
+  const wrapper = isRecord(value) ? value : {};
+  const record = firstRecord(wrapper.draft, wrapper.batch_draft, value) ?? {};
+  const rawSamples = Array.isArray(record.entries)
+    ? record.entries
+    : Array.isArray(record.samples)
+      ? record.samples
+      : Array.isArray(record.sample_drafts)
+        ? record.sample_drafts
+        : listPayload(value, 'entries');
+  const samples = rawSamples.flatMap((item) => {
+    const sample = normalizeBatchLabelEditDraftSample(item);
+    return sample ? [sample] : [];
+  });
+  return {
+    draftId: optionalString(record.draft_id ?? record.draftId),
+    datasetId: stringValue(record.dataset_id ?? record.datasetId, datasetId),
+    userId: optionalString(record.user_id ?? record.userId),
+    assignmentId: optionalString(record.assignment_id ?? record.assignmentId),
+    labelConfigId: optionalString(record.label_config_id ?? record.labelConfigId),
+    labelConfigVersion: optionalString(record.label_config_version ?? record.labelConfigVersion),
+    totalSampleCount: maybeNumber(record.sample_count ?? record.sampleCount ?? record.total_sample_count ?? record.totalSampleCount),
+    savedSampleCount: numberValue(record.saved_count ?? record.savedCount ?? record.saved_sample_count ?? record.savedSampleCount, samples.filter((sample) => sample.saved).length),
+    dirtySampleCount: maybeNumber(record.dirty_count ?? record.dirtyCount ?? record.dirty_sample_count ?? record.dirtySampleCount),
+    validationErrorCount: maybeNumber(record.validation_error_count ?? record.validationErrorCount),
+    samples,
+    updatedAt: optionalString(record.updated_at ?? record.updatedAt),
+    autosavedAt: optionalString(record.autosaved_at ?? record.autosavedAt),
+  };
+};
+
+const normalizeBatchLabelEditDraftSave = (
+  value: unknown,
+  datasetId: DatasetId,
+  payload: BatchLabelEditDraftPayload,
+): BatchLabelEditDraftSaveResult => {
+  const record = isRecord(value) ? value : {};
+  const nestedDraft = firstRecord(record.draft, record.batch_draft);
+  const hasTopLevelDraft =
+    Array.isArray(record.entries) ||
+    Array.isArray(record.samples) ||
+    Array.isArray(record.sample_drafts) ||
+    record.dataset_id !== undefined ||
+    record.datasetId !== undefined;
+  const draft = nestedDraft
+    ? normalizeBatchLabelEditDraft(nestedDraft, datasetId)
+    : hasTopLevelDraft
+      ? normalizeBatchLabelEditDraft(record, datasetId)
+    : undefined;
+  const responseEntries = Array.isArray(record.entries) ? record.entries : [];
+  const sampleIds = arrayValue<unknown>(record.sample_ids ?? record.sampleIds)
+    .flatMap((item) => (typeof item === 'string' ? [item] : []));
+  const entrySampleIds = responseEntries.flatMap((item) => {
+    const entry = normalizeBatchLabelEditDraftSample(item);
+    return entry ? [entry.sampleId] : [];
+  });
+  const fallbackSampleIds = payload.entries.map((entry) => entry.sampleId);
+  return {
+    saved: booleanValue(record.saved, true),
+    datasetId: stringValue(record.dataset_id ?? record.datasetId, datasetId),
+    savedSampleCount: numberValue(
+      record.saved_count ?? record.savedCount ?? record.saved_sample_count ?? record.savedSampleCount,
+      draft?.savedSampleCount ?? (sampleIds.length || fallbackSampleIds.length),
+    ),
+    totalSampleCount: maybeNumber(record.sample_count ?? record.sampleCount ?? record.total_sample_count ?? record.totalSampleCount) ?? draft?.totalSampleCount,
+    sampleIds: sampleIds.length ? sampleIds : entrySampleIds.length ? entrySampleIds : draft?.samples.map((sample) => sample.sampleId) ?? fallbackSampleIds,
+    updatedAt: optionalString(record.updated_at ?? record.updatedAt) ?? draft?.updatedAt,
+    draft,
+  };
+};
+
+const normalizeBatchLabelEditSubmit = (value: unknown, datasetId: DatasetId): BatchLabelEditSubmitResult => {
+  const record = isRecord(value) ? value : {};
+  const assignment = normalizeBatchAssignment(record.assignment ?? record.batch_assignment, datasetId);
+  return {
+    submitted: booleanValue(record.submitted, true),
+    datasetId: stringValue(record.dataset_id ?? record.datasetId, datasetId),
+    assignmentId: optionalString(record.assignment_id ?? record.assignmentId),
+    assigneeUserId: optionalString(record.assignee_user_id ?? record.assigneeUserId),
+    status: optionalString(record.status ?? record.batch_status ?? record.assignment_status),
+    submittedAt: optionalString(record.submitted_at ?? record.submittedAt),
+    submittedSampleCount: maybeNumber(record.submitted_sample_count ?? record.submittedSampleCount),
+    releasedLeaseCount: maybeNumber(record.released_lease_count ?? record.releasedLeaseCount),
+    assignment,
   };
 };
 

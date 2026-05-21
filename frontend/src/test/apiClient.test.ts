@@ -331,7 +331,6 @@ describe('HTTP API adapter', () => {
         method: 'POST',
         body: JSON.stringify({
           user_id: 'reviewer_a',
-          username: 'reviewer_a',
           display_name: 'Reviewer A',
           email: 'reviewer_a@example.local',
           password: 'reviewer123',
@@ -489,6 +488,142 @@ describe('HTTP API adapter', () => {
         stage2_failure_file_count: 19,
       }),
     );
+  });
+
+  it('uploads batch archive as raw zip body with query metadata', async () => {
+    const jobPayload = {
+      job_id: 'manual-import-urban-violation-urban_violation_0520-1',
+      dataset_id: 'urban_violation__urban_violation_0520',
+      dataset_type: 'urban_violation',
+      batch_key: 'urban_violation_0520',
+      source_mode: 'uploaded_package',
+      source_uri: '/data/platform_state/import_uploads/urban_violation/urban_violation_0520/source',
+      source_structure: 'images_with_preannotations',
+      state: 'Imported',
+      expected_assets: 505,
+      imported_assets: 505,
+      failure_count: 8,
+      warnings: [],
+    };
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(jsonResponse(jobPayload));
+    const api = new HttpUrbanViolationApi(new HttpClient({ baseUrl: 'http://backend.test/api', fetcher }));
+    const archiveFile = new File(['zip-bytes'], 'urban_violation_0520.zip', { type: 'application/zip' });
+
+    const created = await api.createImportJobArchive('urban_violation', {
+      datasetType: 'urban_violation',
+      batchKey: 'urban_violation_0520',
+      batchName: 'Urban Violation 0520',
+      sourceStructure: 'images_with_preannotations',
+      archiveFile,
+    });
+
+    expect(created.datasetId).toBe('urban_violation__urban_violation_0520');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    const [url, init] = fetcher.mock.calls[0];
+    expect(String(url)).toBe(
+      'http://backend.test/api/datasets/urban_violation/import-jobs/archive?batch_key=urban_violation_0520&batch_name=Urban+Violation+0520&dataset_type=urban_violation&source_structure=images_with_preannotations&archive_file_name=urban_violation_0520.zip',
+    );
+    expect(init?.method).toBe('POST');
+    expect(init?.body).toBe(archiveFile);
+    expect(init?.headers).toMatchObject({ 'content-type': 'application/zip' });
+  });
+
+  it('reports archive upload progress through XMLHttpRequest when a callback is supplied', async () => {
+    const jobPayload = {
+      job_id: 'manual-import-urban-violation-urban_violation_0520-1',
+      dataset_id: 'urban_violation__urban_violation_0520',
+      dataset_type: 'urban_violation',
+      batch_key: 'urban_violation_0520',
+      source_mode: 'uploaded_package',
+      source_uri: '/data/platform_state/import_uploads/urban_violation/urban_violation_0520/source',
+      source_structure: 'images_with_preannotations',
+      state: 'Imported',
+      expected_assets: 505,
+      imported_assets: 505,
+      failure_count: 8,
+      warnings: [],
+    };
+    class FakeXMLHttpRequest {
+      static instances: FakeXMLHttpRequest[] = [];
+
+      upload: {
+        onprogress: ((event: ProgressEvent) => void) | null;
+        onload: ((event: ProgressEvent) => void) | null;
+      } = { onprogress: null, onload: null };
+
+      method = '';
+      url = '';
+      requestHeaders: Record<string, string> = {};
+      status = 201;
+      statusText = 'Created';
+      responseText = JSON.stringify(jobPayload);
+      withCredentials = false;
+      body: Document | XMLHttpRequestBodyInit | null | undefined;
+      onload: ((event: ProgressEvent) => void) | null = null;
+      onerror: ((event: ProgressEvent) => void) | null = null;
+      ontimeout: ((event: ProgressEvent) => void) | null = null;
+      onabort: ((event: ProgressEvent) => void) | null = null;
+
+      constructor() {
+        FakeXMLHttpRequest.instances.push(this);
+      }
+
+      open(method: string, url: string) {
+        this.method = method;
+        this.url = url;
+      }
+
+      setRequestHeader(name: string, value: string) {
+        this.requestHeaders[name] = value;
+      }
+
+      getResponseHeader(name: string) {
+        return name.toLowerCase() === 'content-type' ? 'application/json' : null;
+      }
+
+      send(body?: Document | XMLHttpRequestBodyInit | null) {
+        this.body = body;
+        this.upload.onprogress?.({ lengthComputable: true, loaded: 4, total: 9 } as ProgressEvent);
+        this.upload.onload?.({} as ProgressEvent);
+        this.onload?.({} as ProgressEvent);
+      }
+
+      abort() {
+        this.onabort?.({} as ProgressEvent);
+      }
+    }
+    vi.stubGlobal('XMLHttpRequest', FakeXMLHttpRequest);
+    const fetcher = vi.fn<typeof fetch>();
+    const progressSpy = vi.fn();
+    const api = new HttpUrbanViolationApi(new HttpClient({ baseUrl: 'http://backend.test/api', fetcher }));
+    const archiveFile = new File(['zip-bytes'], 'urban_violation_0520.zip', { type: 'application/zip' });
+
+    const created = await api.createImportJobArchive('urban_violation', {
+      datasetType: 'urban_violation',
+      batchKey: 'urban_violation_0520',
+      sourceStructure: 'images_with_preannotations',
+      archiveFile,
+      onUploadProgress: progressSpy,
+    });
+
+    const xhr = FakeXMLHttpRequest.instances[0];
+    expect(created.datasetId).toBe('urban_violation__urban_violation_0520');
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(xhr.method).toBe('POST');
+    expect(xhr.url).toContain('/datasets/urban_violation/import-jobs/archive?');
+    expect(xhr.body).toBe(archiveFile);
+    expect(xhr.withCredentials).toBe(true);
+    expect(xhr.requestHeaders['content-type']).toBe('application/zip');
+    expect(progressSpy).toHaveBeenNthCalledWith(1, {
+      loadedBytes: 4,
+      totalBytes: archiveFile.size,
+      percent: 44,
+    });
+    expect(progressSpy).toHaveBeenLastCalledWith({
+      loadedBytes: archiveFile.size,
+      totalBytes: archiveFile.size,
+      percent: 100,
+    });
   });
 
   it('uses snake_case backend filters and blocks local absolute media paths', async () => {
@@ -708,6 +843,157 @@ describe('HTTP API adapter', () => {
     });
   });
 
+  it('uses batch draft autosave/save and batch submit label-edit endpoints', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          dataset_id: 'ds-live',
+          user_id: 'annotator_a',
+          assignment_id: 'assignment-1',
+          sample_count: 2,
+          dirty_count: 0,
+          saved_count: 1,
+          validation_error_count: 0,
+          entries: [
+            {
+              sample_id: 'sample-1',
+              lease_id: null,
+              base_revision: 7,
+              label_config_id: 'label-config-1',
+              label_config_version: 'urban_violation_labels_v1',
+              operations: [{ scope: 'relation:R1', field: 'subject', op: 'replace', after: 'goods updated' }],
+              dirty: false,
+              saved: true,
+              validation: { valid: true, error_count: 0, warning_count: 0, errors: [], warnings: [] },
+            },
+          ],
+          updated_at: '2026-05-18T00:00:00Z',
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          saved: true,
+          dataset_id: 'ds-live',
+          saved_count: 1,
+          sample_count: 2,
+          entries: [{ sample_id: 'sample-1', dirty: false, saved: true, operations: [] }],
+          updated_at: '2026-05-18T00:01:00Z',
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          saved: true,
+          dataset_id: 'ds-live',
+          saved_count: 1,
+          sample_count: 2,
+          entries: [{ sample_id: 'sample-1', dirty: false, saved: true, operations: [] }],
+          updated_at: '2026-05-18T00:02:00Z',
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          submitted: true,
+          dataset_id: 'ds-live',
+          assignment_id: 'assignment-1',
+          assignee_user_id: 'annotator_a',
+          status: 'submitted',
+          submitted_sample_count: 1,
+          released_lease_count: 1,
+          submitted_at: '2026-05-18T00:03:00Z',
+        }),
+      );
+    const api = new HttpUrbanViolationApi(new HttpClient({ baseUrl: 'http://backend.test/api', fetcher }));
+    const payload = {
+      entries: [
+        {
+          sampleId: 'sample-1',
+          leaseId: null,
+          baseRevision: 7,
+          labelConfigId: 'label-config-1',
+          labelConfigVersion: 'urban_violation_labels_v1',
+          operations: [{ scope: 'relation:R1', field: 'subject', op: 'replace' as const, after: 'goods updated' }],
+          dirty: true,
+          saved: false,
+          validation: { valid: true, errorCount: 0, warningCount: 0, errors: [], warnings: [] },
+        },
+      ],
+    };
+
+    const draft = await api.getMyBatchLabelEditDraft('ds-live');
+    const saved = await api.saveMyBatchLabelEditDraft('ds-live', payload);
+    const autosaved = await api.autosaveMyBatchLabelEditDraft('ds-live', payload);
+    const submitted = await api.submitBatchLabelEdits('ds-live', {
+      unsavedDirtySampleIds: [],
+      validationErrorSampleIds: [],
+      notes: null,
+    });
+
+    expect(fetcher.mock.calls.map((call) => call[0])).toEqual([
+      'http://backend.test/api/datasets/ds-live/label-edits/my-batch-draft',
+      'http://backend.test/api/datasets/ds-live/label-edits/my-batch-draft',
+      'http://backend.test/api/datasets/ds-live/label-edits/my-batch-draft/autosave',
+      'http://backend.test/api/datasets/ds-live/label-edits/submit-batch',
+    ]);
+    expect(fetcher.mock.calls[1][1]).toEqual(expect.objectContaining({ method: 'PUT' }));
+    const saveBody = JSON.parse(String(fetcher.mock.calls[1][1]?.body));
+    expect(saveBody).toEqual({
+      entries: [
+        {
+          sample_id: 'sample-1',
+          lease_id: null,
+          base_revision: 7,
+          label_config_id: 'label-config-1',
+          label_config_version: 'urban_violation_labels_v1',
+          operations: [expect.objectContaining({ scope: 'relation:R1', field: 'subject' })],
+          dirty: true,
+          saved: false,
+          validation: {
+            valid: true,
+            error_count: 0,
+            warning_count: 0,
+            errors: [],
+            warnings: [],
+          },
+        },
+      ],
+    });
+    expect(saveBody).not.toHaveProperty('samples');
+    expect(saveBody).not.toHaveProperty('total_sample_count');
+    expect(JSON.stringify(saveBody)).not.toContain('task_mode');
+    expect(JSON.stringify(saveBody)).not.toContain('task_revision');
+    expect(JSON.stringify(saveBody)).not.toContain('updated_at');
+    expect(JSON.stringify(saveBody)).not.toContain('saved_at');
+    expect(JSON.stringify(saveBody)).not.toContain('checked_operation_count');
+    const submitBody = JSON.parse(String(fetcher.mock.calls[3][1]?.body));
+    expect(submitBody).toEqual({
+      unsaved_dirty_sample_ids: [],
+      validation_error_sample_ids: [],
+      notes: null,
+    });
+    expect(draft).toMatchObject({
+      datasetId: 'ds-live',
+      userId: 'annotator_a',
+      assignmentId: 'assignment-1',
+      totalSampleCount: 2,
+      savedSampleCount: 1,
+      dirtySampleCount: 0,
+      validationErrorCount: 0,
+    });
+    expect(draft.samples[0]).toMatchObject({ sampleId: 'sample-1', saved: true, validation: { valid: true } });
+    expect(saved).toMatchObject({ saved: true, savedSampleCount: 1, sampleIds: ['sample-1'] });
+    expect(autosaved).toMatchObject({ saved: true, updatedAt: '2026-05-18T00:02:00Z' });
+    expect(saved.draft?.samples[0]).toMatchObject({ sampleId: 'sample-1', saved: true, dirty: false });
+    expect(autosaved.draft?.samples[0]).toMatchObject({ sampleId: 'sample-1', saved: true, dirty: false });
+    expect(submitted).toMatchObject({
+      submitted: true,
+      status: 'submitted',
+      assignmentId: 'assignment-1',
+      assigneeUserId: 'annotator_a',
+      releasedLeaseCount: 1,
+    });
+  });
+
   it('turns backend submit_changes 422 details into a label-edit validation error', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(
       jsonResponse(
@@ -831,16 +1117,6 @@ describe('HTTP API adapter', () => {
         }),
       )
       .mockResolvedValueOnce(
-        jsonResponse({
-          config_id: 'label-config-2',
-          dataset_id: 'ds-live',
-          schema_version: 'label_config_v1',
-          version: 'urban_violation_labels_v2',
-          status: 'saved',
-          validation: { valid: true, summary: { field_count: 2 }, errors: [], warnings: [] },
-        }),
-      )
-      .mockResolvedValueOnce(
         jsonResponse([
           {
             config_id: 'label-config-1',
@@ -875,12 +1151,6 @@ describe('HTTP API adapter', () => {
       config: labelConfig,
       activate: true,
     });
-    const savedAsNewVersion = await api.saveLabelConfig('ds-live', {
-      fileName: 'label_config.json',
-      config: labelConfig,
-      activate: false,
-      saveAsNewVersion: true,
-    });
     const versions = await api.listLabelConfigs('ds-live');
     const active = await api.getActiveLabelConfig('ds-live');
     const reloaded = await api.reloadActiveLabelConfig('ds-live');
@@ -893,22 +1163,13 @@ describe('HTTP API adapter', () => {
     expect(defaultSaveBody).toEqual({ file_name: 'label_config.json', config: labelConfig, activate: true });
     expect(defaultSaveBody).not.toHaveProperty('save_as_new_version');
     expect(fetcher.mock.calls[2][0]).toBe('http://backend.test/api/dataset-types/ds-live/label-configs');
-    const saveAsNewVersionBody = JSON.parse(String(fetcher.mock.calls[2][1]?.body));
-    expect(saveAsNewVersionBody).toEqual({
-      file_name: 'label_config.json',
-      config: labelConfig,
-      activate: false,
-      save_as_new_version: true,
-    });
-    expect(fetcher.mock.calls[3][0]).toBe('http://backend.test/api/dataset-types/ds-live/label-configs');
-    expect(fetcher.mock.calls[4][0]).toBe('http://backend.test/api/dataset-types/ds-live/label-config/active');
-    expect(fetcher.mock.calls[5][0]).toBe('http://backend.test/api/dataset-types/ds-live/label-config/active/reload');
-    expect(fetcher.mock.calls[6][0]).toBe(
+    expect(fetcher.mock.calls[3][0]).toBe('http://backend.test/api/dataset-types/ds-live/label-config/active');
+    expect(fetcher.mock.calls[4][0]).toBe('http://backend.test/api/dataset-types/ds-live/label-config/active/reload');
+    expect(fetcher.mock.calls[5][0]).toBe(
       'http://backend.test/api/datasets/ds-live/label-suggestions?field=scene_elements&q=side',
     );
     expect(validation.summary).toMatchObject({ fieldCount: 2, closedEnumCount: 1, openTagsCount: 1 });
     expect(saved).toMatchObject({ configId: 'label-config-1', status: 'active' });
-    expect(savedAsNewVersion).toMatchObject({ configId: 'label-config-2', status: 'saved' });
     expect(versions[0]).toMatchObject({ configId: 'label-config-1', status: 'active' });
     expect(active.fields[0]).toMatchObject({ field: 'violation_category', options: [{ code: 'goods_blocking_road' }] });
     expect(reloaded).toMatchObject({ configId: 'label-config-1', status: 'active' });
@@ -956,8 +1217,10 @@ describe('HTTP API adapter', () => {
       .fn<typeof fetch>()
       .mockResolvedValueOnce(jsonResponse({ user_id: 'annotator_a', display_name: '标注员 A', roles: ['annotator'], permissions: ['label.edit'], auth_mode: 'dev_header', status: 'active' }))
       .mockResolvedValueOnce(jsonResponse({ users: [{ user_id: 'annotator_a', display_name: '标注员 A', status: 'active' }] }))
+      .mockResolvedValueOnce(jsonResponse({ users: [{ user_id: 'assignable_a', display_name: '可分配用户 A', status: 'active', roles: ['annotator'] }] }))
       .mockResolvedValueOnce(jsonResponse({ binding_id: 'binding-1', user_id: 'annotator_a', role: 'annotator', scope_type: 'dataset_batch', scope_id: 'ds-live' }))
       .mockResolvedValueOnce(jsonResponse({ assignment_id: 'assignment-1', dataset_id: 'ds-live', assignee_user_id: 'annotator_a', status: 'assigned' }))
+      .mockResolvedValueOnce(jsonResponse({ assignment_id: 'assignment-1', dataset_id: 'ds-live', assignee_user_id: 'annotator_a', status: 'revoked' }))
       .mockResolvedValueOnce(jsonResponse({ tasks: [{ task_id: 'task-1', dataset_id: 'ds-live', sample_id: 'sample-1', status: 'in_progress', assignee_user_id: 'annotator_a', task_revision: 3 }] }))
       .mockResolvedValueOnce(jsonResponse({ lease_id: 'lease-1', dataset_id: 'ds-live', sample_id: 'sample-1', user_id: 'annotator_a', status: 'active' }))
       .mockResolvedValueOnce(jsonResponse({ submission_id: 'submission-1', dataset_id: 'ds-live', sample_id: 'sample-1', user_id: 'annotator_a', status: 'confirmed', operations: [] }))
@@ -966,6 +1229,7 @@ describe('HTTP API adapter', () => {
 
     const me = await api.getCurrentUser();
     const users = await api.listUsers();
+    const assignableUsers = await api.listBatchAssignableUsers('ds-live');
     const binding = await api.createRoleBinding({
       userId: 'annotator_a',
       role: 'annotator',
@@ -973,6 +1237,7 @@ describe('HTTP API adapter', () => {
       scopeId: 'ds-live',
     });
     const assignment = await api.assignBatch('ds-live', { assigneeUserId: 'annotator_a' });
+    const released = await api.releaseBatchAssignment('ds-live');
     const tasks = await api.listQcTasks('ds-live');
     const lease = await api.acquireSampleLease('ds-live', 'sample-1');
     const confirmed = await api.confirmLabelEditSubmission('ds-live', 'sample-1', 'submission-1');
@@ -980,8 +1245,10 @@ describe('HTTP API adapter', () => {
 
     expect(me).toMatchObject({ userId: 'annotator_a', authMode: 'dev_header', roles: ['annotator'] });
     expect(users[0]).toMatchObject({ userId: 'annotator_a', displayName: '标注员 A' });
+    expect(assignableUsers[0]).toMatchObject({ userId: 'assignable_a', displayName: '可分配用户 A', roles: ['annotator'] });
     expect(binding).toMatchObject({ bindingId: 'binding-1', scopeType: 'dataset_batch' });
     expect(assignment).toMatchObject({ assignmentId: 'assignment-1', assigneeUserId: 'annotator_a' });
+    expect(released).toMatchObject({ assignmentId: 'assignment-1', status: 'revoked' });
     expect(tasks[0]).toMatchObject({ taskId: 'task-1', status: 'in_progress', taskRevision: 3 });
     expect(lease).toMatchObject({ leaseId: 'lease-1', status: 'active' });
     expect(confirmed).toMatchObject({ submissionId: 'submission-1', status: 'confirmed' });
@@ -989,13 +1256,16 @@ describe('HTTP API adapter', () => {
     expect(fetcher.mock.calls.map((call) => call[0])).toEqual([
       'http://backend.test/api/me',
       'http://backend.test/api/users',
+      'http://backend.test/api/datasets/ds-live/qc/assignable-users',
       'http://backend.test/api/role-bindings',
       'http://backend.test/api/datasets/ds-live/qc/assignment',
+      'http://backend.test/api/datasets/ds-live/qc/assignment/release',
       'http://backend.test/api/datasets/ds-live/qc/tasks',
       'http://backend.test/api/datasets/ds-live/samples/sample-1/lease',
       'http://backend.test/api/datasets/ds-live/samples/sample-1/label-edits/submission-1/confirm',
       'http://backend.test/api/audit-events?dataset_id=ds-live&sample_id=sample-1',
     ]);
+    expect(fetcher.mock.calls[5][1]).toEqual(expect.objectContaining({ method: 'POST', body: JSON.stringify({}) }));
   });
 
   it('posts the batch QC queue generation endpoint', async () => {
@@ -1033,6 +1303,18 @@ describe('HTTP API adapter', () => {
     expect(fetcher).toHaveBeenCalledWith(
       'http://backend.test/api/datasets/urban_violation__0518_imported/qc/generate',
       expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('deletes a dataset batch through the batch endpoint', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const api = new HttpUrbanViolationApi(new HttpClient({ baseUrl: 'http://backend.test/api', fetcher }));
+
+    await api.deleteDatasetBatch('urban_violation__0518_imported');
+
+    expect(fetcher).toHaveBeenCalledWith(
+      'http://backend.test/api/datasets/urban_violation__0518_imported',
+      expect.objectContaining({ method: 'DELETE' }),
     );
   });
 

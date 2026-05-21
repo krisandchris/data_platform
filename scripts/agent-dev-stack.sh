@@ -15,6 +15,9 @@ FRONTEND_PORT="${FRONTEND_PORT:-15195}"
 START_TIMEOUT="${START_TIMEOUT:-90}"
 LOG_LINES="${LOG_LINES:-80}"
 PLATFORM_STATE_ROOT="${PLATFORM_STATE_ROOT:-$RUNTIME_DIR/platform_state}"
+LABEL_CONFIG_STORE_ROOT="${LABEL_CONFIG_STORE_ROOT:-$RUNTIME_DIR/label_config_state}"
+PLATFORM_AUTH_MODE="${PLATFORM_AUTH_MODE:-session}"
+PLATFORM_DEV_ANON="${PLATFORM_DEV_ANON:-0}"
 
 BACKEND_PID_FILE="$RUNTIME_DIR/backend.pid"
 FRONTEND_PID_FILE="$RUNTIME_DIR/frontend.pid"
@@ -42,6 +45,7 @@ Defaults:
   BACKEND_PORT=18031
   FRONTEND_PORT=15195
   PLATFORM_STATE_ROOT=.runtime/agent-dev-stack/platform_state
+  LABEL_CONFIG_STORE_ROOT=.runtime/agent-dev-stack/label_config_state
 
 Environment overrides:
   BACKEND_WORKTREE=/path/to/backend-agent
@@ -49,6 +53,8 @@ Environment overrides:
   BACKEND_HOST=127.0.0.1 BACKEND_PORT=18031
   FRONTEND_HOST=0.0.0.0 FRONTEND_PUBLIC_HOST=127.0.0.1 FRONTEND_PORT=15195
   RUNTIME_DIR=.runtime/agent-dev-stack START_TIMEOUT=90 LOG_LINES=80
+  PLATFORM_AUTH_MODE=session
+  PLATFORM_DEV_ANON=0
 
 Frontend defaults to Vite proxy mode:
   VITE_API_BASE_URL=/api
@@ -191,6 +197,9 @@ write_stack_env() {
     printf 'FRONTEND_PUBLIC_HOST=%q\n' "$FRONTEND_PUBLIC_HOST"
     printf 'FRONTEND_PORT=%q\n' "$FRONTEND_PORT"
     printf 'PLATFORM_STATE_ROOT=%q\n' "$PLATFORM_STATE_ROOT"
+    printf 'LABEL_CONFIG_STORE_ROOT=%q\n' "$LABEL_CONFIG_STORE_ROOT"
+    printf 'PLATFORM_AUTH_MODE=%q\n' "$PLATFORM_AUTH_MODE"
+    printf 'PLATFORM_DEV_ANON=%q\n' "$PLATFORM_DEV_ANON"
     printf 'BACKEND_URL=%q\n' "$BACKEND_URL"
     printf 'FRONTEND_URL=%q\n' "$FRONTEND_URL"
     printf 'DATASETS_URL=%q\n' "$DATASETS_URL"
@@ -213,7 +222,7 @@ print_urls() {
 }
 
 start_backend() {
-  mkdir -p "$RUNTIME_DIR" "$PLATFORM_STATE_ROOT"
+  mkdir -p "$RUNTIME_DIR" "$PLATFORM_STATE_ROOT" "$LABEL_CONFIG_STORE_ROOT"
   ensure_command uv
   ensure_command curl
 
@@ -231,6 +240,9 @@ start_backend() {
   (
     cd "$BACKEND_WORKTREE"
     export PLATFORM_STATE_ROOT
+    export LABEL_CONFIG_STORE_ROOT
+    export PLATFORM_AUTH_MODE
+    export PLATFORM_DEV_ANON
     start_detached uv run uvicorn urban_violation_backend.app:app --host "$BACKEND_HOST" --port "$BACKEND_PORT"
   ) > "$BACKEND_LOG" 2>&1 &
   printf '%s\n' "$!" > "$BACKEND_PID_FILE"

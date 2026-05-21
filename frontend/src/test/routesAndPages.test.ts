@@ -7,12 +7,14 @@ import type {
   AssetSummary,
   AnnotationSnapshot,
   AnnotationSnapshotDiff,
+  BatchLabelEditDraftSaveResult,
   Dataset,
   DatasetSummary,
   ImportJobDetail,
   LabelConfig,
   LabelConfigSaveResult,
   LabelConfigValidationResult,
+  LabelEditValidationResult,
   ModelEvaluationCompareResult,
   ModelEvaluationDeltaSample,
   ModelEvaluationRun,
@@ -30,6 +32,7 @@ const mockApiClient = vi.hoisted(() => ({
   logout: vi.fn(),
   getCurrentUser: vi.fn(),
   listUsers: vi.fn(),
+  listBatchAssignableUsers: vi.fn(),
   createUser: vi.fn(),
   updateUser: vi.fn(),
   listRoleBindings: vi.fn(),
@@ -40,6 +43,7 @@ const mockApiClient = vi.hoisted(() => ({
   listDatasetTypes: vi.fn(),
   getDatasetType: vi.fn(),
   createDatasetType: vi.fn(),
+  deleteDatasetBatch: vi.fn(),
   getDatasetBatchSummary: vi.fn(),
   getDatasetBatchAssetSummary: vi.fn(),
   listDatasetBatchAssets: vi.fn(),
@@ -48,6 +52,7 @@ const mockApiClient = vi.hoisted(() => ({
   getDatasetBatchImportJob: vi.fn(),
   getDatasetBatchPreannotationSummary: vi.fn(),
   createImportJob: vi.fn(),
+  createImportJobArchive: vi.fn(),
   getImportJob: vi.fn(),
   listDatasetBatchQcQueue: vi.fn(),
   getDatasetBatchQcWorkspace: vi.fn(),
@@ -95,6 +100,10 @@ const mockApiClient = vi.hoisted(() => ({
   getMyLabelEditDraft: vi.fn(),
   getLabelEditHistory: vi.fn(),
   submitLabelEdit: vi.fn(),
+  getMyBatchLabelEditDraft: vi.fn(),
+  saveMyBatchLabelEditDraft: vi.fn(),
+  autosaveMyBatchLabelEditDraft: vi.fn(),
+  submitBatchLabelEdits: vi.fn(),
   confirmLabelEditSubmission: vi.fn(),
   returnLabelEditSubmission: vi.fn(),
   listAuditEvents: vi.fn(),
@@ -117,6 +126,7 @@ vi.mock('../services/urbanViolationApi', () => ({
   apiClient: mockApiClient,
 }));
 
+import App from '../app/App.vue';
 import DatasetsPage from '../features/datasets/DatasetsPage.vue';
 import DatasetTypePage from '../features/datasets/DatasetTypePage.vue';
 import DatasetAssetsPage from '../features/datasets/DatasetAssetsPage.vue';
@@ -128,6 +138,7 @@ import SamplePoolPage from '../features/sample-pool/SamplePoolPage.vue';
 import ReviewWorkbenchPage from '../features/review-workbench/ReviewWorkbenchPage.vue';
 import LabelConfigUploadPanel from '../features/datasets/components/LabelConfigUploadPanel.vue';
 import AppShell from '../app/layouts/AppShell.vue';
+import LoginPage from '../features/auth/LoginPage.vue';
 import AccountPage from '../features/account/AccountPage.vue';
 import UsersPage from '../features/users/UsersPage.vue';
 import { router as appRouter } from '../app/router';
@@ -141,6 +152,39 @@ const deferred = <T>() => {
     reject = promiseReject;
   });
   return { promise, resolve, reject };
+};
+
+const dispatchDocumentShortcut = (key: string, init: KeyboardEventInit = {}) => {
+  const event = new KeyboardEvent('keydown', {
+    key,
+    bubbles: true,
+    cancelable: true,
+    ...init,
+  });
+  document.dispatchEvent(event);
+  return event;
+};
+
+const dispatchElementShortcut = (element: Element, key: string, init: KeyboardEventInit = {}) => {
+  const event = new KeyboardEvent('keydown', {
+    key,
+    bubbles: true,
+    cancelable: true,
+    ...init,
+  });
+  element.dispatchEvent(event);
+  return event;
+};
+
+const makeRouterPushMock = () => {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }],
+  });
+  return {
+    router,
+    push: vi.spyOn(router, 'push').mockResolvedValue(undefined),
+  };
 };
 
 const dataset: Dataset = {
@@ -845,7 +889,9 @@ beforeEach(() => {
   authState.users.value = [];
   authState.error.value = '';
   mockApiClient.getCurrentUser.mockResolvedValue(currentUser);
+  mockApiClient.login.mockResolvedValue(currentUser);
   mockApiClient.listUsers.mockResolvedValue([currentUser]);
+  mockApiClient.listBatchAssignableUsers.mockResolvedValue([currentUser]);
   mockApiClient.listRoleBindings.mockResolvedValue([]);
   mockApiClient.getRbacCatalog.mockResolvedValue({
     roles: [
@@ -895,6 +941,7 @@ beforeEach(() => {
   });
   mockApiClient.logout.mockResolvedValue(undefined);
   mockApiClient.getDatasetBatchSummary.mockResolvedValue(makeDatasetSummary('ds-live', 'Batch A', 2));
+  mockApiClient.deleteDatasetBatch.mockResolvedValue(undefined);
   mockApiClient.getDatasetType.mockResolvedValue({
     datasetType: 'urban_violation',
     displayName: '城市违规',
@@ -1018,6 +1065,36 @@ beforeEach(() => {
     warnings: [],
     checkedAt: '2026-05-18T00:00:00Z',
   });
+  mockApiClient.getMyBatchLabelEditDraft.mockResolvedValue({
+    datasetId: 'ds-live',
+    savedSampleCount: 0,
+    totalSampleCount: 1,
+    samples: [],
+  });
+  mockApiClient.saveMyBatchLabelEditDraft.mockResolvedValue({
+    saved: true,
+    datasetId: 'ds-live',
+    savedSampleCount: 1,
+    totalSampleCount: 1,
+    sampleIds: ['sample-1'],
+    updatedAt: '2026-05-18T00:00:00Z',
+  });
+  mockApiClient.autosaveMyBatchLabelEditDraft.mockResolvedValue({
+    saved: true,
+    datasetId: 'ds-live',
+    savedSampleCount: 1,
+    totalSampleCount: 1,
+    sampleIds: ['sample-1'],
+    updatedAt: '2026-05-18T00:00:00Z',
+  });
+  mockApiClient.submitBatchLabelEdits.mockResolvedValue({
+    submitted: true,
+    datasetId: 'ds-live',
+    status: 'submitted',
+    submittedAt: '2026-05-18T00:00:00Z',
+    submittedSampleCount: 1,
+    totalSampleCount: 1,
+  });
   mockApiClient.submitLabelEdit.mockResolvedValue({
     saved: true,
     sampleId: 'sample-1',
@@ -1040,6 +1117,138 @@ describe('route rendering and live route states', () => {
     expect(routes.some((route) => route.path === '/account/audit' && route.name === 'account-audit')).toBe(true);
     expect(routes.find((route) => route.path === '/users')?.redirect).toBe('/account/permissions');
     expect(routes.find((route) => route.path === '/audit')?.redirect).toBe('/account/audit');
+  });
+
+  it('renders login as a standalone route without the app shell', async () => {
+    mockApiClient.getCurrentUser.mockRejectedValueOnce(new Error('unauthenticated'));
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/login', name: 'login', component: LoginPage },
+        { path: '/datasets', name: 'datasets', component: { template: '<div>Datasets</div>' } },
+      ],
+    });
+    await router.push('/login');
+    await router.isReady();
+
+    const wrapper = mount(App, {
+      global: {
+        plugins: [router],
+      },
+    });
+    await flushPromises();
+
+    expect(wrapper.find('.login-page').exists()).toBe(true);
+    expect(wrapper.find('.app-shell').exists()).toBe(false);
+    expect(wrapper.find('.sidebar').exists()).toBe(false);
+    expect(wrapper.find('.topbar').exists()).toBe(false);
+    expect(wrapper.text()).toContain('登录平台');
+    wrapper.unmount();
+  });
+
+  it('redirects unauthenticated protected routes to login with the target path', async () => {
+    mockApiClient.getCurrentUser.mockRejectedValueOnce(new Error('unauthenticated'));
+
+    await appRouter.push('/login');
+    await appRouter.isReady();
+    await appRouter.push('/datasets/ds-live/qc?tab=queue');
+    await flushPromises();
+
+    expect(appRouter.currentRoute.value.name).toBe('login');
+    expect(appRouter.currentRoute.value.query.redirect).toBe('/datasets/ds-live/qc?tab=queue');
+  });
+
+  it('keeps redirect after successful login', async () => {
+    mockApiClient.getCurrentUser.mockRejectedValueOnce(new Error('unauthenticated'));
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/login', name: 'login', component: LoginPage },
+        { path: '/datasets/:id/qc', name: 'dataset-qc', component: { template: '<div>QC</div>' } },
+        { path: '/datasets', name: 'datasets', component: { template: '<div>Datasets</div>' } },
+      ],
+    });
+    await router.push('/login?redirect=/datasets/ds-live/qc');
+    await router.isReady();
+
+    const wrapper = mount(LoginPage, {
+      global: {
+        plugins: [router],
+      },
+    });
+    await flushPromises();
+
+    const inputs = wrapper.findAll('input');
+    await inputs[0].setValue('annotator_a');
+    await inputs[1].setValue('secret');
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(mockApiClient.login).toHaveBeenCalledWith({ username: 'annotator_a', password: 'secret' });
+    expect(router.currentRoute.value.path).toBe('/datasets/ds-live/qc');
+    wrapper.unmount();
+  });
+
+  it('shows failed login errors without leaving the login page', async () => {
+    mockApiClient.getCurrentUser.mockRejectedValueOnce(new Error('unauthenticated'));
+    mockApiClient.login.mockRejectedValueOnce(new Error('账号或密码错误'));
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/login', name: 'login', component: LoginPage },
+        { path: '/datasets', name: 'datasets', component: { template: '<div>Datasets</div>' } },
+      ],
+    });
+    await router.push('/login');
+    await router.isReady();
+
+    const wrapper = mount(LoginPage, {
+      global: {
+        plugins: [router],
+      },
+    });
+    await flushPromises();
+
+    const inputs = wrapper.findAll('input');
+    await inputs[0].setValue('annotator_a');
+    await inputs[1].setValue('bad-password');
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(wrapper.find('[role="alert"]').text()).toContain('账号或密码错误');
+    expect(router.currentRoute.value.name).toBe('login');
+    wrapper.unmount();
+  });
+
+  it('keeps the dev user switch in dev mode', async () => {
+    mockApiClient.getCurrentUser
+      .mockRejectedValueOnce(new Error('unauthenticated'))
+      .mockResolvedValueOnce(currentUser);
+    mockApiClient.listUsers.mockResolvedValueOnce([currentUser]);
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/login', name: 'login', component: LoginPage },
+        { path: '/sample-pool', name: 'sample-pool', component: { template: '<div>Pool</div>' } },
+      ],
+    });
+    await router.push('/login?redirect=/sample-pool');
+    await router.isReady();
+
+    const wrapper = mount(LoginPage, {
+      global: {
+        plugins: [router],
+      },
+    });
+    await flushPromises();
+
+    expect(wrapper.find('[aria-label="开发用户切换"]').exists()).toBe(true);
+    await wrapper.find('[aria-label="开发用户切换"] button').trigger('click');
+    await flushPromises();
+
+    expect(window.localStorage.getItem('uvp.devUserId')).toBe('annotator_a');
+    expect(router.currentRoute.value.path).toBe('/sample-pool');
+    wrapper.unmount();
   });
 
   it('uses a focused chrome-free shell on the sample review route', async () => {
@@ -1765,8 +1974,11 @@ describe('route rendering and live route states', () => {
 
     expect(mockApiClient.getDatasetType).toHaveBeenCalledWith('urban_violation');
     expect(wrapper.text()).toContain('标签配置上传');
-    expect(wrapper.text()).toContain('保存配置');
-    expect(wrapper.text()).toContain('另存为新版本');
+    expect(wrapper.text()).toContain('上传并更新配置');
+    expect(wrapper.text()).toContain('重新加载当前配置');
+    expect(wrapper.text()).not.toContain('另存为新版本');
+    const buttonTexts = wrapper.findAll('button').map((button) => button.text());
+    expect(buttonTexts.some((text) => text.includes('激活'))).toBe(false);
   });
 
   it('creates a second dataset type without needing a batch', async () => {
@@ -1837,7 +2049,7 @@ describe('route rendering and live route states', () => {
     expect(wrapper.text()).toContain('新建批次');
   });
 
-  it('registers a manual batch from a selected directory structure', async () => {
+  it('uploads a batch archive and registers it as a manual batch', async () => {
     const aresBatch: Dataset = {
       ...dataset,
       id: 'ares_detection__20260518_roadside',
@@ -1873,16 +2085,23 @@ describe('route rendering and live route states', () => {
         batchCount: 1,
         batches: [aresBatch],
       });
-    mockApiClient.createImportJob.mockResolvedValue({
+    let resolveArchiveUpload: ((value: unknown) => void) | undefined;
+    const createdImportJob = {
       ...importJob,
       id: 'manual-import-1',
       datasetId: 'ares_detection__20260518_roadside',
       datasetType: 'ares_detection',
       batchKey: '20260518_roadside',
-      sourceMode: 'local_directory',
-      sourceUri: 'batch',
+      sourceMode: 'uploaded_package',
+      sourceUri: '20260518_roadside.zip',
       sourceStructure: 'images_with_preannotations',
       state: 'Draft',
+    };
+    mockApiClient.createImportJobArchive.mockImplementation((_datasetId, payload) => {
+      payload.onUploadProgress?.({ loadedBytes: 500, totalBytes: 1000, percent: 50 });
+      return new Promise((resolve) => {
+        resolveArchiveUpload = resolve;
+      });
     });
 
     const router = createRouter({
@@ -1919,52 +2138,30 @@ describe('route rendering and live route states', () => {
     await wrapper.find('input[placeholder="2026-05-18 路侧巡检"]').setValue('2026-05-18 路侧巡检');
     await wrapper.find('select').setValue('images_with_preannotations');
 
-    const files = [
-      new File(['image'], 'a.jpg', { type: 'image/jpeg' }),
-      new File(['image'], 'b.png', { type: 'image/png' }),
-      new File(['{}'], 'stage1-parsed.json', { type: 'application/json' }),
-      new File(['{}'], 'stage1-record.json', { type: 'application/json' }),
-      new File(['{}'], 'stage1-request.json', { type: 'application/json' }),
-      new File(['{}'], 'stage2-parsed.json', { type: 'application/json' }),
-      new File(['{}'], 'stage2-input.json', { type: 'application/json' }),
-      new File(['{}'], 'stage2-response.json', { type: 'application/json' }),
-      new File(['{}'], 'stage2-failure.json', { type: 'application/json' }),
-      new File(['{}'], 'summary.json', { type: 'application/json' }),
-    ];
-    [
-      'batch/images/a.jpg',
-      'batch/images/b.png',
-      'batch/stage1_run_0518/parsed/00/a.json',
-      'batch/stage1_run_0518/records/00/a.json',
-      'batch/stage1_run_0518/requests/00/a.json',
-      'batch/stage2_run_0518/parsed/00/a.json',
-      'batch/stage2_run_0518/inputs/00/a.json',
-      'batch/stage2_run_0518/responses/00/a.json',
-      'batch/stage2_run_0518/failures/0a/b.json',
-      'batch/stage2_run_0518/meta/summary.json',
-    ].forEach((path, index) => {
-      Object.defineProperty(files[index], 'webkitRelativePath', { value: path });
-    });
+    const archiveFile = new File(['archive-bytes'], '20260518_roadside.zip', { type: 'application/zip' });
     const input = wrapper.find('input[type="file"]');
-    Object.defineProperty(input.element, 'files', { value: files, configurable: true });
+    Object.defineProperty(input.element, 'files', { value: [archiveFile], configurable: true });
     await input.trigger('change');
     await wrapper.find('form.batch-create-form').trigger('submit');
     await flushPromises();
 
-    expect(mockApiClient.createImportJob).toHaveBeenCalledWith('ares_detection', {
+    expect(wrapper.text()).toContain('50%');
+    expect(wrapper.text()).toContain('500 B / 1000 B');
+
+    expect(mockApiClient.createImportJobArchive).toHaveBeenCalledWith('ares_detection', expect.objectContaining({
       datasetType: 'ares_detection',
       batchKey: '20260518_roadside',
       batchName: '2026-05-18 路侧巡检',
-      sourceMode: 'local_directory',
-      sourceUri: 'batch',
       sourceStructure: 'images_with_preannotations',
       description: undefined,
-      sourceFileCount: 10,
-      imageCount: 2,
-      stage1FileCount: 1,
-      stage2FileCount: 1,
-      stage2FailureFileCount: 1,
-    });
+      archiveFile,
+      archiveFileName: '20260518_roadside.zip',
+      onUploadProgress: expect.any(Function),
+    }));
+
+    resolveArchiveUpload?.(createdImportJob);
+    await flushPromises();
+
     expect(wrapper.text()).toContain('ares_detection__20260518_roadside');
     expect(wrapper.text()).toContain('概览');
     expect(wrapper.text()).toContain('资产');
@@ -2114,6 +2311,147 @@ describe('route rendering and live route states', () => {
     const links = wrapper.findAll('a').filter((link) => link.text().includes('管理类型配置'));
     expect(links.length).toBeGreaterThan(0);
     expect(links.every((link) => link.attributes('href') === '/datasets/types/urban_violation/label-config')).toBe(true);
+  });
+
+  it('shows batch deletion only to platform admins and requires exact batch id confirmation', async () => {
+    mockApiClient.getCurrentUser.mockResolvedValue(adminUser);
+    const wrapper = mount(DatasetOverviewPage, {
+      props: {
+        id: 'ds-live',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+    await flushPromises();
+    await flushPromises();
+
+    const deleteButton = wrapper.findAll('button').find((button) => button.text().includes('删除批次'));
+    expect(deleteButton).toBeTruthy();
+
+    await deleteButton?.trigger('click');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('批次名称');
+    expect(wrapper.text()).toContain('Batch A');
+    expect(wrapper.text()).toContain('批次 ID');
+    expect(wrapper.text()).toContain('ds-live');
+    expect(wrapper.text()).toContain('数据集类型');
+    expect(wrapper.text()).toContain('urban_violation');
+    expect(wrapper.text()).toContain('不删除 DATASET 原始文件');
+    expect(wrapper.text()).toContain('删除后无法从平台恢复');
+
+    const confirmButton = wrapper.findAll('button').find((button) => button.text().includes('确认删除'));
+    expect(confirmButton?.attributes('disabled')).toBeDefined();
+
+    await wrapper.find('.delete-confirm-field input').setValue('ds-live');
+    expect(wrapper.findAll('button').find((button) => button.text().includes('确认删除'))?.attributes('disabled')).toBeUndefined();
+  });
+
+  it('hides batch deletion for non-admin users without delete permission', async () => {
+    const wrapper = mount(DatasetOverviewPage, {
+      props: {
+        id: 'ds-live',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    expect(wrapper.findAll('button').some((button) => button.text().includes('删除批次'))).toBe(false);
+  });
+
+  it('deletes a batch after confirmation and navigates back to the dataset type page', async () => {
+    mockApiClient.getCurrentUser.mockResolvedValue(adminUser);
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/datasets/:id/overview', component: { template: '<div />' } },
+        { path: '/datasets/types/:datasetType', component: { template: '<div />' } },
+        { path: '/datasets', component: { template: '<div />' } },
+      ],
+    });
+    await router.push('/datasets/ds-live/overview');
+    await router.isReady();
+
+    const wrapper = mount(DatasetOverviewPage, {
+      props: {
+        id: 'ds-live',
+      },
+      global: {
+        plugins: [router],
+        stubs: {
+          RouterLink: {
+            props: ['to'],
+            template: '<a><slot /></a>',
+          },
+        },
+      },
+    });
+    await flushPromises();
+    await flushPromises();
+
+    const deleteButton = wrapper.findAll('button').find((button) => button.text().includes('删除批次'));
+    expect(deleteButton).toBeTruthy();
+    await deleteButton?.trigger('click');
+    await wrapper.find('.delete-confirm-field input').setValue('ds-live');
+    const confirmButton = wrapper.findAll('button').find((button) => button.text().includes('确认删除'));
+    await confirmButton?.trigger('click');
+    await flushPromises();
+
+    expect(mockApiClient.deleteDatasetBatch).toHaveBeenCalledWith('ds-live');
+    expect(router.currentRoute.value.fullPath).toBe('/datasets/types/urban_violation');
+  });
+
+  it('shows Chinese batch deletion errors for forbidden and conflict responses', async () => {
+    mockApiClient.getCurrentUser.mockResolvedValue(adminUser);
+    mockApiClient.deleteDatasetBatch
+      .mockRejectedValueOnce(
+        new ApiClientError(403, 'forbidden', {
+          code: 'forbidden',
+          message: 'forbidden',
+        }),
+      )
+      .mockRejectedValueOnce(
+        new ApiClientError(409, 'batch conflict', {
+          code: 'dataset_batch_delete_conflict',
+          message: '批次仍有关联任务或状态冲突，请处理后重试。',
+        }),
+      );
+
+    const wrapper = mount(DatasetOverviewPage, {
+      props: {
+        id: 'ds-live',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+    await flushPromises();
+    await flushPromises();
+
+    const deleteButton = wrapper.findAll('button').find((button) => button.text().includes('删除批次'));
+    expect(deleteButton).toBeTruthy();
+    await deleteButton?.trigger('click');
+    await wrapper.find('.delete-confirm-field input').setValue('ds-live');
+    let confirmButton = wrapper.findAll('button').find((button) => button.text().includes('确认删除'));
+    await confirmButton?.trigger('click');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('当前账号没有删除批次权限。');
+
+    confirmButton = wrapper.findAll('button').find((button) => button.text().includes('确认删除'));
+    await confirmButton?.trigger('click');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('批次仍有关联任务或状态冲突，请处理后重试。');
   });
 
   it('renders readonly QC analysis stats on the batch overview with the concrete batch id', async () => {
@@ -2352,25 +2690,26 @@ describe('route rendering and live route states', () => {
     expect(wrapper.text()).not.toContain('urban_violation__batch_a-sample');
   });
 
-  it('keeps active admins available in the batch assignment selector even when users have no roles payload', async () => {
-    const adminUser = {
-      userId: 'platform_admin',
-      username: 'platform_admin',
-      displayName: 'Platform Admin',
-      email: 'admin@example.local',
+  it('uses assignable-users for qc lead batch assignment instead of the admin user directory', async () => {
+    const leadUser = {
+      userId: 'qc_lead_a',
+      username: 'qc_lead_a',
+      displayName: '质检组长 A',
+      email: 'qc_lead_a@example.local',
       status: 'active' as const,
       authMode: 'session',
-      roles: ['platform_admin' as const],
+      roles: ['qc_lead' as const],
       permissions: ['batch_assignment:manage'],
     };
-    mockApiClient.getCurrentUser.mockResolvedValue(adminUser);
+    mockApiClient.getCurrentUser.mockResolvedValue(leadUser);
     mockApiClient.getQcWorkspace.mockResolvedValue({
       datasetId: 'ds-live',
       queue: qcQueue,
       tasks: [],
       leases: [],
     });
-    mockApiClient.listUsers.mockResolvedValue([
+    mockApiClient.listUsers.mockRejectedValue(new ApiClientError(403, 'forbidden', { code: 'forbidden', message: 'forbidden' }));
+    mockApiClient.listBatchAssignableUsers.mockResolvedValue([
       {
         userId: 'platform_admin',
         displayName: 'Platform Admin',
@@ -2400,10 +2739,10 @@ describe('route rendering and live route states', () => {
       },
     ]);
     mockApiClient.assignBatch.mockResolvedValue({
-      assignmentId: 'assign-admin',
+      assignmentId: 'assign-annotator',
       datasetId: 'ds-live',
-      assigneeUserId: 'platform_admin',
-      assigneeDisplayName: 'Platform Admin',
+      assigneeUserId: 'annotator_a',
+      assigneeDisplayName: '标注员 A',
       status: 'assigned',
     });
 
@@ -2423,14 +2762,18 @@ describe('route rendering and live route states', () => {
     expect(optionTexts).toContain('Platform Admin · platform_admin');
     expect(optionTexts).toContain('标注员 A · active');
     expect(optionTexts.some((text) => text.includes('Disabled User'))).toBe(false);
+    expect(mockApiClient.listBatchAssignableUsers).toHaveBeenCalledWith('ds-live');
+    expect(mockApiClient.listUsers).not.toHaveBeenCalled();
 
+    await wrapper.find('select').setValue('annotator_a');
     await wrapper.find('form.assignment-actions').trigger('submit');
     await flushPromises();
 
-    expect(mockApiClient.assignBatch).toHaveBeenCalledWith('ds-live', { assigneeUserId: 'platform_admin' });
+    expect(mockApiClient.assignBatch).toHaveBeenCalledWith('ds-live', { assigneeUserId: 'annotator_a' });
+    expect(wrapper.text()).toContain('已分配批次。');
   });
 
-  it('falls back to the current assignment manager when the full user directory is unreadable', async () => {
+  it('falls back to the current assignment manager and shows an error when assignable-users fails', async () => {
     const leadUser = {
       userId: 'qc_lead_a',
       username: 'qc_lead_a',
@@ -2448,7 +2791,9 @@ describe('route rendering and live route states', () => {
       tasks: [],
       leases: [],
     });
-    mockApiClient.listUsers.mockRejectedValue(new Error('forbidden'));
+    mockApiClient.listBatchAssignableUsers.mockRejectedValue(
+      new ApiClientError(403, 'forbidden', { code: 'forbidden', message: 'forbidden' }),
+    );
 
     const wrapper = mount(QcPage, {
       props: {
@@ -2464,6 +2809,115 @@ describe('route rendering and live route states', () => {
 
     const optionTexts = wrapper.findAll('option').map((option) => option.text());
     expect(optionTexts).toEqual(['质检组长 A · qc_lead']);
+    expect(wrapper.text()).toContain('当前账号没有批次分配权限。');
+  });
+
+  it('shows an empty assignment selector message when there are no assignable users', async () => {
+    const leadUser = {
+      userId: 'qc_lead_a',
+      username: 'qc_lead_a',
+      displayName: '质检组长 A',
+      email: 'qc_lead_a@example.local',
+      status: 'active' as const,
+      authMode: 'session',
+      roles: ['qc_lead' as const],
+      permissions: ['batch_assignment:manage'],
+    };
+    mockApiClient.getCurrentUser.mockResolvedValue(leadUser);
+    mockApiClient.getQcWorkspace.mockResolvedValue({
+      datasetId: 'ds-live',
+      queue: qcQueue,
+      tasks: [],
+      leases: [],
+    });
+    mockApiClient.listBatchAssignableUsers.mockResolvedValue([]);
+
+    const wrapper = mount(QcPage, {
+      props: {
+        id: 'ds-live',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    expect(wrapper.findAll('option')).toHaveLength(0);
+    expect(wrapper.text()).toContain('没有可分配用户，请先在权限管理中创建并启用账号。');
+  });
+
+  it('shows assignment action errors and release success in the batch assignment card', async () => {
+    const leadUser = {
+      userId: 'qc_lead_a',
+      username: 'qc_lead_a',
+      displayName: '质检组长 A',
+      email: 'qc_lead_a@example.local',
+      status: 'active' as const,
+      authMode: 'session',
+      roles: ['qc_lead' as const],
+      permissions: ['batch_assignment:manage'],
+    };
+    mockApiClient.getCurrentUser.mockResolvedValue(leadUser);
+    mockApiClient.getQcWorkspace.mockResolvedValue({
+      datasetId: 'ds-live',
+      assignment: {
+        assignmentId: 'assignment-1',
+        datasetId: 'ds-live',
+        assigneeUserId: 'annotator_a',
+        assigneeDisplayName: '标注员 A',
+        status: 'assigned',
+      },
+      queue: qcQueue,
+      tasks: [],
+      leases: [],
+    });
+    mockApiClient.listBatchAssignableUsers.mockResolvedValue([
+      {
+        userId: 'annotator_a',
+        displayName: '标注员 A',
+        email: 'annotator_a@example.local',
+        status: 'active',
+      },
+    ]);
+    mockApiClient.reassignBatch.mockRejectedValueOnce(
+      new ApiClientError(422, 'invalid assignee', {
+        code: 'assignee_disabled',
+        message: 'assignee disabled',
+      }),
+    );
+    mockApiClient.releaseBatchAssignment.mockResolvedValue({
+      assignmentId: 'assignment-1',
+      datasetId: 'ds-live',
+      assigneeUserId: 'annotator_a',
+      assigneeDisplayName: '标注员 A',
+      status: 'revoked',
+    });
+
+    const wrapper = mount(QcPage, {
+      props: {
+        id: 'ds-live',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    await wrapper.find('form.assignment-actions').trigger('submit');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('被分配账号不存在或已停用。');
+
+    const releaseButton = wrapper.findAll('button').find((button) => button.text().includes('释放批次'));
+    await releaseButton?.trigger('click');
+    await flushPromises();
+
+    expect(mockApiClient.releaseBatchAssignment).toHaveBeenCalledWith('ds-live');
+    expect(wrapper.text()).toContain('已释放批次。');
   });
 });
 
@@ -2517,7 +2971,7 @@ describe('import and review routes', () => {
     await validateButton?.trigger('click');
     await flushPromises();
 
-    const saveButton = wrapper.findAll('button').find((button) => button.text().includes('保存配置'));
+    const saveButton = wrapper.findAll('button').find((button) => button.text().includes('上传并更新配置'));
     await saveButton?.trigger('click');
     await flushPromises();
 
@@ -2531,20 +2985,71 @@ describe('import and review routes', () => {
       activate: true,
     });
     expect(mockApiClient.saveLabelConfig.mock.calls[0]?.[1]).not.toHaveProperty('saveAsNewVersion');
-    expect(wrapper.text()).toContain('已保存或复用并激活');
+    expect(wrapper.text()).toContain('配置未变化，已复用当前版本');
+    expect(wrapper.text()).not.toContain('另存为新版本');
+    expect(wrapper.findAll('button').map((button) => button.text())).toContain('重新加载当前配置');
+    expect(wrapper.findAll('button').some((button) => button.text().includes('激活'))).toBe(false);
+    expect(wrapper.findAll('button').filter((button) => button.text().includes('上传并更新配置'))).toHaveLength(1);
+    expect(wrapper.find('.version-history tbody').findAll('button')).toHaveLength(0);
+  });
 
-    const saveAsNewVersionButton = wrapper.findAll('button').find((button) => button.text().includes('另存为新版本'));
-    expect(saveAsNewVersionButton).toBeTruthy();
-    await saveAsNewVersionButton?.trigger('click');
+  it('shows a clear label config version conflict message', async () => {
+    mockApiClient.saveLabelConfig.mockRejectedValueOnce(
+      new ApiClientError(409, 'label config version conflict', {
+        code: 'label_config_version_conflict',
+        message: 'version already exists',
+      }),
+    );
+    const wrapper = mount(LabelConfigUploadPanel, {
+      props: {
+        datasetId: 'urban_violation',
+        scopeName: 'Urban Violation',
+      },
+    });
     await flushPromises();
 
-    expect(mockApiClient.saveLabelConfig).toHaveBeenNthCalledWith(2, 'urban_violation', {
-      fileName: 'label_config.json',
-      config: expect.objectContaining({ version: 'urban_violation_labels_v1' }),
-      activate: true,
-      saveAsNewVersion: true,
+    const input = wrapper.find('input[type="file"]');
+    const file = new File(
+      [
+        JSON.stringify({
+          schema_version: 'label_config_v1',
+          version: 'urban_violation_labels_v1',
+          fields: [
+            {
+              field: 'violation_category',
+              mode: 'closed_enum',
+              allow_custom: false,
+              options: [{ code: 'goods_blocking_road' }],
+            },
+            {
+              field: 'scene_elements',
+              mode: 'open_tags',
+              allow_custom: true,
+              options: [{ code: 'sidewalk' }],
+            },
+          ],
+        }),
+      ],
+      'label_config.json',
+      { type: 'application/json' },
+    );
+    Object.defineProperty(input.element, 'files', {
+      configurable: true,
+      value: [file],
     });
-    expect(wrapper.text()).toContain('已另存为新版本');
+    input.element.dispatchEvent(new Event('change'));
+    await flushPromises();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+
+    const validateButton = wrapper.findAll('button').find((button) => button.text().includes('校验配置'));
+    await validateButton?.trigger('click');
+    await flushPromises();
+
+    const saveButton = wrapper.findAll('button').find((button) => button.text().includes('上传并更新配置'));
+    await saveButton?.trigger('click');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('版本号已存在，请修改上传 JSON 内的 version 后重新上传。');
   });
 
   it('displays import job validation status from the API', async () => {
@@ -2567,7 +3072,7 @@ describe('import and review routes', () => {
     expect(wrapper.text()).toContain('Missing stage2 response');
   });
 
-  it('validates without saving and submits label-edit draft/change payloads', async () => {
+  it('validates without saving, saves a batch draft, and submits only through the batch modal', async () => {
     mockApiClient.getReviewSample.mockResolvedValue(reviewDetail);
     mockApiClient.listQcQueue.mockResolvedValue(qcQueue);
 
@@ -2593,6 +3098,8 @@ describe('import and review routes', () => {
 
     expect(mockApiClient.validateLabelEdit).toHaveBeenCalledTimes(1);
     expect(mockApiClient.submitLabelEdit).not.toHaveBeenCalled();
+    expect(mockApiClient.saveMyBatchLabelEditDraft).not.toHaveBeenCalled();
+    expect(mockApiClient.submitBatchLabelEdits).not.toHaveBeenCalled();
     expect(mockApiClient.validateLabelEdit).toHaveBeenCalledWith(
       'ds-live',
       'sample-1',
@@ -2613,33 +3120,571 @@ describe('import and review routes', () => {
     await saveButton?.trigger('click');
     await flushPromises();
 
-    expect(mockApiClient.submitLabelEdit).toHaveBeenCalledWith(
+    expect(mockApiClient.saveMyBatchLabelEditDraft).toHaveBeenCalledWith(
       'ds-live',
-      'sample-1',
       expect.objectContaining({
-        submitAction: 'save_draft',
-        taskStatus: 'annotation_draft',
-        labelConfigId: 'label-config-1',
-        labelConfigVersion: 'urban_violation_labels_v1',
+        entries: [
+          expect.objectContaining({
+            sampleId: 'sample-1',
+            labelConfigId: 'label-config-1',
+            labelConfigVersion: 'urban_violation_labels_v1',
+            dirty: true,
+            saved: false,
+            operations: expect.arrayContaining([
+              expect.objectContaining({
+                scope: 'relation:R1',
+                field: 'subject',
+                after: 'goods updated',
+              }),
+            ]),
+          }),
+        ],
       }),
     );
+    expect(mockApiClient.submitLabelEdit).not.toHaveBeenCalled();
 
-    const submitButton = wrapper.findAll('button').find((button) => button.text().includes('提交修改'));
+    const submitButton = wrapper.findAll('button').find((button) => button.text().includes('提交批次修改'));
     await submitButton?.trigger('click');
     await flushPromises();
 
-    expect(mockApiClient.validateLabelEdit).toHaveBeenCalledTimes(2);
-    expect(mockApiClient.submitLabelEdit).toHaveBeenLastCalledWith(
+    expect(wrapper.text()).toContain('确认提交批次修改');
+    expect(mockApiClient.submitBatchLabelEdits).not.toHaveBeenCalled();
+    const confirmButton = wrapper.findAll('button').find((button) => button.text().includes('确认提交批次修改'));
+    await confirmButton?.trigger('click');
+    await flushPromises();
+
+    expect(mockApiClient.validateLabelEdit).toHaveBeenCalledTimes(1);
+    expect(mockApiClient.submitLabelEdit).not.toHaveBeenCalled();
+    expect(mockApiClient.submitBatchLabelEdits).toHaveBeenCalledWith(
       'ds-live',
-      'sample-1',
       expect.objectContaining({
-        submitAction: 'submit_changes',
-        taskStatus: 'annotation_submitted',
-        labelConfigId: 'label-config-1',
-        labelConfigVersion: 'urban_violation_labels_v1',
-        operations: expect.any(Array),
+        unsavedDirtySampleIds: [],
+        validationErrorSampleIds: [],
+        notes: null,
       }),
     );
+  });
+
+  it('uses Arrow/A and Arrow/D shortcuts for guarded queue navigation', async () => {
+    const { router, push: routerPush } = makeRouterPushMock();
+    const sample2Detail = makeReviewDetail('sample-2');
+    const keyboardQueue: QcQueueItem[] = [
+      qcQueue[0],
+      { ...qcQueue[0], sampleId: 'sample-2', assetId: 'asset-sample-2', taskStatus: 'queued' },
+      { ...qcQueue[0], sampleId: 'sample-3', assetId: 'asset-sample-3', taskStatus: 'queued' },
+    ];
+    mockApiClient.getReviewSample.mockResolvedValue(sample2Detail);
+    mockApiClient.listQcQueue.mockResolvedValue(keyboardQueue);
+
+    const wrapper = mount(ReviewWorkbenchPage, {
+      props: {
+        id: 'ds-live',
+        sampleId: 'sample-2',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+        plugins: [router],
+      },
+    });
+    await flushPromises();
+
+    const keyA = dispatchDocumentShortcut('a');
+    await flushPromises();
+    const arrowLeft = dispatchDocumentShortcut('ArrowLeft');
+    await flushPromises();
+    const keyD = dispatchDocumentShortcut('d');
+    await flushPromises();
+    const arrowRight = dispatchDocumentShortcut('ArrowRight');
+    await flushPromises();
+
+    expect(keyA.defaultPrevented).toBe(true);
+    expect(arrowLeft.defaultPrevented).toBe(true);
+    expect(keyD.defaultPrevented).toBe(true);
+    expect(arrowRight.defaultPrevented).toBe(true);
+    expect(routerPush).toHaveBeenNthCalledWith(1, '/datasets/ds-live/samples/sample-1/review');
+    expect(routerPush).toHaveBeenNthCalledWith(2, '/datasets/ds-live/samples/sample-1/review');
+    expect(routerPush).toHaveBeenNthCalledWith(3, '/datasets/ds-live/samples/sample-3/review');
+    expect(routerPush).toHaveBeenNthCalledWith(4, '/datasets/ds-live/samples/sample-3/review');
+    expect(mockApiClient.saveMyBatchLabelEditDraft).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it('uses X to skip through the existing dirty-save navigation guard', async () => {
+    const { router, push: routerPush } = makeRouterPushMock();
+    mockApiClient.getReviewSample.mockResolvedValue(reviewDetail);
+    mockApiClient.listQcQueue.mockResolvedValue([
+      qcQueue[0],
+      { ...qcQueue[0], sampleId: 'sample-2', assetId: 'asset-sample-2', taskStatus: 'queued' },
+    ]);
+
+    const wrapper = mount(ReviewWorkbenchPage, {
+      props: {
+        id: 'ds-live',
+        sampleId: 'sample-1',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+        plugins: [router],
+      },
+    });
+    await flushPromises();
+
+    await wrapper.find('.relation-editor input').setValue('skip shortcut subject');
+    const keyX = dispatchDocumentShortcut('x');
+    await flushPromises();
+
+    expect(keyX.defaultPrevented).toBe(true);
+    expect(mockApiClient.saveMyBatchLabelEditDraft).toHaveBeenCalledWith(
+      'ds-live',
+      expect.objectContaining({
+        entries: [
+          expect.objectContaining({
+            sampleId: 'sample-1',
+            operations: expect.arrayContaining([
+              expect.objectContaining({
+                scope: 'relation:R1',
+                field: 'subject',
+                after: 'skip shortcut subject',
+              }),
+            ]),
+          }),
+        ],
+      }),
+    );
+    expect(mockApiClient.submitLabelEdit).not.toHaveBeenCalled();
+    expect(mockApiClient.submitBatchLabelEdits).not.toHaveBeenCalled();
+    expect(routerPush).toHaveBeenCalledWith('/datasets/ds-live/samples/sample-2/review');
+    wrapper.unmount();
+  });
+
+  it('uses V for validate-only and S for the batch draft save lifecycle', async () => {
+    mockApiClient.getReviewSample.mockResolvedValue(reviewDetail);
+    mockApiClient.listQcQueue.mockResolvedValue(qcQueue);
+
+    const wrapper = mount(ReviewWorkbenchPage, {
+      props: {
+        id: 'ds-live',
+        sampleId: 'sample-1',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    await wrapper.find('.relation-editor input').setValue('shortcut subject');
+
+    const ctrlSave = dispatchDocumentShortcut('s', { ctrlKey: true });
+    const metaSave = dispatchDocumentShortcut('s', { metaKey: true });
+    const ctrlEnter = dispatchDocumentShortcut('Enter', { ctrlKey: true });
+    const metaEnter = dispatchDocumentShortcut('Enter', { metaKey: true });
+    await flushPromises();
+
+    expect(ctrlSave.defaultPrevented).toBe(false);
+    expect(metaSave.defaultPrevented).toBe(false);
+    expect(ctrlEnter.defaultPrevented).toBe(false);
+    expect(metaEnter.defaultPrevented).toBe(false);
+    expect(mockApiClient.saveMyBatchLabelEditDraft).not.toHaveBeenCalled();
+    expect(mockApiClient.submitBatchLabelEdits).not.toHaveBeenCalled();
+    expect(wrapper.text()).not.toContain('确认提交批次修改');
+
+    const keyV = dispatchDocumentShortcut('v');
+    await flushPromises();
+
+    expect(keyV.defaultPrevented).toBe(true);
+    expect(mockApiClient.validateLabelEdit).toHaveBeenCalledTimes(1);
+    expect(mockApiClient.saveMyBatchLabelEditDraft).not.toHaveBeenCalled();
+    expect(mockApiClient.autosaveMyBatchLabelEditDraft).not.toHaveBeenCalled();
+    expect(mockApiClient.submitLabelEdit).not.toHaveBeenCalled();
+    expect(mockApiClient.submitBatchLabelEdits).not.toHaveBeenCalled();
+
+    const keyS = dispatchDocumentShortcut('s');
+    await flushPromises();
+
+    expect(keyS.defaultPrevented).toBe(true);
+    expect(mockApiClient.saveMyBatchLabelEditDraft).toHaveBeenCalledWith(
+      'ds-live',
+      expect.objectContaining({
+        entries: [
+          expect.objectContaining({
+            sampleId: 'sample-1',
+            operations: expect.arrayContaining([
+              expect.objectContaining({
+                scope: 'relation:R1',
+                field: 'subject',
+                after: 'shortcut subject',
+              }),
+            ]),
+          }),
+        ],
+      }),
+    );
+    expect(mockApiClient.submitLabelEdit).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it('ignores review shortcuts from editable controls and button focus targets', async () => {
+    const { router, push: routerPush } = makeRouterPushMock();
+    mockApiClient.getReviewSample.mockResolvedValue(reviewDetail);
+    mockApiClient.listQcQueue.mockResolvedValue([
+      qcQueue[0],
+      { ...qcQueue[0], sampleId: 'sample-2', assetId: 'asset-sample-2', taskStatus: 'queued' },
+    ]);
+
+    const wrapper = mount(ReviewWorkbenchPage, {
+      props: {
+        id: 'ds-live',
+        sampleId: 'sample-1',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+        plugins: [router],
+      },
+    });
+    await flushPromises();
+
+    await wrapper.find('.relation-editor input').setValue('focused edit subject');
+    dispatchElementShortcut(wrapper.find('.relation-editor input').element, 's');
+    dispatchElementShortcut(wrapper.find('.relation-editor textarea').element, 'v');
+    dispatchElementShortcut(wrapper.find('.relation-editor select').element, 'ArrowRight');
+    const saveButton = wrapper.findAll('button').find((button) => button.text().includes('保存草稿'));
+    dispatchElementShortcut(saveButton!.element, 'x');
+
+    const editable = document.createElement('div');
+    editable.setAttribute('contenteditable', 'true');
+    document.body.appendChild(editable);
+    dispatchElementShortcut(editable, 's');
+    editable.remove();
+
+    const roleTextbox = document.createElement('div');
+    roleTextbox.setAttribute('role', 'textbox');
+    document.body.appendChild(roleTextbox);
+    dispatchElementShortcut(roleTextbox, 's');
+    roleTextbox.remove();
+
+    await flushPromises();
+
+    expect(mockApiClient.validateLabelEdit).not.toHaveBeenCalled();
+    expect(mockApiClient.saveMyBatchLabelEditDraft).not.toHaveBeenCalled();
+    expect(routerPush).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it('does not repeat shortcut actions during pending or repeated keydown states', async () => {
+    const validationRequest = deferred<LabelEditValidationResult>();
+    const saveRequest = deferred<BatchLabelEditDraftSaveResult>();
+    mockApiClient.validateLabelEdit.mockReturnValueOnce(validationRequest.promise);
+    mockApiClient.saveMyBatchLabelEditDraft.mockReturnValueOnce(saveRequest.promise);
+    mockApiClient.getReviewSample.mockResolvedValue(reviewDetail);
+    mockApiClient.listQcQueue.mockResolvedValue(qcQueue);
+
+    const wrapper = mount(ReviewWorkbenchPage, {
+      props: {
+        id: 'ds-live',
+        sampleId: 'sample-1',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    dispatchDocumentShortcut('v');
+    await flushPromises();
+    dispatchDocumentShortcut('v');
+    dispatchDocumentShortcut('v', { repeat: true });
+    await flushPromises();
+
+    expect(mockApiClient.validateLabelEdit).toHaveBeenCalledTimes(1);
+    validationRequest.resolve({
+      valid: true,
+      errors: [],
+      warnings: [],
+      checkedAt: '2026-05-18T00:00:00Z',
+    });
+    await flushPromises();
+
+    await wrapper.find('.relation-editor input').setValue('pending save subject');
+    dispatchDocumentShortcut('s');
+    await flushPromises();
+    dispatchDocumentShortcut('s');
+    dispatchDocumentShortcut('s', { repeat: true });
+    await flushPromises();
+
+    expect(mockApiClient.saveMyBatchLabelEditDraft).toHaveBeenCalledTimes(1);
+    saveRequest.resolve({
+      saved: true,
+      datasetId: 'ds-live',
+      savedSampleCount: 1,
+      totalSampleCount: 1,
+      sampleIds: ['sample-1'],
+      updatedAt: '2026-05-18T00:00:00Z',
+    });
+    await flushPromises();
+
+    dispatchDocumentShortcut('s');
+    await flushPromises();
+    expect(mockApiClient.saveMyBatchLabelEditDraft).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
+  it('autosaves only when the batch draft is dirty and editable', async () => {
+    vi.useFakeTimers();
+    try {
+      window.localStorage.removeItem('urbanViolationReviewAutosaveIntervalMs');
+      mockApiClient.getReviewSample.mockResolvedValue(reviewDetail);
+      mockApiClient.listQcQueue.mockResolvedValue(qcQueue);
+
+      const wrapper = mount(ReviewWorkbenchPage, {
+        props: {
+          id: 'ds-live',
+          sampleId: 'sample-1',
+        },
+        global: {
+          stubs: {
+            RouterLink: true,
+          },
+        },
+      });
+      await flushPromises();
+
+      await vi.advanceTimersByTimeAsync(180_000);
+      await flushPromises();
+      expect(mockApiClient.autosaveMyBatchLabelEditDraft).not.toHaveBeenCalled();
+
+      await wrapper.find('.relation-editor input').setValue('autosave subject');
+      await flushPromises();
+      await vi.advanceTimersByTimeAsync(180_000);
+      await flushPromises();
+
+      expect(mockApiClient.autosaveMyBatchLabelEditDraft).toHaveBeenCalledWith(
+        'ds-live',
+        expect.objectContaining({
+          entries: [
+            expect.objectContaining({
+              sampleId: 'sample-1',
+              operations: expect.arrayContaining([
+                expect.objectContaining({
+                  scope: 'relation:R1',
+                  field: 'subject',
+                  after: 'autosave subject',
+                }),
+              ]),
+            }),
+          ],
+        }),
+      );
+      wrapper.unmount();
+    } finally {
+      window.localStorage.removeItem('urbanViolationReviewAutosaveIntervalMs');
+      vi.useRealTimers();
+    }
+  });
+
+  it('lets reviewers set the autosave interval from the bottom bar', async () => {
+    vi.useFakeTimers();
+    try {
+      window.localStorage.removeItem('urbanViolationReviewAutosaveIntervalMs');
+      mockApiClient.getReviewSample.mockResolvedValue(reviewDetail);
+      mockApiClient.listQcQueue.mockResolvedValue(qcQueue);
+
+      const wrapper = mount(ReviewWorkbenchPage, {
+        props: {
+          id: 'ds-live',
+          sampleId: 'sample-1',
+        },
+        global: {
+          stubs: {
+            RouterLink: true,
+          },
+        },
+      });
+      await flushPromises();
+
+      const intervalSelect = wrapper.find('.autosave-interval-control select');
+      expect((intervalSelect.element as HTMLSelectElement).value).toBe('180000');
+      await intervalSelect.setValue('60000');
+      expect(window.localStorage.getItem('urbanViolationReviewAutosaveIntervalMs')).toBe('60000');
+
+      await wrapper.find('.relation-editor input').setValue('autosave interval subject');
+      await flushPromises();
+      await vi.advanceTimersByTimeAsync(59_999);
+      await flushPromises();
+      expect(mockApiClient.autosaveMyBatchLabelEditDraft).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      await flushPromises();
+      expect(mockApiClient.autosaveMyBatchLabelEditDraft).toHaveBeenCalledTimes(1);
+      expect(mockApiClient.autosaveMyBatchLabelEditDraft).toHaveBeenCalledWith(
+        'ds-live',
+        expect.objectContaining({
+          entries: [
+            expect.objectContaining({
+              sampleId: 'sample-1',
+              operations: expect.arrayContaining([
+                expect.objectContaining({
+                  scope: 'relation:R1',
+                  field: 'subject',
+                  after: 'autosave interval subject',
+                }),
+              ]),
+            }),
+          ],
+        }),
+      );
+      wrapper.unmount();
+    } finally {
+      window.localStorage.removeItem('urbanViolationReviewAutosaveIntervalMs');
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps newer edits dirty when an older autosave response returns', async () => {
+    vi.useFakeTimers();
+    try {
+      window.localStorage.removeItem('urbanViolationReviewAutosaveIntervalMs');
+      const firstAutosave = deferred<BatchLabelEditDraftSaveResult>();
+      mockApiClient.autosaveMyBatchLabelEditDraft
+        .mockReturnValueOnce(firstAutosave.promise)
+        .mockResolvedValueOnce({
+          saved: true,
+          datasetId: 'ds-live',
+          savedSampleCount: 1,
+          totalSampleCount: 1,
+          sampleIds: ['sample-1'],
+          updatedAt: '2026-05-18T00:03:00Z',
+        });
+      mockApiClient.getReviewSample.mockResolvedValue(reviewDetail);
+      mockApiClient.listQcQueue.mockResolvedValue(qcQueue);
+
+      const wrapper = mount(ReviewWorkbenchPage, {
+        props: {
+          id: 'ds-live',
+          sampleId: 'sample-1',
+        },
+        global: {
+          stubs: {
+            RouterLink: true,
+          },
+        },
+      });
+      await flushPromises();
+
+      const subjectInput = wrapper.find('.relation-editor input');
+      await subjectInput.setValue('autosave subject first');
+      await flushPromises();
+      await vi.advanceTimersByTimeAsync(180_000);
+      await flushPromises();
+
+      expect(mockApiClient.autosaveMyBatchLabelEditDraft).toHaveBeenCalledTimes(1);
+
+      await subjectInput.setValue('autosave subject second');
+      await flushPromises();
+      firstAutosave.resolve({
+        saved: true,
+        datasetId: 'ds-live',
+        savedSampleCount: 1,
+        totalSampleCount: 1,
+        sampleIds: ['sample-1'],
+        updatedAt: '2026-05-18T00:02:00Z',
+      });
+      await flushPromises();
+
+      await vi.advanceTimersByTimeAsync(179_999);
+      await flushPromises();
+      expect(mockApiClient.autosaveMyBatchLabelEditDraft).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await flushPromises();
+
+      expect(mockApiClient.autosaveMyBatchLabelEditDraft).toHaveBeenCalledTimes(2);
+      expect(mockApiClient.autosaveMyBatchLabelEditDraft).toHaveBeenLastCalledWith(
+        'ds-live',
+        expect.objectContaining({
+          entries: [
+            expect.objectContaining({
+              sampleId: 'sample-1',
+              operations: expect.arrayContaining([
+                expect.objectContaining({
+                  scope: 'relation:R1',
+                  field: 'subject',
+                  after: 'autosave subject second',
+                }),
+              ]),
+            }),
+          ],
+        }),
+      );
+      wrapper.unmount();
+    } finally {
+      window.localStorage.removeItem('urbanViolationReviewAutosaveIntervalMs');
+      vi.useRealTimers();
+    }
+  });
+
+  it('blocks batch submit while dirty edits are unsaved or saved edits have validation errors', async () => {
+    mockApiClient.getReviewSample.mockResolvedValue(reviewDetail);
+    mockApiClient.listQcQueue.mockResolvedValue(qcQueue);
+    mockApiClient.validateLabelEdit.mockResolvedValue({
+      valid: false,
+      errors: [
+        {
+          operationIndex: 0,
+          scope: 'relation:R1',
+          field: 'subject',
+          code: 'invalid_field_value',
+          message: 'subject is invalid',
+        },
+      ],
+      warnings: [],
+      checkedAt: '2026-05-18T00:00:00Z',
+    });
+
+    const wrapper = mount(ReviewWorkbenchPage, {
+      props: {
+        id: 'ds-live',
+        sampleId: 'sample-1',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    await wrapper.find('.relation-editor input').setValue('invalid subject');
+    await wrapper.findAll('button').find((button) => button.text().includes('提交批次修改'))?.trigger('click');
+    await flushPromises();
+
+    expect(wrapper.find('[aria-label="批次提交统计"]').text()).toContain('未保存 1');
+    expect(wrapper.text()).toContain('未保存修改');
+    expect(wrapper.findAll('button').find((button) => button.text().includes('确认提交批次修改'))?.attributes('disabled')).toBeDefined();
+    expect(mockApiClient.submitBatchLabelEdits).not.toHaveBeenCalled();
+
+    await wrapper.findAll('button').find((button) => button.text().trim() === '取消')?.trigger('click');
+    await flushPromises();
+    await wrapper.findAll('button').find((button) => button.text().includes('校验修改'))?.trigger('click');
+    await flushPromises();
+    await wrapper.findAll('button').find((button) => button.text().includes('保存草稿'))?.trigger('click');
+    await flushPromises();
+    await wrapper.findAll('button').find((button) => button.text().includes('提交批次修改'))?.trigger('click');
+    await flushPromises();
+
+    expect(wrapper.find('[aria-label="批次提交统计"]').text()).toContain('校验错误 1');
+    expect(wrapper.text()).toContain('存在 1 个校验错误');
+    expect(wrapper.findAll('button').find((button) => button.text().includes('确认提交批次修改'))?.attributes('disabled')).toBeDefined();
+    expect(mockApiClient.submitBatchLabelEdits).not.toHaveBeenCalled();
   });
 
   it('keeps review evidence visible but disables patch and submit when active label config is missing', async () => {
@@ -2663,9 +3708,12 @@ describe('import and review routes', () => {
     expect(wrapper.text()).toContain('sample-1');
     expect(wrapper.text()).toContain('R1 · goods blocks sidewalk');
     expect(wrapper.text()).toContain('请先上传并激活标签配置');
-    const submitButton = wrapper.findAll('button').find((button) => button.text().includes('提交修改'));
+    const submitButton = wrapper.findAll('button').find((button) => button.text().includes('提交批次修改'));
     const saveButton = wrapper.findAll('button').find((button) => button.text().includes('保存草稿'));
-    expect(submitButton?.attributes('disabled')).toBeDefined();
+    await submitButton?.trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).toContain('请先上传并激活标签配置');
+    expect(wrapper.findAll('button').find((button) => button.text().includes('确认提交批次修改'))?.attributes('disabled')).toBeDefined();
     expect(saveButton?.attributes('disabled')).toBeDefined();
   });
 
@@ -2692,10 +3740,179 @@ describe('import and review routes', () => {
     expect(wrapper.find('[aria-label="模型可见性参考"]').text()).toContain('true');
     expect(wrapper.find('[aria-label="标注修改底栏"]').text()).toContain('校验修改');
     expect(wrapper.find('[aria-label="标注修改底栏"]').text()).toContain('保存草稿');
-    expect(wrapper.find('[aria-label="标注修改底栏"]').text()).toContain('提交修改');
+    expect(wrapper.find('[aria-label="标注修改底栏"]').text()).toContain('提交批次修改');
+    expect(wrapper.find('[aria-label="标注修改底栏"]').text()).toContain('批次草稿');
+    expect(wrapper.find('[aria-label="标注修改底栏"]').text()).toContain('自动保存');
     expect(wrapper.text()).not.toContain('vote note');
     expect(wrapper.text()).not.toContain('提交质检');
     expect(wrapper.text()).not.toContain('人工精标');
+  });
+
+  it('restores saved batch draft relation and candidate operations into the review editor', async () => {
+    mockApiClient.getReviewSample.mockResolvedValue(reviewDetail);
+    mockApiClient.listQcQueue.mockResolvedValue(qcQueue);
+    mockApiClient.getMyBatchLabelEditDraft.mockResolvedValueOnce({
+      datasetId: 'ds-live',
+      savedSampleCount: 1,
+      totalSampleCount: 1,
+      dirtySampleCount: 0,
+      samples: [
+        {
+          sampleId: 'sample-1',
+          leaseId: 'lease-sample-1',
+          baseRevision: 7,
+          labelConfigId: 'label-config-1',
+          labelConfigVersion: 'urban_violation_labels_v1',
+          dirty: false,
+          saved: true,
+          validation: {
+            valid: true,
+            errorCount: 0,
+            warningCount: 0,
+            errors: [],
+            warnings: [],
+          },
+          operations: [
+            {
+              scope: 'relation:R1',
+              field: 'subject',
+              op: 'replace',
+              before: 'goods',
+              after: 'draft goods',
+            },
+            {
+              scope: 'relation:R1',
+              field: 'bbox',
+              op: 'replace',
+              before: [320, 180, 640, 360],
+              after: [100, 120, 500, 580],
+            },
+            {
+              scope: 'candidate:C1',
+              field: 'violation_category',
+              op: 'replace',
+              before: 'goods_blocking_road',
+              after: 'nonmotor_vehicle_illegal_parking',
+            },
+            {
+              scope: 'candidate:C1',
+              field: 'evidence_reasoning',
+              op: 'replace',
+              before: 'goods block sidewalk',
+              after: 'draft candidate reasoning',
+            },
+          ],
+        },
+      ],
+    });
+
+    const wrapper = mount(ReviewWorkbenchPage, {
+      props: {
+        id: 'ds-live',
+        sampleId: 'sample-1',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    expect((wrapper.find('.relation-editor input').element as HTMLInputElement).value).toBe('draft goods');
+    expect(wrapper.find('.bbox-shell__box[aria-label="R1"]').attributes('style')).toContain('left: 10%');
+    expect(wrapper.find('.bbox-shell__box[aria-label="R1"]').attributes('style')).toContain('top: 12%');
+    expect(wrapper.find('.bbox-shell__box[aria-label="R1"]').attributes('style')).toContain('width: 40%');
+    expect(wrapper.find('.bbox-shell__box[aria-label="R1"]').attributes('style')).toContain('height: 46%');
+    expect(
+      wrapper
+        .findAll('.candidate-editor select')
+        .some((select) => (select.element as HTMLSelectElement).value === 'nonmotor_vehicle_illegal_parking'),
+    ).toBe(true);
+    expect((wrapper.find('.candidate-editor textarea').element as HTMLTextAreaElement).value).toBe(
+      'draft candidate reasoning',
+    );
+    expect(wrapper.find('[aria-label="标注修改底栏"]').text()).toContain('当前样本修改 4 项');
+    expect(wrapper.find('[aria-label="标注修改底栏"]').text()).toContain('批次草稿 1/1');
+    expect(wrapper.find('[aria-label="标注修改底栏"]').text()).toContain('自动保存 空闲');
+    expect(wrapper.findAll('button').find((button) => button.text().includes('保存草稿'))?.attributes('disabled')).toBeDefined();
+  });
+
+  it('restores saved batch draft candidate deletions without marking the sample unsaved', async () => {
+    mockApiClient.getReviewSample.mockResolvedValue(reviewDetail);
+    mockApiClient.listQcQueue.mockResolvedValue(qcQueue);
+    mockApiClient.getMyBatchLabelEditDraft.mockResolvedValueOnce({
+      datasetId: 'ds-live',
+      savedSampleCount: 1,
+      totalSampleCount: 1,
+      dirtySampleCount: 0,
+      samples: [
+        {
+          sampleId: 'sample-1',
+          leaseId: 'lease-sample-1',
+          baseRevision: 7,
+          labelConfigId: 'label-config-1',
+          labelConfigVersion: 'urban_violation_labels_v1',
+          dirty: false,
+          saved: true,
+          operations: [
+            {
+              scope: 'candidate:C1',
+              field: 'candidate',
+              op: 'delete_candidate',
+              before: {
+                id: 'C1',
+                violation_category: 'goods_blocking_road',
+                sample_category: 'positive samples',
+                confidence: 0.88,
+                segmentation_targets: ['goods'],
+                evidence_relations: ['R1'],
+                evidence_reasoning: 'goods block sidewalk',
+                relation_hint: '',
+              },
+              after: null,
+            },
+          ],
+        },
+      ],
+    });
+
+    const wrapper = mount(ReviewWorkbenchPage, {
+      props: {
+        id: 'ds-live',
+        sampleId: 'sample-1',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    expect(wrapper.find('.candidate-index-track').text().replace(/\s+/g, '')).toBe('+');
+    expect(wrapper.find('[aria-label="标注修改底栏"]').text()).toContain('当前样本修改 1 项');
+    expect(wrapper.find('[aria-label="标注修改底栏"]').text()).toContain('自动保存 空闲');
+    expect(wrapper.findAll('button').find((button) => button.text().includes('保存草稿'))?.attributes('disabled')).toBeDefined();
+
+    await wrapper.findAll('button').find((button) => button.text().includes('校验修改'))?.trigger('click');
+    await flushPromises();
+
+    expect(mockApiClient.validateLabelEdit).toHaveBeenCalledWith(
+      'ds-live',
+      'sample-1',
+      expect.objectContaining({
+        operations: [
+          expect.objectContaining({
+            scope: 'candidate:C1',
+            field: 'candidate',
+            op: 'delete_candidate',
+            after: null,
+          }),
+        ],
+      }),
+    );
+    expect(mockApiClient.saveMyBatchLabelEditDraft).not.toHaveBeenCalled();
   });
 
   it('marks unreferenced relation boxes purple and turns them red when selected', async () => {
@@ -2837,7 +4054,7 @@ describe('import and review routes', () => {
     await flushPromises();
 
     expect(wrapper.find('.candidate-index-track').text().replace(/\s+/g, '')).toBe('+');
-    expect(wrapper.find('[aria-label="标注修改底栏"]').text()).toContain('已修改 1 项');
+    expect(wrapper.find('[aria-label="标注修改底栏"]').text()).toContain('当前样本修改 1 项');
 
     await validateButton?.trigger('click');
     await flushPromises();
@@ -2894,7 +4111,8 @@ describe('import and review routes', () => {
 
     expect(wrapper.text()).toContain('sample-1');
     expect(wrapper.text()).not.toContain('Loading review sample...');
-    expect(wrapper.text()).not.toContain('正在切换到 sample-2');
+    expect(wrapper.find('[data-testid="sample-switch-status"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain('正在切换到 sample-2');
 
     nextDetailRequest.resolve(nextDetail);
     await flushPromises();

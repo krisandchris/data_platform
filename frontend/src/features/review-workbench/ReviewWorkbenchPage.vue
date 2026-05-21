@@ -12,13 +12,19 @@
         :label-suggestions="labelSuggestions"
         :request-label-suggestions="requestLabelSuggestions"
         :validate-label-edit="validateLabelEdit"
-        :submit-label-edit="submitLabelEdit"
+        :batch-draft="batchDraft"
+        :save-batch-draft="saveBatchDraft"
+        :autosave-batch-draft="autosaveBatchDraft"
+        :submit-batch-label-edits="submitBatchLabelEdits"
         :current-user="detail.currentUser"
         :batch-assignment="detail.batchAssignment"
         :qc-task="detail.qcTask"
         :sample-lease="detail.sampleLease"
         :readonly-reason="readonlyReason"
         :release-sample-lease="releaseCurrentLease"
+        :is-switching-sample="refreshing"
+        :switch-target-sample-id="sampleId"
+        :switch-error="refreshError"
       />
     </div>
     <div v-else class="empty-state">No review detail returned by the backend.</div>
@@ -29,10 +35,14 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { apiClient } from '../../services/urbanViolationApi';
 import type {
+  BatchLabelEditDraft,
+  BatchLabelEditDraftPayload,
+  BatchLabelEditDraftSaveResult,
+  BatchLabelEditSubmitPayload,
+  BatchLabelEditSubmitResult,
   CurrentUser,
   LabelConfig,
   LabelEditPatchPayload,
-  LabelEditSubmitPayload,
   LabelSuggestion,
   QcQueueItem,
   ReviewSampleDetail,
@@ -49,11 +59,13 @@ const props = defineProps<{
 const detail = ref<ReviewSampleDetail>();
 const queue = ref<QcQueueItem[]>([]);
 const activeLabelConfig = ref<LabelConfig>();
+const batchDraft = ref<BatchLabelEditDraft>();
 const labelConfigError = ref('');
 const labelSuggestions = ref<Record<string, string[]>>({});
 const initialLoading = ref(true);
 const refreshing = ref(false);
 const error = ref<string>();
+const refreshError = ref('');
 const { loadCurrentUser } = useAuthState();
 let requestSequence = 0;
 let heartbeatTimer: number | undefined;
@@ -84,12 +96,14 @@ const loadInitial = async () => {
   initialLoading.value = true;
   refreshing.value = false;
   error.value = undefined;
+  refreshError.value = '';
   try {
-    const [currentUser, reviewDetail, queueItems, labelContext] = await Promise.all([
+    const [currentUser, reviewDetail, queueItems, labelContext, batchDraftContext] = await Promise.all([
       loadCurrentUser(),
       apiClient.getReviewSample(props.id, props.sampleId),
       apiClient.listQcQueue(props.id),
       loadLabelContext(props.id),
+      loadBatchDraftContext(props.id),
     ]);
     if (sequence !== requestSequence) {
       return;
@@ -97,6 +111,7 @@ const loadInitial = async () => {
     detail.value = await hydrateEditableContext(reviewDetail, currentUser);
     queue.value = queueItems;
     activeLabelConfig.value = labelContext.config;
+    batchDraft.value = batchDraftContext;
     labelConfigError.value = labelContext.error ?? '';
     labelSuggestions.value = labelContext.suggestions;
   } catch (err) {
@@ -104,6 +119,7 @@ const loadInitial = async () => {
       return;
     }
     error.value = err instanceof Error ? err.message : 'Unable to load review sample';
+    refreshError.value = error.value;
   } finally {
     if (sequence === requestSequence) {
       initialLoading.value = false;
@@ -119,7 +135,8 @@ const refreshSample = async () => {
   } else {
     refreshing.value = true;
   }
-    error.value = undefined;
+  error.value = undefined;
+  refreshError.value = '';
   try {
     const currentUser = await loadCurrentUser();
     const reviewDetail = await apiClient.getReviewSample(props.id, props.sampleId);
@@ -132,6 +149,7 @@ const refreshSample = async () => {
       return;
     }
     error.value = err instanceof Error ? err.message : 'Unable to load review sample';
+    refreshError.value = detail.value ? error.value : '';
   } finally {
     if (sequence === requestSequence) {
       initialLoading.value = false;
@@ -143,10 +161,28 @@ const refreshSample = async () => {
 const validateLabelEdit = (payload: LabelEditPatchPayload) =>
   apiClient.validateLabelEdit(props.id, props.sampleId, withLeaseContext(payload));
 
-const submitLabelEdit = async (payload: LabelEditSubmitPayload) => {
-  const result = await apiClient.submitLabelEdit(props.id, props.sampleId, withLeaseContext(payload));
-  if (payload.submitAction === 'submit_changes') {
-    await releaseCurrentLease();
+const saveBatchDraft = async (payload: BatchLabelEditDraftPayload): Promise<BatchLabelEditDraftSaveResult> => {
+  const result = await apiClient.saveMyBatchLabelEditDraft(props.id, payload);
+  applyBatchDraftSaveResult(result, payload);
+  return result;
+};
+
+const autosaveBatchDraft = async (payload: BatchLabelEditDraftPayload): Promise<BatchLabelEditDraftSaveResult> => {
+  const result = await apiClient.autosaveMyBatchLabelEditDraft(props.id, payload);
+  applyBatchDraftSaveResult(result, payload);
+  return result;
+};
+
+const submitBatchLabelEdits = async (
+  payload: BatchLabelEditSubmitPayload,
+): Promise<BatchLabelEditSubmitResult> => {
+  const result = await apiClient.submitBatchLabelEdits(props.id, payload);
+  await releaseCurrentLease();
+  if (detail.value && result.assignment) {
+    detail.value = {
+      ...detail.value,
+      batchAssignment: result.assignment,
+    };
   }
   return result;
 };
@@ -182,7 +218,7 @@ async function hydrateEditableContext(
   return nextDetail;
 }
 
-function withLeaseContext<T extends LabelEditPatchPayload | LabelEditSubmitPayload>(payload: T): T {
+function withLeaseContext<T extends LabelEditPatchPayload>(payload: T): T {
   return {
     ...payload,
     leaseId: detail.value?.sampleLease?.leaseId,
@@ -252,6 +288,48 @@ async function loadLabelContext(datasetId: string): Promise<{
       error: '请先上传并激活标签配置',
     };
   }
+}
+
+async function loadBatchDraftContext(datasetId: string): Promise<BatchLabelEditDraft> {
+  try {
+    return await apiClient.getMyBatchLabelEditDraft(datasetId);
+  } catch {
+    return {
+      datasetId,
+      savedSampleCount: 0,
+      samples: [],
+    };
+  }
+}
+
+function applyBatchDraftSaveResult(result: BatchLabelEditDraftSaveResult, payload: BatchLabelEditDraftPayload) {
+  if (result.draft) {
+    batchDraft.value = result.draft;
+    return;
+  }
+  const existingSamples = batchDraft.value?.samples ?? [];
+  const savedSampleIds = new Set(result.sampleIds.length ? result.sampleIds : payload.entries.map((sample) => sample.sampleId));
+  const incomingSamples = payload.entries.map((sample) =>
+    savedSampleIds.has(sample.sampleId)
+      ? {
+          ...sample,
+          dirty: false,
+          saved: true,
+        }
+      : sample,
+  );
+  const incomingBySample = new Map(incomingSamples.map((sample) => [sample.sampleId, sample]));
+  const mergedSamples = [
+    ...existingSamples.filter((sample) => !incomingBySample.has(sample.sampleId)),
+    ...incomingSamples,
+  ];
+  batchDraft.value = {
+    ...(batchDraft.value ?? { datasetId: props.id, savedSampleCount: 0, samples: [] }),
+    totalSampleCount: result.totalSampleCount ?? batchDraft.value?.totalSampleCount,
+    savedSampleCount: result.savedSampleCount,
+    samples: mergedSamples,
+    updatedAt: result.updatedAt ?? new Date().toISOString(),
+  };
 }
 
 async function preloadOpenTagSuggestions(datasetId: string, config: LabelConfig): Promise<Record<string, string[]>> {

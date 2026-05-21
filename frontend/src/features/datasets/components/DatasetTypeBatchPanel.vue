@@ -14,8 +14,8 @@
     <form v-if="showBatchForm" class="batch-create-form" @submit.prevent="createBatch">
       <div class="batch-create-form__header">
         <div>
-          <strong>登记批次数据</strong>
-          <span>选择目录结构后扫描本地目录文件名，提交后生成该类型下的新批次和导入校验任务。</span>
+          <strong>上传批次压缩包</strong>
+          <span>上传 urban_violation_0520.zip 这类批次包，后端会解压到运行态目录并登记为新批次。</span>
         </div>
         <button class="button" type="button" @click="closeBatchForm">取消</button>
       </div>
@@ -37,46 +37,64 @@
           </select>
         </label>
         <label>
-          <span>目录标识 / 服务器路径</span>
-          <input v-model.trim="newBatch.sourceUri" placeholder="DATASET/urban_violation/20260518_roadside" />
+          <span>备注</span>
+          <input v-model.trim="newBatch.description" placeholder="可选：数据来源、采集说明" />
         </label>
       </div>
 
       <label class="batch-directory-picker">
-        <input type="file" multiple webkitdirectory directory @change="onDirectorySelected" />
-        <FolderOpen :size="18" />
-        <span>选择批次目录</span>
-        <small>{{ directoryScanLabel }}</small>
+        <input type="file" accept=".zip,application/zip,application/x-zip-compressed" @change="onArchiveSelected" />
+        <FileArchive :size="18" />
+        <span>选择批次压缩包</span>
+        <small>{{ archiveUploadLabel }}</small>
       </label>
 
       <dl class="batch-scan-metrics">
         <div>
-          <dt>文件</dt>
-          <dd>{{ batchScan.sourceFileCount }}</dd>
+          <dt>文件名</dt>
+          <dd>{{ batchArchiveFile?.name ?? '-' }}</dd>
         </div>
         <div>
-          <dt>图片</dt>
-          <dd>{{ batchScan.imageCount }}</dd>
+          <dt>大小</dt>
+          <dd>{{ batchArchiveFile ? formatBytes(batchArchiveFile.size) : '-' }}</dd>
         </div>
         <div>
-          <dt>STEP1</dt>
-          <dd>{{ batchScan.stage1FileCount }}</dd>
+          <dt>上传方式</dt>
+          <dd>压缩包</dd>
         </div>
         <div>
-          <dt>STEP2</dt>
-          <dd>{{ batchScan.stage2FileCount }}</dd>
+          <dt>解压位置</dt>
+          <dd>运行态目录</dd>
         </div>
         <div>
-          <dt>失败产物</dt>
-          <dd>{{ batchScan.stage2FailureFileCount }}</dd>
+          <dt>导入统计</dt>
+          <dd>后端生成</dd>
         </div>
       </dl>
 
+      <div
+        v-if="uploadProgressVisible"
+        class="archive-upload-progress"
+        role="progressbar"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        :aria-valuenow="uploadProgressPercent"
+      >
+        <div class="archive-upload-progress__header">
+          <span>{{ uploadProgressTitle }}</span>
+          <strong>{{ uploadProgressPercent }}%</strong>
+        </div>
+        <div class="archive-upload-progress__track">
+          <span :style="uploadProgressStyle"></span>
+        </div>
+        <small>{{ uploadProgressDetail }}</small>
+      </div>
+
       <div class="batch-create-form__footer">
         <p v-if="batchMessage" class="type-message" :class="{ error: batchMessageIsError }">{{ batchMessage }}</p>
-        <button class="button button--primary" type="submit" :disabled="creatingBatch || !newBatch.batchKey || !newBatch.batchName">
+        <button class="button button--primary" type="submit" :disabled="creatingBatch || !newBatch.batchKey || !newBatch.batchName || !batchArchiveFile">
           <Plus :size="16" />
-          创建批次
+          {{ creatingBatch ? '上传中...' : '上传并创建批次' }}
         </button>
       </div>
     </form>
@@ -167,10 +185,15 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
-import { FileSearch, FolderOpen, LayoutDashboard, Plus, ShieldCheck, Table2 } from 'lucide-vue-next';
+import { FileArchive, FileSearch, LayoutDashboard, Plus, ShieldCheck, Table2 } from 'lucide-vue-next';
 import { apiClient } from '../../../services/urbanViolationApi';
 import StatusChip from '../../../shared/components/StatusChip.vue';
-import type { Dataset, DatasetType, ImportSourceStructure } from '../../../shared/types/contract';
+import type {
+  Dataset,
+  DatasetType,
+  ImportArchiveUploadProgress,
+  ImportSourceStructure,
+} from '../../../shared/types/contract';
 
 const props = defineProps<{
   group: DatasetType;
@@ -185,6 +208,11 @@ const showBatchForm = ref(false);
 const creatingBatch = ref(false);
 const batchMessage = ref('');
 const batchMessageIsError = ref(false);
+const batchArchiveFile = ref<File | null>(null);
+const uploadPhase = ref<'idle' | 'uploading' | 'processing'>('idle');
+const uploadLoadedBytes = ref(0);
+const uploadTotalBytes = ref(0);
+const uploadProgressValue = ref(0);
 const generatingQcBatchId = ref('');
 const qcQueueMessages = reactive<Record<string, string>>({});
 const qcQueueMessageErrors = reactive<Record<string, boolean>>({});
@@ -193,9 +221,9 @@ const newBatch = reactive({
   datasetType: '',
   batchKey: '',
   batchName: '',
-  sourceMode: 'local_directory' as const,
+  sourceMode: 'uploaded_package' as const,
   sourceUri: '',
-  sourceStructure: 'images_only' as ImportSourceStructure,
+  sourceStructure: 'images_with_preannotations' as ImportSourceStructure,
   description: '',
 });
 const batchScan = reactive({
@@ -207,11 +235,32 @@ const batchScan = reactive({
   stage2FailureFileCount: 0,
 });
 
-const directoryScanLabel = computed(() => {
-  if (!batchScan.sourceFileCount) {
-    return '支持选择仅 images 目录，或包含 images / step1 / step2 的批次目录';
+const archiveUploadLabel = computed(() => {
+  if (!batchArchiveFile.value) {
+    return '支持包含 images/、stage1_run_*/、stage2_run_* 的 .zip 批次包';
   }
-  return `${batchScan.rootName || '已选目录'} · ${batchScan.sourceFileCount} 个文件`;
+  return `${batchArchiveFile.value.name} · ${formatBytes(batchArchiveFile.value.size)}`;
+});
+const uploadProgressVisible = computed(() => uploadPhase.value !== 'idle' || creatingBatch.value);
+const uploadProgressPercent = computed(() => Math.min(100, Math.max(0, Math.round(uploadProgressValue.value))));
+const uploadProgressStyle = computed(() => ({ width: `${uploadProgressPercent.value}%` }));
+const uploadProgressTitle = computed(() => {
+  if (uploadPhase.value === 'processing') {
+    return '上传完成，正在解压并生成批次';
+  }
+  return '正在上传批次压缩包';
+});
+const uploadProgressDetail = computed(() => {
+  if (uploadPhase.value === 'processing') {
+    return '大压缩包解压和导入可能需要几分钟，请保持页面打开。';
+  }
+  if (uploadTotalBytes.value) {
+    return `${formatBytes(uploadLoadedBytes.value)} / ${formatBytes(uploadTotalBytes.value)}`;
+  }
+  if (uploadLoadedBytes.value) {
+    return `${formatBytes(uploadLoadedBytes.value)} 已上传`;
+  }
+  return '准备上传';
 });
 
 watch(
@@ -375,15 +424,24 @@ function resetBatchScan() {
   batchScan.stage2FailureFileCount = 0;
 }
 
+function resetUploadProgress() {
+  uploadPhase.value = 'idle';
+  uploadLoadedBytes.value = 0;
+  uploadTotalBytes.value = 0;
+  uploadProgressValue.value = 0;
+}
+
 function openBatchForm() {
   showBatchForm.value = true;
   batchMessage.value = '';
   batchMessageIsError.value = false;
+  batchArchiveFile.value = null;
+  resetUploadProgress();
   newBatch.datasetType = props.group.datasetType;
   newBatch.batchKey = '';
   newBatch.batchName = '';
   newBatch.sourceUri = '';
-  newBatch.sourceStructure = 'images_only';
+  newBatch.sourceStructure = 'images_with_preannotations';
   newBatch.description = '';
   resetBatchScan();
 }
@@ -392,6 +450,48 @@ function closeBatchForm() {
   showBatchForm.value = false;
   batchMessage.value = '';
   batchMessageIsError.value = false;
+  batchArchiveFile.value = null;
+  resetUploadProgress();
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function inferBatchKeyFromArchive(file: File) {
+  return file.name.replace(/\.(zip)$/i, '').replace(/[^A-Za-z0-9_-]+/g, '_');
+}
+
+function onArchiveSelected(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0] ?? null;
+  batchArchiveFile.value = null;
+  batchMessage.value = '';
+  batchMessageIsError.value = false;
+  resetUploadProgress();
+  if (!file) {
+    return;
+  }
+  if (!file.name.toLowerCase().endsWith('.zip')) {
+    batchMessageIsError.value = true;
+    batchMessage.value = '请上传 .zip 格式的批次压缩包。';
+    input.value = '';
+    return;
+  }
+  batchArchiveFile.value = file;
+  const inferredBatchKey = inferBatchKeyFromArchive(file);
+  if (!newBatch.batchKey && inferredBatchKey) {
+    newBatch.batchKey = inferredBatchKey;
+  }
+  if (!newBatch.batchName && inferredBatchKey) {
+    newBatch.batchName = inferredBatchKey;
+  }
 }
 
 function onDirectorySelected(event: Event) {
@@ -442,27 +542,41 @@ function onDirectorySelected(event: Event) {
   }
 }
 
+function updateUploadProgress(progress: ImportArchiveUploadProgress, fallbackTotalBytes: number) {
+  const totalBytes = progress.totalBytes ?? fallbackTotalBytes;
+  uploadPhase.value = 'uploading';
+  uploadLoadedBytes.value = progress.loadedBytes;
+  uploadTotalBytes.value = totalBytes;
+  uploadProgressValue.value = progress.percent ?? (totalBytes ? (progress.loadedBytes / totalBytes) * 100 : 0);
+  if (uploadProgressValue.value >= 100) {
+    uploadLoadedBytes.value = totalBytes || progress.loadedBytes;
+    uploadProgressValue.value = 100;
+    uploadPhase.value = 'processing';
+  }
+}
+
 async function createBatch() {
-  if (!newBatch.datasetType || !newBatch.batchKey || !newBatch.batchName) {
+  if (!newBatch.datasetType || !newBatch.batchKey || !newBatch.batchName || !batchArchiveFile.value) {
     return;
   }
+  const archiveFile = batchArchiveFile.value;
   creatingBatch.value = true;
   batchMessage.value = '';
   batchMessageIsError.value = false;
+  uploadPhase.value = 'uploading';
+  uploadLoadedBytes.value = 0;
+  uploadTotalBytes.value = archiveFile.size;
+  uploadProgressValue.value = 0;
   try {
-    const created = await apiClient.createImportJob(newBatch.datasetType, {
+    const created = await apiClient.createImportJobArchive(newBatch.datasetType, {
       datasetType: newBatch.datasetType,
       batchKey: newBatch.batchKey,
       batchName: newBatch.batchName,
-      sourceMode: newBatch.sourceMode,
-      sourceUri: newBatch.sourceUri || undefined,
       sourceStructure: newBatch.sourceStructure,
       description: newBatch.description || undefined,
-      sourceFileCount: batchScan.sourceFileCount,
-      imageCount: batchScan.imageCount,
-      stage1FileCount: newBatch.sourceStructure === 'images_only' ? 0 : batchScan.stage1FileCount,
-      stage2FileCount: newBatch.sourceStructure === 'images_only' ? 0 : batchScan.stage2FileCount,
-      stage2FailureFileCount: newBatch.sourceStructure === 'images_only' ? 0 : batchScan.stage2FailureFileCount,
+      archiveFile,
+      archiveFileName: archiveFile.name,
+      onUploadProgress: (progress) => updateUploadProgress(progress, archiveFile.size),
     });
     batchMessage.value = `已创建批次 ${created.datasetId}`;
     showBatchForm.value = false;
@@ -470,6 +584,7 @@ async function createBatch() {
   } catch (err) {
     batchMessageIsError.value = true;
     batchMessage.value = err instanceof Error ? err.message : '创建批次失败';
+    resetUploadProgress();
   } finally {
     creatingBatch.value = false;
   }
@@ -653,6 +768,51 @@ const importStateText = (state?: string) => {
   margin: 3px 0 0;
   font-size: 18px;
   font-weight: 800;
+}
+
+.archive-upload-progress {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--blue) 28%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 88%, var(--blue) 12%);
+}
+
+.archive-upload-progress__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.archive-upload-progress__header strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.archive-upload-progress__track {
+  position: relative;
+  overflow: hidden;
+  block-size: 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line) 70%, var(--panel));
+}
+
+.archive-upload-progress__track span {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--blue), var(--green));
+  transition: width 160ms ease;
+}
+
+.archive-upload-progress small {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .batch-list {

@@ -34,10 +34,6 @@
           <CheckCircle2 v-else :size="16" />
           校验配置
         </button>
-        <label class="activate-toggle">
-          <input v-model="activateImmediately" type="checkbox" />
-          保存后立即激活
-        </label>
       </div>
 
       <div v-if="parseError" class="label-config-alert label-config-alert--error">
@@ -120,35 +116,14 @@
           :disabled="!canSave || saving"
           @click="saveConfig()"
         >
-          <Loader2 v-if="saving && !savingNewVersion" :size="16" class="spin" />
+          <Loader2 v-if="saving" :size="16" class="spin" />
           <ShieldCheck v-else :size="16" />
-          保存配置
-        </button>
-        <button
-          class="button"
-          type="button"
-          :disabled="!canSave || saving"
-          @click="saveConfig(true)"
-        >
-          <Loader2 v-if="saving && savingNewVersion" :size="16" class="spin" />
-          <FilePlus2 v-else :size="16" />
-          另存为新版本
-        </button>
-        <button
-          v-if="saveResult && saveResult.status !== 'active'"
-          class="button"
-          type="button"
-          :disabled="activating"
-          @click="activateSavedConfig"
-        >
-          <Loader2 v-if="activating" :size="16" class="spin" />
-          <ShieldCheck v-else :size="16" />
-          激活当前版本
+          上传并更新配置
         </button>
         <button class="button" type="button" :disabled="reloadingActive" @click="reloadActiveConfig">
           <Loader2 v-if="reloadingActive" :size="16" class="spin" />
           <RefreshCcw v-else :size="16" />
-          重新加载激活配置
+          重新加载当前配置
         </button>
       </div>
 
@@ -168,7 +143,6 @@
               <th>状态</th>
               <th>哈希</th>
               <th>激活时间</th>
-              <th>操作</th>
             </tr>
           </thead>
           <tbody>
@@ -177,19 +151,9 @@
               <td>{{ configStatusLabel(version.status) }}</td>
               <td>{{ shortHash(version.contentHash) }}</td>
               <td>{{ version.activatedAt ?? '-' }}</td>
-              <td>
-                <button
-                  class="button button--compact"
-                  type="button"
-                  :disabled="version.status === 'active' || activating"
-                  @click="activateConfig(version.configId)"
-                >
-                  激活
-                </button>
-              </td>
             </tr>
             <tr v-if="!savedVersions.length">
-              <td colspan="5">暂无已保存版本</td>
+              <td colspan="4">暂无已保存版本</td>
             </tr>
           </tbody>
         </table>
@@ -200,7 +164,8 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { CheckCircle2, FileJson, FilePlus2, Loader2, RefreshCcw, ShieldCheck, TriangleAlert, Upload } from 'lucide-vue-next';
+import { CheckCircle2, FileJson, Loader2, RefreshCcw, ShieldCheck, TriangleAlert, Upload } from 'lucide-vue-next';
+import { ApiClientError } from '../../../services/http';
 import { apiClient } from '../../../services/urbanViolationApi';
 import type {
   LabelConfig,
@@ -228,11 +193,8 @@ const validation = ref<LabelConfigValidationResult>();
 const saveResult = ref<LabelConfigSaveResult>();
 const savedVersions = ref<LabelConfigSaveResult[]>([]);
 const activeConfig = ref<LabelConfig>();
-const activateImmediately = ref(true);
 const validating = ref(false);
 const saving = ref(false);
-const savingNewVersion = ref(false);
-const activating = ref(false);
 const loadingVersions = ref(false);
 const reloadingActive = ref(false);
 const statusMessage = ref('');
@@ -287,7 +249,7 @@ async function validateConfig() {
       fileName: fileName.value,
       config: parsedConfig.value,
     });
-    statusMessage.value = validation.value.valid ? '后端校验通过，可以保存配置。' : '后端校验未通过，请修正错误后重试。';
+    statusMessage.value = validation.value.valid ? '后端校验通过，可以上传并更新配置。' : '后端校验未通过，请修正错误后重试。';
   } catch (err) {
     parseError.value = err instanceof Error ? err.message : '配置校验失败';
   } finally {
@@ -295,64 +257,50 @@ async function validateConfig() {
   }
 }
 
-async function saveConfig(saveAsNewVersion = false) {
+async function saveConfig() {
   if (!parsedConfig.value || !fileName.value || !canSave.value) {
     return;
   }
   saving.value = true;
-  savingNewVersion.value = saveAsNewVersion;
   statusMessage.value = '';
   try {
     saveResult.value = await apiClient.saveLabelConfig(props.datasetId, {
       fileName: fileName.value,
       config: parsedConfig.value,
-      activate: activateImmediately.value,
-      ...(saveAsNewVersion ? { saveAsNewVersion: true } : {}),
+      activate: true,
     });
-    statusMessage.value = saveStatusMessage(saveResult.value, saveAsNewVersion);
+    statusMessage.value = saveStatusMessage(saveResult.value);
     await loadActiveConfig();
     await loadVersions();
     emit('saved', saveResult.value);
   } catch (err) {
-    parseError.value = err instanceof Error ? err.message : '配置保存失败';
+    parseError.value = labelConfigSaveErrorMessage(err);
   } finally {
     saving.value = false;
-    savingNewVersion.value = false;
   }
 }
 
-function saveStatusMessage(result: LabelConfigSaveResult, saveAsNewVersion: boolean) {
-  if (saveAsNewVersion) {
-    return result.status === 'active'
-      ? `已另存为新版本并激活 ${result.version}`
-      : `已另存为新版本 ${result.version}，可手动激活。`;
+function saveStatusMessage(result: LabelConfigSaveResult) {
+  if (isReusedCurrentVersion(result)) {
+    return `配置未变化，已复用当前版本 ${result.version}`;
   }
   return result.status === 'active'
-    ? `已保存或复用并激活 ${result.version}`
-    : `已保存或复用 ${result.version}，可手动激活。`;
+    ? `已保存并激活配置 ${result.version}`
+    : `已保存配置 ${result.version}，请刷新后确认激活状态。`;
 }
 
-async function activateSavedConfig() {
-  if (!saveResult.value?.configId) {
-    return;
+function isReusedCurrentVersion(result: LabelConfigSaveResult) {
+  if (activeConfig.value?.configId && result.configId === activeConfig.value.configId) {
+    return true;
   }
-  await activateConfig(saveResult.value.configId);
+  return Boolean(activeConfig.value?.contentHash && result.contentHash && result.contentHash === activeConfig.value.contentHash);
 }
 
-async function activateConfig(configId: string) {
-  activating.value = true;
-  statusMessage.value = '';
-  try {
-    saveResult.value = await apiClient.activateLabelConfig(props.datasetId, configId);
-    statusMessage.value = `已激活 ${saveResult.value.version}`;
-    await loadActiveConfig();
-    await loadVersions();
-    emit('saved', saveResult.value);
-  } catch (err) {
-    parseError.value = err instanceof Error ? err.message : '配置激活失败';
-  } finally {
-    activating.value = false;
+function labelConfigSaveErrorMessage(err: unknown) {
+  if (err instanceof ApiClientError && err.status === 409 && err.payload?.code === 'label_config_version_conflict') {
+    return '版本号已存在，请修改上传 JSON 内的 version 后重新上传。';
   }
+  return err instanceof Error ? err.message : '配置保存失败';
 }
 
 async function reloadActiveConfig() {
@@ -360,12 +308,12 @@ async function reloadActiveConfig() {
   statusMessage.value = '';
   try {
     saveResult.value = await apiClient.reloadActiveLabelConfig(props.datasetId);
-    statusMessage.value = `已重新加载 ${saveResult.value.version}`;
+    statusMessage.value = `已重新加载当前配置 ${saveResult.value.version}`;
     await loadActiveConfig();
     await loadVersions();
     emit('saved', saveResult.value);
   } catch (err) {
-    parseError.value = err instanceof Error ? err.message : '重新加载 active 失败';
+    parseError.value = err instanceof Error ? err.message : '重新加载当前配置失败';
   } finally {
     reloadingActive.value = false;
   }
@@ -590,14 +538,6 @@ function numberValue(value: unknown) {
   border-radius: 8px;
   background: #fff;
   color: var(--muted);
-}
-
-.activate-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: #24324b;
-  font-weight: 700;
 }
 
 .label-config-alert {

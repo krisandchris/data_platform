@@ -46,6 +46,10 @@ class LabelConfigPersistenceError(ValueError):
     """Raised when a persisted label config cannot be loaded safely."""
 
 
+class LabelConfigVersionConflictError(ValueError):
+    """Raised when same config.version has different content_hash."""
+
+
 class LabelOption(StrictModel):
     """One selectable dictionary value or one open-tag suggestion."""
 
@@ -224,14 +228,18 @@ class InMemoryLabelConfigRepository:
         save_as_new_version: bool = False,
     ) -> StoredLabelConfig:
         """Save one validated config and optionally activate it."""
+        _ = save_as_new_version  # backward-compat: accepted but cannot bypass dedup
         dataset_store = self._configs_by_dataset.setdefault(dataset_id, {})
-        if not save_as_new_version:
-            for existing in dataset_store.values():
-                if existing.content_hash != report.content_hash:
-                    continue
-                if activate:
-                    return self.activate(dataset_id=dataset_id, config_id=existing.config_id)
-                return existing
+        self._normalize_dataset_records(dataset_id)
+        dataset_store = self._configs_by_dataset.setdefault(dataset_id, {})
+        for existing in dataset_store.values():
+            if existing.content_hash == report.content_hash:
+                return self.activate(dataset_id=dataset_id, config_id=existing.config_id)
+        for existing in dataset_store.values():
+            if existing.version == config.version and existing.content_hash != report.content_hash:
+                raise LabelConfigVersionConflictError(
+                    f"Label config version conflict: dataset={dataset_id}, version={config.version}"
+                )
 
         self._counter += 1
         config_id = f"label-config-{self._counter}"
@@ -250,10 +258,9 @@ class InMemoryLabelConfigRepository:
             config=config,
         )
         dataset_store[config_id] = stored
-
-        if activate:
-            return self.activate(dataset_id=dataset_id, config_id=config_id)
-        return stored
+        # Default save path activates the canonical entry.
+        _ = activate
+        return self.activate(dataset_id=dataset_id, config_id=config_id)
 
     def activate(self, dataset_id: str, config_id: str) -> StoredLabelConfig:
         """Activate an existing config version for a dataset."""
@@ -293,7 +300,68 @@ class InMemoryLabelConfigRepository:
 
     def reload_active(self, dataset_id: str) -> StoredLabelConfig:
         """Reload active config into runtime cache; memory backend is already current."""
+        self._normalize_dataset_records(dataset_id)
         return self.get_active(dataset_id)
+
+    def _normalize_dataset_records(self, dataset_id: str) -> bool:
+        """Repair duplicate same-hash records and normalize active/status state."""
+        dataset_store = self._configs_by_dataset.setdefault(dataset_id, {})
+        if not dataset_store:
+            self._active_config_id_by_dataset.pop(dataset_id, None)
+            return False
+        old_store = dict(dataset_store)
+        old_active = self._active_config_id_by_dataset.get(dataset_id)
+
+        grouped: dict[str, list[StoredLabelConfig]] = {}
+        for row in dataset_store.values():
+            grouped.setdefault(row.content_hash, []).append(row)
+
+        canonical_by_id: dict[str, StoredLabelConfig] = {}
+        for rows in grouped.values():
+            rows_sorted = sorted(rows, key=lambda item: (item.created_at, item.config_id))
+            preferred = next((item for item in rows_sorted if item.config_id == old_active), None)
+            if preferred is None:
+                preferred = next((item for item in rows_sorted if item.status == "active"), None)
+            canonical = preferred or rows_sorted[0]
+            canonical_by_id[canonical.config_id] = canonical
+
+        resolved_active_id: str | None = None
+        if old_active in canonical_by_id:
+            resolved_active_id = old_active
+        if resolved_active_id is None:
+            active_rows = [item for item in canonical_by_id.values() if item.status == "active"]
+            if active_rows:
+                active_rows.sort(key=lambda item: ((item.activated_at or item.created_at), item.config_id), reverse=True)
+                resolved_active_id = active_rows[0].config_id
+        if resolved_active_id is None and canonical_by_id:
+            fallback = max(canonical_by_id.values(), key=lambda item: (item.created_at, item.config_id))
+            resolved_active_id = fallback.config_id
+
+        normalized: dict[str, StoredLabelConfig] = {}
+        for config_id, row in canonical_by_id.items():
+            if config_id == resolved_active_id:
+                normalized[config_id] = row.model_copy(
+                    update={
+                        "status": "active",
+                        "activated_at": (row.activated_at or row.created_at),
+                    }
+                )
+            else:
+                normalized[config_id] = row.model_copy(
+                    update={
+                        "status": ("archived" if row.status == "active" else row.status),
+                    }
+                )
+        self._configs_by_dataset[dataset_id] = normalized
+        if resolved_active_id is not None:
+            self._active_config_id_by_dataset[dataset_id] = resolved_active_id
+        else:
+            self._active_config_id_by_dataset.pop(dataset_id, None)
+        self._counter = max(
+            self._counter,
+            max((_extract_config_counter(config_id) for config_id in normalized), default=0),
+        )
+        return old_store != normalized or old_active != resolved_active_id
 
 
 class FileBackedLabelConfigRepository(InMemoryLabelConfigRepository):
@@ -356,6 +424,7 @@ class FileBackedLabelConfigRepository(InMemoryLabelConfigRepository):
 
     def reload_active(self, dataset_id: str) -> StoredLabelConfig:
         """Reload active config from active.json and version file into memory."""
+        self._load_dataset(dataset_id)
         active_path = self._active_path(dataset_id)
         if not active_path.is_file():
             raise ActiveLabelConfigNotFoundError(
@@ -389,7 +458,10 @@ class FileBackedLabelConfigRepository(InMemoryLabelConfigRepository):
         dataset_store[config_id] = stored.model_copy(update={"status": "active"})
         self._active_config_id_by_dataset[dataset_id] = config_id
         self._counter = max(self._counter, _extract_config_counter(config_id))
-        return dataset_store[config_id]
+        changed = self._normalize_dataset_records(dataset_id)
+        if changed:
+            self._persist_dataset(dataset_id)
+        return self._configs_by_dataset[dataset_id][self._active_config_id_by_dataset[dataset_id]]
 
     def _load_all_datasets(self) -> None:
         for dataset_id in self.list_dataset_ids():
@@ -416,13 +488,20 @@ class FileBackedLabelConfigRepository(InMemoryLabelConfigRepository):
             config_id = active_pointer.get("config_id")
             if isinstance(config_id, str) and config_id in dataset_store:
                 self._active_config_id_by_dataset[dataset_id] = config_id
+        changed = self._normalize_dataset_records(dataset_id)
+        if changed:
+            self._persist_dataset(dataset_id)
 
     def _persist_dataset(self, dataset_id: str) -> None:
         dataset_store = self._configs_by_dataset.get(dataset_id, {})
         if not dataset_store:
             return
 
-        self._versions_dir(dataset_id).mkdir(parents=True, exist_ok=True)
+        versions_dir = self._versions_dir(dataset_id)
+        versions_dir.mkdir(parents=True, exist_ok=True)
+        for version_path in versions_dir.glob("*.json"):
+            if version_path.stem not in dataset_store:
+                version_path.unlink()
         for stored in dataset_store.values():
             self._write_json(self._version_path(dataset_id, stored.config_id), stored.model_dump(mode="json"))
 
@@ -436,7 +515,7 @@ class FileBackedLabelConfigRepository(InMemoryLabelConfigRepository):
                 "created_at": stored.created_at.isoformat(),
                 "activated_at": stored.activated_at.isoformat() if stored.activated_at else None,
             }
-            for stored in self.list_configs(dataset_id)
+            for stored in super().list_configs(dataset_id)
         ]
         self._write_json(
             self._registry_path(dataset_id),

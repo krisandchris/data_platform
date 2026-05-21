@@ -1,6 +1,6 @@
 import { mount } from '@vue/test-utils';
 import { nextTick } from 'vue';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import BBoxOverlay from '../shared/components/BBoxOverlay.vue';
 
 describe('BBoxOverlay', () => {
@@ -72,6 +72,85 @@ describe('BBoxOverlay', () => {
     expect(box.attributes('style')).toContain('top: 25%');
     expect(box.attributes('style')).toContain('width: 25%');
     expect(box.attributes('style')).toContain('height: 25%');
+  });
+
+  it('keeps the previous image and boxes visible until the next image loads', async () => {
+    const originalImage = window.Image;
+    const pendingImages: Array<{ onload: (() => void) | null; onerror: (() => void) | null; src: string; complete: boolean }> = [];
+    class MockImage {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      complete = false;
+      private imageSrc = '';
+
+      set src(value: string) {
+        this.imageSrc = value;
+        pendingImages.push(this);
+      }
+
+      get src() {
+        return this.imageSrc;
+      }
+    }
+
+    vi.stubGlobal('Image', MockImage);
+    Object.defineProperty(window, 'Image', {
+      configurable: true,
+      writable: true,
+      value: MockImage,
+    });
+
+    try {
+      const wrapper = mount(BBoxOverlay, {
+        props: {
+          imageUrl: '/api/media/sample-1',
+          imageWidth: 1280,
+          imageHeight: 720,
+          boxes: [
+            {
+              id: 'box-1',
+              label: 'R1',
+              bbox: [250, 250, 500, 500],
+            },
+          ],
+        },
+      });
+
+      await wrapper.setProps({
+        imageUrl: '/api/media/sample-2',
+        boxes: [
+          {
+            id: 'box-2',
+            label: 'R2',
+            bbox: [100, 100, 300, 300],
+          },
+        ],
+      });
+      await nextTick();
+
+      expect(wrapper.find('img').attributes('src')).toContain('/api/media/sample-1');
+      expect(wrapper.find('.bbox-shell__box').attributes('aria-label')).toBe('R1');
+      expect(wrapper.find('.bbox-shell__box').attributes('tabindex')).toBe('-1');
+      expect(wrapper.find('.bbox-shell__image-status').text()).toContain('正在加载图像');
+      await wrapper.find('.bbox-shell__box').trigger('click');
+      expect(wrapper.emitted('selectBox')).toBeUndefined();
+
+      pendingImages[0].complete = true;
+      pendingImages[0].onload?.();
+      await nextTick();
+
+      expect(wrapper.find('img').attributes('src')).toContain('/api/media/sample-2');
+      expect(wrapper.find('.bbox-shell__box').attributes('aria-label')).toBe('R2');
+      expect(wrapper.find('.bbox-shell__box').attributes('tabindex')).toBe('0');
+      expect(wrapper.find('.bbox-shell__image-status').exists()).toBe(false);
+    } finally {
+      Object.defineProperty(window, 'Image', {
+        configurable: true,
+        writable: true,
+        value: originalImage,
+      });
+      vi.unstubAllGlobals();
+    }
   });
 
   it('zooms the image stage with the mouse wheel while keeping bbox coordinates stable', async () => {

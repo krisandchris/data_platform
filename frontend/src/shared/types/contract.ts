@@ -820,6 +820,23 @@ export interface ImportJobCreatePayload {
   stage2FailureFileCount?: number;
 }
 
+export interface ImportArchiveUploadProgress {
+  loadedBytes: number;
+  totalBytes?: number;
+  percent?: number;
+}
+
+export interface ImportArchiveUploadPayload {
+  archiveFile: File;
+  archiveFileName?: string;
+  datasetType?: string;
+  batchKey: string;
+  batchName?: string;
+  sourceStructure?: ImportSourceStructure;
+  description?: string;
+  onUploadProgress?: (progress: ImportArchiveUploadProgress) => void;
+}
+
 export interface AssetListFilters {
   judgeDecision?: JudgeDecision | 'all';
   stage1Status?: StageStatus | 'all';
@@ -1111,6 +1128,74 @@ export interface LabelEditSubmitResult {
   updatedAt?: string;
   state?: LabelEditState;
   validation?: LabelEditValidationResult;
+}
+
+export interface BatchLabelEditDraftValidation {
+  valid: boolean;
+  errorCount: number;
+  warningCount: number;
+  errors: LabelEditValidationIssue[];
+  warnings: LabelEditValidationIssue[];
+}
+
+export interface BatchLabelEditDraftSample {
+  sampleId: SampleId;
+  leaseId?: string | null;
+  baseRevision?: number | string | null;
+  labelConfigId?: string | null;
+  labelConfigVersion?: string | null;
+  operations: LabelEditOperation[];
+  dirty: boolean;
+  saved: boolean;
+  validation?: BatchLabelEditDraftValidation;
+}
+
+export interface BatchLabelEditDraft {
+  draftId?: string;
+  datasetId: DatasetId;
+  userId?: string;
+  assignmentId?: string;
+  labelConfigId?: string;
+  labelConfigVersion?: string;
+  totalSampleCount?: number;
+  savedSampleCount: number;
+  dirtySampleCount?: number;
+  validationErrorCount?: number;
+  samples: BatchLabelEditDraftSample[];
+  updatedAt?: string;
+  autosavedAt?: string;
+}
+
+export interface BatchLabelEditDraftPayload {
+  entries: BatchLabelEditDraftSample[];
+}
+
+export interface BatchLabelEditDraftSaveResult {
+  saved: boolean;
+  datasetId: DatasetId;
+  savedSampleCount: number;
+  totalSampleCount?: number;
+  sampleIds: SampleId[];
+  updatedAt?: string;
+  draft?: BatchLabelEditDraft;
+}
+
+export interface BatchLabelEditSubmitPayload {
+  unsavedDirtySampleIds: SampleId[];
+  validationErrorSampleIds: SampleId[];
+  notes?: string | null;
+}
+
+export interface BatchLabelEditSubmitResult {
+  submitted: boolean;
+  datasetId: DatasetId;
+  assignmentId?: string;
+  assigneeUserId?: string;
+  status?: BatchAssignmentStatus | string;
+  submittedAt?: string;
+  submittedSampleCount?: number;
+  releasedLeaseCount?: number;
+  assignment?: BatchQcAssignment;
 }
 
 export interface ReviewSampleDetail {

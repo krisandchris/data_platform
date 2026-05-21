@@ -4,6 +4,10 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FRONTEND_DIR="$ROOT_DIR/frontend"
 RUNTIME_DIR="${RUNTIME_DIR:-$ROOT_DIR/.runtime}"
+PLATFORM_STATE_ROOT="${PLATFORM_STATE_ROOT:-$RUNTIME_DIR/platform_state}"
+LABEL_CONFIG_STORE_ROOT="${LABEL_CONFIG_STORE_ROOT:-$RUNTIME_DIR/label_config_state}"
+PLATFORM_AUTH_MODE="${PLATFORM_AUTH_MODE:-session}"
+PLATFORM_DEV_ANON="${PLATFORM_DEV_ANON:-0}"
 
 BACKEND_HOST="${BACKEND_HOST:-127.0.0.1}"
 BACKEND_PORT="${BACKEND_PORT:-8000}"
@@ -37,6 +41,10 @@ Environment overrides:
   BACKEND_HOST=127.0.0.1 BACKEND_PORT=8000
   FRONTEND_HOST=0.0.0.0 FRONTEND_PUBLIC_HOST=127.0.0.1 FRONTEND_PORT=5173
   RUNTIME_DIR=.runtime START_TIMEOUT=90 LOG_LINES=80
+  PLATFORM_STATE_ROOT=.runtime/platform_state
+  LABEL_CONFIG_STORE_ROOT=.runtime/label_config_state
+  PLATFORM_AUTH_MODE=session
+  PLATFORM_DEV_ANON=0
 
 Frontend defaults to Vite proxy mode:
   VITE_API_BASE_URL=/api
@@ -168,6 +176,10 @@ write_stack_env() {
     printf 'FRONTEND_HOST=%q\n' "$FRONTEND_HOST"
     printf 'FRONTEND_PUBLIC_HOST=%q\n' "$FRONTEND_PUBLIC_HOST"
     printf 'FRONTEND_PORT=%q\n' "$FRONTEND_PORT"
+    printf 'PLATFORM_STATE_ROOT=%q\n' "$PLATFORM_STATE_ROOT"
+    printf 'LABEL_CONFIG_STORE_ROOT=%q\n' "$LABEL_CONFIG_STORE_ROOT"
+    printf 'PLATFORM_AUTH_MODE=%q\n' "$PLATFORM_AUTH_MODE"
+    printf 'PLATFORM_DEV_ANON=%q\n' "$PLATFORM_DEV_ANON"
     printf 'BACKEND_URL=%q\n' "$BACKEND_URL"
     printf 'FRONTEND_URL=%q\n' "$FRONTEND_URL"
     printf 'REVIEW_URL=%q\n' "$REVIEW_URL"
@@ -188,7 +200,7 @@ print_urls() {
 }
 
 start_backend() {
-  mkdir -p "$RUNTIME_DIR"
+  mkdir -p "$RUNTIME_DIR" "$PLATFORM_STATE_ROOT" "$LABEL_CONFIG_STORE_ROOT"
   ensure_command uv
   ensure_command curl
 
@@ -205,6 +217,10 @@ start_backend() {
   info "starting backend on $BACKEND_URL"
   (
     cd "$ROOT_DIR"
+    export PLATFORM_STATE_ROOT
+    export LABEL_CONFIG_STORE_ROOT
+    export PLATFORM_AUTH_MODE
+    export PLATFORM_DEV_ANON
     start_detached uv run uvicorn urban_violation_backend.app:app --host "$BACKEND_HOST" --port "$BACKEND_PORT"
   ) > "$BACKEND_LOG" 2>&1 &
   printf '%s\n' "$!" > "$BACKEND_PID_FILE"

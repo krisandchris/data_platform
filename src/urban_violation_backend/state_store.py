@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import shutil
 from typing import Any
 from uuid import uuid4
 
@@ -400,6 +401,24 @@ class PlatformStateStore:
         if path.exists():
             path.unlink()
 
+    def clear_qc_dataset_state(self, dataset_id: str) -> None:
+        """Remove all QC runtime files for one concrete dataset batch."""
+        qc_root = self._qc_dir(dataset_id)
+        if qc_root.is_dir():
+            shutil.rmtree(qc_root)
+
+    def remove_sample_pool_items_for_dataset(self, dataset_id: str) -> int:
+        """Delete sample-pool rows that belong to one concrete dataset batch."""
+        items = self.list_sample_pool_items()
+        kept = [item for item in items if item.dataset_id != dataset_id]
+        removed_count = len(items) - len(kept)
+        if removed_count > 0:
+            self._write_json(
+                self._sample_pool_items_path(),
+                [row.model_dump(mode="json") for row in kept],
+            )
+        return removed_count
+
     def list_tasks(self, dataset_id: str) -> list[QcTask]:
         payload = self._read_json(self._tasks_path(dataset_id), default=[])
         return [QcTask.model_validate(item) for item in payload]
@@ -425,6 +444,10 @@ class PlatformStateStore:
         safe_user = user_id.replace("/", "_")
         return self._drafts_dir(dataset_id) / f"{safe_sample}.{safe_user}.json"
 
+    def _batch_draft_path(self, dataset_id: str, user_id: str) -> Path:
+        safe_user = user_id.replace("/", "_")
+        return self._drafts_dir(dataset_id) / f"_batch.{safe_user}.json"
+
     def get_draft(self, dataset_id: str, sample_id: str, user_id: str) -> LabelEditDraft | None:
         path = self._draft_path(dataset_id, sample_id, user_id)
         payload = self._read_json(path, default=None)
@@ -432,11 +455,38 @@ class PlatformStateStore:
             return None
         return LabelEditDraft.model_validate(payload)
 
+    def list_drafts_for_user(self, dataset_id: str, user_id: str) -> list[LabelEditDraft]:
+        root = self._drafts_dir(dataset_id)
+        if not root.is_dir():
+            return []
+        suffix = f".{user_id.replace('/', '_')}.json"
+        records: list[LabelEditDraft] = []
+        for path in sorted(root.glob(f"*{suffix}")):
+            if path.name.startswith("_batch."):
+                continue
+            payload = self._read_json(path, default=None)
+            if payload is None:
+                continue
+            records.append(LabelEditDraft.model_validate(payload))
+        records.sort(key=lambda item: item.updated_at)
+        return records
+
     def save_draft(self, draft: LabelEditDraft) -> None:
         self._write_json(
             self._draft_path(draft.dataset_id, draft.sample_id, draft.user_id),
             draft.model_dump(mode="json"),
         )
+
+    def delete_draft(self, dataset_id: str, sample_id: str, user_id: str) -> None:
+        path = self._draft_path(dataset_id, sample_id, user_id)
+        if path.exists():
+            path.unlink()
+
+    def get_batch_draft(self, dataset_id: str, user_id: str) -> dict[str, Any] | None:
+        return self._read_json(self._batch_draft_path(dataset_id, user_id), default=None)
+
+    def save_batch_draft(self, dataset_id: str, user_id: str, payload: dict[str, Any]) -> None:
+        self._write_json(self._batch_draft_path(dataset_id, user_id), payload)
 
     def _submission_path(self, dataset_id: str, sample_id: str, submission_id: str) -> Path:
         safe_sample = sample_id.replace("/", "_")

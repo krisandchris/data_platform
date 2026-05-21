@@ -13,9 +13,14 @@ from urban_violation_backend.api_schemas import (
     AssetSummaryResponse,
     BatchAssignmentActionRequest,
     BatchAssignmentRequest,
+    BatchDraftSaveRequest,
+    BatchDraftSummaryResponse,
+    BatchSubmitRequest,
+    BatchSubmitResponse,
     BatchQcAssignmentResponse,
     CurrentUserResponse,
     DatasetTypeCreateRequest,
+    DatasetDeleteResponse,
     DatasetTypeResponse,
     DatasetSummaryResponse,
     EvaluationCompareResponse,
@@ -82,6 +87,7 @@ from urban_violation_backend.schemas import (
 )
 from urban_violation_backend.service import (
     ActiveLabelConfigAccessError,
+    ArchiveUploadError,
     DatasetNotFoundError,
     FixtureRuntimeService,
     ImportJobNotFoundError,
@@ -194,6 +200,17 @@ def build_router(service: FixtureRuntimeService) -> APIRouter:
         runtime: FixtureRuntimeService = Depends(get_service),
     ) -> list[DatasetSummaryResponse]:
         return runtime.list_datasets()
+
+    @router.delete("/api/datasets/{dataset_id}", response_model=DatasetDeleteResponse)
+    async def delete_dataset(
+        dataset_id: str,
+        runtime: FixtureRuntimeService = Depends(get_service),
+        context=Depends(get_context),
+    ) -> DatasetDeleteResponse:
+        try:
+            return runtime.delete_dataset_batch(dataset_id=dataset_id, context=context)
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
     @router.get("/api/dataset-types", response_model=list[DatasetTypeResponse])
     async def list_dataset_types(
@@ -659,6 +676,78 @@ def build_router(service: FixtureRuntimeService) -> APIRouter:
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
+    @router.post(
+        "/api/datasets/{dataset_id}/import-jobs/archive",
+        response_model=ImportJobStatusResponse,
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def create_import_job_from_archive(
+        dataset_id: str,
+        request: Request,
+        batch_key: str = Query(..., min_length=1, max_length=80, pattern=r"^[a-zA-Z0-9_\-]+$"),
+        batch_name: str | None = Query(default=None, min_length=1, max_length=120),
+        dataset_type: str | None = Query(default=None, min_length=1, max_length=80, pattern=r"^[a-z][a-z0-9_]*$"),
+        source_structure: str | None = Query(
+            default=None,
+            pattern=r"^(images_only|images_with_preannotations)$",
+        ),
+        description: str | None = Query(default=None, max_length=500),
+        archive_file_name: str | None = Query(default=None, max_length=255),
+        runtime: FixtureRuntimeService = Depends(get_service),
+        context=Depends(get_context),
+    ) -> ImportJobStatusResponse:
+        try:
+            runtime.require_permission_for_action(
+                context=context,
+                action="import_job:manage",
+                dataset_id=dataset_id,
+            )
+            archive_path = runtime.prepare_import_archive_upload_path(
+                dataset_id=dataset_id,
+                dataset_type=dataset_type,
+                batch_key=batch_key,
+                archive_file_name=archive_file_name,
+            )
+            tmp_path = archive_path.with_name(f".{archive_path.name}.uploading")
+            bytes_written = 0
+            max_bytes = runtime.max_import_archive_bytes()
+            try:
+                with tmp_path.open("wb") as target:
+                    async for chunk in request.stream():
+                        if not chunk:
+                            continue
+                        bytes_written += len(chunk)
+                        if bytes_written > max_bytes:
+                            raise ArchiveUploadError(
+                                "Uploaded archive exceeds the configured size limit."
+                            )
+                        target.write(chunk)
+                if bytes_written == 0:
+                    raise ArchiveUploadError("Uploaded archive is empty.")
+                tmp_path.replace(archive_path)
+            except Exception:
+                tmp_path.unlink(missing_ok=True)
+                raise
+            payload = ImportJobCreateRequest(
+                dataset_type=dataset_type,
+                batch_key=batch_key,
+                batch_name=batch_name,
+                source_mode="uploaded_package",
+                source_structure=source_structure,
+                description=description,
+            )
+            return runtime.create_import_job_from_archive(
+                dataset_id=dataset_id,
+                request=payload,
+                archive_path=archive_path,
+            )
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        except ArchiveUploadError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
     @router.get(
         "/api/datasets/{dataset_id}/import-jobs/{job_id}",
         response_model=ImportJobStatusResponse,
@@ -786,6 +875,17 @@ def build_router(service: FixtureRuntimeService) -> APIRouter:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
     @router.get(
+        "/api/datasets/{dataset_id}/qc/assignable-users",
+        response_model=list[UserAccountResponse],
+    )
+    async def qc_assignable_users(
+        dataset_id: str,
+        runtime: FixtureRuntimeService = Depends(get_service),
+        context=Depends(get_context),
+    ) -> list[UserAccountResponse]:
+        return runtime.list_assignable_users(dataset_id=dataset_id, context=context)
+
+    @router.get(
         "/api/datasets/{dataset_id}/qc/assignment",
         response_model=BatchQcAssignmentResponse | None,
     )
@@ -841,14 +941,14 @@ def build_router(service: FixtureRuntimeService) -> APIRouter:
     )
     async def release_batch_assignment(
         dataset_id: str,
-        payload: BatchAssignmentActionRequest,
+        payload: BatchAssignmentActionRequest | None = None,
         runtime: FixtureRuntimeService = Depends(get_service),
         context=Depends(get_context),
     ) -> BatchQcAssignmentResponse:
         return runtime.release_batch_assignment(
             dataset_id=dataset_id,
             context=context,
-            reason=payload.reason,
+            reason=(payload.reason if payload is not None else None),
         )
 
     @router.get("/api/datasets/{dataset_id}/qc/tasks", response_model=list[QcTaskResponse])
@@ -918,6 +1018,95 @@ def build_router(service: FixtureRuntimeService) -> APIRouter:
         context=Depends(get_context),
     ) -> LabelEditDraftResponse | None:
         return runtime.get_my_draft(dataset_id=dataset_id, sample_id=sample_id, context=context)
+
+    @router.get(
+        "/api/datasets/{dataset_id}/label-edits/my-batch-draft",
+        response_model=BatchDraftSummaryResponse,
+    )
+    async def my_batch_draft(
+        dataset_id: str,
+        runtime: FixtureRuntimeService = Depends(get_service),
+        context=Depends(get_context),
+    ) -> BatchDraftSummaryResponse:
+        try:
+            return runtime.get_my_batch_draft(dataset_id=dataset_id, context=context)
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    @router.put(
+        "/api/datasets/{dataset_id}/label-edits/my-batch-draft",
+        response_model=BatchDraftSummaryResponse,
+    )
+    async def save_batch_draft(
+        dataset_id: str,
+        payload: BatchDraftSaveRequest,
+        runtime: FixtureRuntimeService = Depends(get_service),
+        context=Depends(get_context),
+    ) -> BatchDraftSummaryResponse:
+        try:
+            return runtime.save_my_batch_draft(
+                dataset_id=dataset_id,
+                request=payload,
+                context=context,
+                source="manual",
+            )
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        except SampleNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    @router.post(
+        "/api/datasets/{dataset_id}/label-edits/my-batch-draft/autosave",
+        response_model=BatchDraftSummaryResponse,
+    )
+    async def autosave_batch_draft(
+        dataset_id: str,
+        payload: BatchDraftSaveRequest,
+        runtime: FixtureRuntimeService = Depends(get_service),
+        context=Depends(get_context),
+    ) -> BatchDraftSummaryResponse:
+        try:
+            return runtime.save_my_batch_draft(
+                dataset_id=dataset_id,
+                request=payload,
+                context=context,
+                source="autosave",
+            )
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        except SampleNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    @router.post(
+        "/api/datasets/{dataset_id}/label-edits/submit-batch",
+        response_model=BatchSubmitResponse,
+    )
+    async def submit_batch_label_edits(
+        dataset_id: str,
+        payload: BatchSubmitRequest,
+        runtime: FixtureRuntimeService = Depends(get_service),
+        context=Depends(get_context),
+    ) -> BatchSubmitResponse:
+        try:
+            return runtime.submit_label_edit_batch(
+                dataset_id=dataset_id,
+                request=payload,
+                context=context,
+            )
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        except ActiveLabelConfigAccessError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        except LabelEditValidationFailedError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=exc.report.model_dump(mode="json"),
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(exc),
+            ) from exc
 
     @router.get(
         "/api/datasets/{dataset_id}/samples/{sample_id}/label-edits/history",

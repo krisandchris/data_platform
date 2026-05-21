@@ -18,6 +18,16 @@ export interface HttpClientOptions {
   fetcher?: typeof fetch;
 }
 
+export interface UploadProgress {
+  loadedBytes: number;
+  totalBytes?: number;
+  percent?: number;
+}
+
+export interface UploadRequestInit extends RequestInit {
+  onUploadProgress?: (progress: UploadProgress) => void;
+}
+
 const SESSION_TOKEN_STORAGE_KEY = 'uvp.sessionToken';
 
 export function saveSessionToken(token: string) {
@@ -61,10 +71,41 @@ export class HttpClient {
     });
   }
 
+  async postRaw<T>(path: string, body: BodyInit, init?: RequestInit): Promise<T> {
+    return this.request<T>(path, {
+      ...init,
+      method: 'POST',
+      body,
+    });
+  }
+
+  async postRawWithProgress<T>(path: string, body: BodyInit, init: UploadRequestInit = {}): Promise<T> {
+    if (!init.onUploadProgress || typeof XMLHttpRequest === 'undefined') {
+      return this.postRaw<T>(path, body, init);
+    }
+    return this.xhrRequest<T>(path, {
+      ...init,
+      method: 'POST',
+      body,
+    });
+  }
+
   async patch<T>(path: string, body?: unknown, init?: RequestInit): Promise<T> {
     return this.request<T>(path, {
       ...init,
       method: 'PATCH',
+      headers: {
+        'content-type': 'application/json',
+        ...init?.headers,
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  }
+
+  async put<T>(path: string, body?: unknown, init?: RequestInit): Promise<T> {
+    return this.request<T>(path, {
+      ...init,
+      method: 'PUT',
       headers: {
         'content-type': 'application/json',
         ...init?.headers,
@@ -106,6 +147,84 @@ export class HttpClient {
 
     return payload as T;
   }
+
+  private async xhrRequest<T>(path: string, init: UploadRequestInit & { body?: BodyInit }): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      const abortHandler = () => {
+        xhr.abort();
+        reject(new ApiClientError(0, 'Request aborted'));
+      };
+
+      xhr.open(init.method ?? 'GET', this.url(path), true);
+      xhr.withCredentials = (init.credentials ?? 'include') !== 'omit';
+      for (const [name, value] of Object.entries(
+        mergeHeaders(sessionAuthHeaders(), devUserHeaders(), init.headers),
+      )) {
+        xhr.setRequestHeader(name, value);
+      }
+
+      xhr.upload.onprogress = (event) => {
+        const totalBytes = event.lengthComputable ? event.total : bodySize(init.body);
+        init.onUploadProgress?.({
+          loadedBytes: event.loaded,
+          totalBytes,
+          percent: totalBytes ? Math.min(100, Math.round((event.loaded / totalBytes) * 100)) : undefined,
+        });
+      };
+      xhr.upload.onload = () => {
+        const totalBytes = bodySize(init.body);
+        if (totalBytes) {
+          init.onUploadProgress?.({
+            loadedBytes: totalBytes,
+            totalBytes,
+            percent: 100,
+          });
+        }
+      };
+
+      const cleanup = () => {
+        init.signal?.removeEventListener('abort', abortHandler);
+      };
+
+      xhr.onload = () => {
+        cleanup();
+        const contentType = xhr.getResponseHeader('content-type') ?? '';
+        const hasJson = contentType.includes('application/json');
+        const payload = parseTextBody(xhr.responseText, hasJson);
+        if (xhr.status < 200 || xhr.status >= 300) {
+          const errorPayload = toApiErrorPayload(payload, hasJson);
+          reject(
+            new ApiClientError(
+              xhr.status,
+              errorPayload?.message ?? (xhr.statusText || 'Request failed'),
+              errorPayload,
+            ),
+          );
+          return;
+        }
+        resolve(payload as T);
+      };
+      xhr.onerror = () => {
+        cleanup();
+        reject(new ApiClientError(xhr.status || 0, xhr.statusText || 'Network request failed'));
+      };
+      xhr.ontimeout = () => {
+        cleanup();
+        reject(new ApiClientError(0, 'Request timed out'));
+      };
+      xhr.onabort = () => {
+        cleanup();
+      };
+
+      if (init.signal?.aborted) {
+        abortHandler();
+        return;
+      }
+      init.signal?.addEventListener('abort', abortHandler, { once: true });
+      xhr.send(toXhrBody(init.body));
+    });
+  }
 }
 
 const normalizeBaseUrl = (baseUrl: string) => baseUrl.replace(/\/+$/, '');
@@ -132,6 +251,64 @@ const parseResponseBody = async (response: Response, hasJson: boolean) => {
   }
 
   return response.text();
+};
+
+const parseTextBody = (responseText: string, hasJson: boolean) => {
+  if (hasJson) {
+    try {
+      return JSON.parse(responseText);
+    } catch {
+      return undefined;
+    }
+  }
+  return responseText;
+};
+
+const mergeHeaders = (...headersList: Array<HeadersInit | undefined>): Record<string, string> => {
+  return Object.assign({}, ...headersList.map(headersToRecord));
+};
+
+const headersToRecord = (headers?: HeadersInit): Record<string, string> => {
+  if (!headers) {
+    return {};
+  }
+  if (headers instanceof Headers) {
+    const record: Record<string, string> = {};
+    headers.forEach((value, key) => {
+      record[key] = value;
+    });
+    return record;
+  }
+  if (Array.isArray(headers)) {
+    return Object.fromEntries(headers.map(([key, value]) => [key, value]));
+  }
+  return Object.fromEntries(Object.entries(headers).map(([key, value]) => [key, String(value)]));
+};
+
+const bodySize = (body?: BodyInit): number | undefined => {
+  if (body instanceof Blob) {
+    return body.size;
+  }
+  if (body instanceof ArrayBuffer) {
+    return body.byteLength;
+  }
+  if (ArrayBuffer.isView(body)) {
+    return body.byteLength;
+  }
+  if (typeof body === 'string') {
+    return new Blob([body]).size;
+  }
+  return undefined;
+};
+
+const toXhrBody = (body?: BodyInit): XMLHttpRequestBodyInit | Document | null => {
+  if (body === undefined || body === null) {
+    return null;
+  }
+  if (typeof ReadableStream !== 'undefined' && body instanceof ReadableStream) {
+    throw new ApiClientError(0, 'ReadableStream upload progress is not supported');
+  }
+  return body as XMLHttpRequestBodyInit | Document;
 };
 
 const toApiErrorPayload = (payload: unknown, hasJson: boolean): ApiErrorPayload | undefined => {

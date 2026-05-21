@@ -22,14 +22,25 @@
             <em>{{ workspace?.assignment?.updatedAt || workspace?.assignment?.assignedAt || 'no assignment yet' }}</em>
           </div>
           <form v-if="canManageAssignments" class="assignment-actions" @submit.prevent="assignBatch">
-            <select v-model="selectedAssignee">
+            <select v-model="selectedAssignee" :disabled="assignmentPending || !assignableUsers.length">
               <option v-for="user in assignableUsers" :key="user.userId" :value="user.userId">
                 {{ user.displayName }} · {{ userRoleText(user) }}
               </option>
             </select>
-            <button type="submit">{{ workspace?.assignment ? '重新分配' : '分配批次' }}</button>
-            <button type="button" @click="releaseBatch">释放批次</button>
+            <button type="submit" :disabled="assignmentPending || !selectedAssignee">
+              {{ assignmentAction === 'assign' ? '处理中...' : hasActiveAssignment ? '重新分配' : '分配批次' }}
+            </button>
+            <button type="button" :disabled="assignmentPending || !hasActiveAssignment" @click="releaseBatch">
+              {{ assignmentAction === 'release' ? '释放中...' : '释放批次' }}
+            </button>
           </form>
+          <p v-if="canManageAssignments && !assignableUsers.length" class="assignment-message assignment-message--error">
+            没有可分配用户，请先在权限管理中创建并启用账号。
+          </p>
+          <p v-if="assignableUsersError" class="assignment-message assignment-message--error">{{ assignableUsersError }}</p>
+          <p v-if="assignmentActionMessage" class="assignment-message" :class="`assignment-message--${assignmentActionTone}`">
+            {{ assignmentActionMessage }}
+          </p>
         </div>
       </section>
 
@@ -107,6 +118,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
+import { ApiClientError } from '../../services/http';
 import { apiClient } from '../../services/urbanViolationApi';
 import StatusChip from '../../shared/components/StatusChip.vue';
 import type { QcQueueItem, QcTaskStatus, QcWorkspace, RoleBinding, UserAccount } from '../../shared/types/contract';
@@ -119,6 +131,10 @@ const users = ref<UserAccount[]>([]);
 const roleBindings = ref<RoleBinding[]>([]);
 const loading = ref(true);
 const error = ref('');
+const assignableUsersError = ref('');
+const assignmentActionMessage = ref('');
+const assignmentActionTone = ref<'success' | 'error'>('success');
+const assignmentAction = ref<'' | 'assign' | 'release'>('');
 const selectedAssignee = ref('annotator_a');
 const activeTab = ref<'mine' | 'in_progress' | 'skipped' | 'submitted' | 'confirmed' | 'returned'>('mine');
 const tabs = [
@@ -139,6 +155,11 @@ const roleBindingsByUser = computed(() =>
   }, {}),
 );
 const assignableUsers = computed(() => users.value.filter((user) => user.status === 'active'));
+const assignmentPending = computed(() => assignmentAction.value !== '');
+const hasActiveAssignment = computed(() => {
+  const assignment = workspace.value?.assignment;
+  return Boolean(assignment && assignment.status !== 'revoked');
+});
 const assignmentText = computed(() => {
   const assignment = workspace.value?.assignment;
   if (!assignment || assignment.status === 'revoked') return '未分配';
@@ -166,17 +187,26 @@ const activeTabLabel = computed(() => tabs.find((tab) => tab.key === activeTab.v
 async function load() {
   loading.value = true;
   error.value = '';
+  assignableUsersError.value = '';
   try {
-    const [user, nextWorkspace, nextUsers, nextRoleBindings] = await Promise.all([
+    const [user, nextWorkspace, nextUsersResult, nextRoleBindings] = await Promise.all([
       loadCurrentUser(),
       apiClient.getQcWorkspace(props.id),
-      apiClient.listUsers().catch(() => []),
+      loadAssignableUsers(),
       apiClient.listRoleBindings().catch(() => []),
     ]);
     workspace.value = nextWorkspace;
-    users.value = nextUsers.length ? nextUsers : user ? [user] : [];
+    assignableUsersError.value = nextUsersResult.error;
+    users.value = nextUsersResult.users.length
+      ? nextUsersResult.users
+      : nextUsersResult.error && user?.status === 'active'
+        ? [user]
+        : [];
     roleBindings.value = nextRoleBindings;
-    selectedAssignee.value = nextWorkspace.assignment?.assigneeUserId || assignableUsers.value[0]?.userId || user?.userId || '';
+    const activeUsers = users.value.filter((item) => item.status === 'active');
+    const preferredAssignee = nextWorkspace.assignment?.assigneeUserId;
+    selectedAssignee.value =
+      activeUsers.find((item) => item.userId === preferredAssignee)?.userId || activeUsers[0]?.userId || '';
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Unable to load QC workspace';
   } finally {
@@ -184,19 +214,51 @@ async function load() {
   }
 }
 
+async function loadAssignableUsers(): Promise<{ users: UserAccount[]; error: string }> {
+  try {
+    const nextUsers = await apiClient.listBatchAssignableUsers(props.id);
+    return { users: nextUsers, error: '' };
+  } catch (err) {
+    return { users: [], error: assignableUsersErrorMessage(err) };
+  }
+}
+
 async function assignBatch() {
   if (!selectedAssignee.value) return;
-  if (workspace.value?.assignment && workspace.value.assignment.status !== 'revoked') {
-    await apiClient.reassignBatch(props.id, { assigneeUserId: selectedAssignee.value });
-  } else {
-    await apiClient.assignBatch(props.id, { assigneeUserId: selectedAssignee.value });
+  assignmentAction.value = 'assign';
+  assignmentActionMessage.value = '';
+  try {
+    if (hasActiveAssignment.value) {
+      await apiClient.reassignBatch(props.id, { assigneeUserId: selectedAssignee.value });
+      assignmentActionMessage.value = '已重新分配批次。';
+    } else {
+      await apiClient.assignBatch(props.id, { assigneeUserId: selectedAssignee.value });
+      assignmentActionMessage.value = '已分配批次。';
+    }
+    assignmentActionTone.value = 'success';
+    await load();
+  } catch (err) {
+    assignmentActionTone.value = 'error';
+    assignmentActionMessage.value = assignmentErrorMessage(err, '批次分配失败。');
+  } finally {
+    assignmentAction.value = '';
   }
-  await load();
 }
 
 async function releaseBatch() {
-  await apiClient.releaseBatchAssignment(props.id);
-  await load();
+  assignmentAction.value = 'release';
+  assignmentActionMessage.value = '';
+  try {
+    await apiClient.releaseBatchAssignment(props.id);
+    assignmentActionTone.value = 'success';
+    assignmentActionMessage.value = '已释放批次。';
+    await load();
+  } catch (err) {
+    assignmentActionTone.value = 'error';
+    assignmentActionMessage.value = assignmentErrorMessage(err, '释放批次失败。');
+  } finally {
+    assignmentAction.value = '';
+  }
 }
 
 async function confirmSubmission(item: QcQueueItem) {
@@ -245,6 +307,47 @@ function canOpenEditable(item: QcQueueItem) {
 function userRoleText(user: UserAccount) {
   const roles = user.roles?.length ? user.roles : roleBindingsByUser.value[user.userId]?.map((binding) => binding.role);
   return roles?.length ? roles.join(', ') : 'active';
+}
+
+function assignableUsersErrorMessage(err: unknown) {
+  if (err instanceof ApiClientError) {
+    if (err.status === 403) {
+      return '当前账号没有批次分配权限。';
+    }
+    if ([404, 405, 501].includes(err.status)) {
+      return '可分配用户接口不可用，已临时仅显示当前账号。';
+    }
+    return err.payload?.message ?? '可分配用户加载失败，已临时仅显示当前账号。';
+  }
+  return '可分配用户加载失败，已临时仅显示当前账号。';
+}
+
+function assignmentErrorMessage(err: unknown, fallback: string) {
+  if (err instanceof ApiClientError) {
+    const code = err.payload?.code ?? '';
+    if (err.status === 403) {
+      return '当前账号没有批次分配权限。';
+    }
+    if (code.includes('queue') || code.includes('qc_queue')) {
+      return '请先生成质检队列。';
+    }
+    if (
+      code.includes('assignee') ||
+      code.includes('user_not_found') ||
+      code.includes('user_disabled') ||
+      (err.status === 422 && fallback.includes('分配'))
+    ) {
+      return '被分配账号不存在或已停用。';
+    }
+    if (err.status === 409) {
+      return err.payload?.message ?? '批次分配状态冲突，请刷新后重试。';
+    }
+    if (err.status === 422) {
+      return err.payload?.message ?? '批次分配请求无效，请刷新后重试。';
+    }
+    return err.payload?.message ?? fallback;
+  }
+  return err instanceof Error && err.message ? err.message : fallback;
 }
 </script>
 
@@ -296,6 +399,33 @@ function userRoleText(user: UserAccount) {
   background: var(--blue);
   color: #fff;
   font-weight: 900;
+}
+
+.assignment-actions button:disabled,
+.assignment-actions select:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.assignment-message {
+  grid-column: 1 / -1;
+  margin: 0;
+  border-radius: 8px;
+  padding: 9px 10px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.assignment-message--success {
+  border: 1px solid #c8f1d8;
+  background: var(--green-soft);
+  color: #16703a;
+}
+
+.assignment-message--error {
+  border: 1px solid #ffd1d1;
+  background: var(--red-soft);
+  color: var(--red);
 }
 
 .tab-row {

@@ -11,12 +11,16 @@ from urban_violation_backend.importer.parser import (
     normalize_media_url,
     pair_stage_samples,
     read_stage1_manifest,
+    read_stage1_manifest_with_failures,
     read_stage2_manifest,
 )
 
 
 DATASET_ROOT = Path(
     "/mnt/lc/LC/ares_xtws/0_train_data/data_platform/DATASET/urban_violation"
+)
+DATASET_ROOT_0520 = Path(
+    "/mnt/lc/LC/ares_xtws/0_train_data/data_platform/DATASET/urban_violation_0520"
 )
 SUCCESS_SAMPLE_ID = "000142_0_1762483003246"
 FAILURE_SAMPLE_ID = "001710_0_1763108687181"
@@ -92,6 +96,35 @@ def test_import_fixture_samples_defaults_to_full_dataset() -> None:
     assert bundle.dataset.stage1_count == 797
     assert bundle.dataset.stage2_success_count == 780
     assert bundle.dataset.stage2_failure_count == 19
+
+
+def test_stage1_manifest_retry_history_uses_final_row_semantics_for_0520() -> None:
+    stage1_entries, stage1_failed_entries = read_stage1_manifest_with_failures(DATASET_ROOT_0520)
+
+    assert len(stage1_entries) == 505
+    assert len(stage1_failed_entries) == 0
+    assert (
+        "RAW001B5000001_20260324_172936_front_01010100150000010101_20260324172947A604"
+        in stage1_entries
+    )
+
+
+def test_import_fixture_samples_handles_stage2_missing_row_for_0520() -> None:
+    bundle = import_fixture_samples(dataset_root=DATASET_ROOT_0520)
+
+    assert bundle.import_job.imported_assets == 505
+    assert bundle.dataset.stage1_count == 505
+    assert bundle.dataset.stage2_success_count == 496
+    assert bundle.dataset.stage2_failure_count == 8
+
+    stage2_missing_count = sum(
+        1
+        for sample in bundle.samples
+        if sample.stage2 is None
+        and sample.stage2_failure is not None
+        and sample.stage2_failure.error_type == "Stage2MissingError"
+    )
+    assert stage2_missing_count == 1
 
 
 def test_normalize_media_url_is_browser_safe() -> None:

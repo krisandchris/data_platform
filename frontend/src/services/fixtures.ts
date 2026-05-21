@@ -8,6 +8,11 @@ import type {
   AuditEvent,
   AuditEventFilters,
   BatchAssignmentPayload,
+  BatchLabelEditDraft,
+  BatchLabelEditDraftPayload,
+  BatchLabelEditDraftSaveResult,
+  BatchLabelEditSubmitPayload,
+  BatchLabelEditSubmitResult,
   BatchQcAssignment,
   CurrentUser,
   Dataset,
@@ -1223,6 +1228,7 @@ const reviews = new Map<string, HumanReview>(
     .map(([sampleId, detail]) => [sampleId, detail.humanReview as HumanReview]),
 );
 const labelEdits = new Map<string, LabelEditState[]>();
+const batchDraftSamples = new Map<string, BatchLabelEditDraft['samples'][number]>();
 
 const clone = <T>(value: T): T => (value === undefined ? value : JSON.parse(JSON.stringify(value))) as T;
 const delay = async () => new Promise((resolve) => window.setTimeout(resolve, 80));
@@ -1463,6 +1469,46 @@ const assignmentFor = (assigneeUserId: string, status: BatchQcAssignment['status
   assignedAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
 });
+
+const batchDraftForCurrentUser = (): BatchLabelEditDraft => {
+  const samples = Array.from(batchDraftSamples.values()).filter((sample) => sample.operations.length > 0);
+  return {
+    draftId: `batch-draft-${dataset.id}-${currentFixtureUser().userId}`,
+    datasetId: dataset.id,
+    userId: currentFixtureUser().userId,
+    assignmentId: batchAssignment.assignmentId,
+    labelConfigId: fixtureLabelConfig.configId,
+    labelConfigVersion: fixtureLabelConfig.version,
+    totalSampleCount: assets.length,
+    savedSampleCount: samples.filter((sample) => sample.saved).length,
+    dirtySampleCount: samples.filter((sample) => sample.dirty).length,
+    validationErrorCount: samples.filter((sample) => sample.validation && !sample.validation.valid).length,
+    samples: clone(samples),
+    updatedAt: new Date().toISOString(),
+  };
+};
+
+const saveBatchDraftSamples = (payload: BatchLabelEditDraftPayload): BatchLabelEditDraftSaveResult => {
+  const updatedAt = new Date().toISOString();
+  payload.entries.forEach((sample) => {
+    batchDraftSamples.set(sample.sampleId, {
+      ...clone(sample),
+      dirty: false,
+      saved: true,
+    });
+    taskStatusBySample[sample.sampleId] = 'draft_saved';
+  });
+  const draft = batchDraftForCurrentUser();
+  return {
+    saved: true,
+    datasetId: dataset.id,
+    savedSampleCount: draft.savedSampleCount,
+    totalSampleCount: draft.totalSampleCount,
+    sampleIds: payload.entries.map((sample) => sample.sampleId),
+    updatedAt,
+    draft,
+  };
+};
 
 const progressFromTasks = (tasks: QcTask[]): QcProgress => {
   const byStatus = tasks.reduce<QcProgress['byStatus']>((acc, task) => {
@@ -1753,6 +1799,10 @@ export const fixtureApiClient: UrbanViolationApi = {
     await delay();
     return clone(fixtureUsers);
   },
+  async listBatchAssignableUsers() {
+    await delay();
+    return clone(fixtureUsers.filter((user) => user.status === 'active'));
+  },
   async createUser(payload: UserCreatePayload) {
     await delay();
     const user: UserAccount = {
@@ -1854,6 +1904,14 @@ export const fixtureApiClient: UrbanViolationApi = {
     }
     return clone(datasetTypes.find((item) => item.datasetType === payload.datasetType)!);
   },
+  async deleteDatasetBatch(batchId) {
+    await delay();
+    datasetTypes.forEach((group) => {
+      const nextBatches = group.batches.filter((batch) => batch.id !== batchId);
+      group.batches = nextBatches;
+      group.batchCount = nextBatches.length;
+    });
+  },
   async getDatasetSummary() {
     await delay();
     return clone(datasetSummary);
@@ -1925,6 +1983,22 @@ export const fixtureApiClient: UrbanViolationApi = {
       }
     }
     return clone(created);
+  },
+  async createImportJobArchive(datasetId, payload) {
+    payload.onUploadProgress?.({
+      loadedBytes: payload.archiveFile.size,
+      totalBytes: payload.archiveFile.size,
+      percent: 100,
+    });
+    return this.createImportJob(datasetId, {
+      datasetType: payload.datasetType,
+      batchKey: payload.batchKey,
+      batchName: payload.batchName,
+      sourceMode: 'uploaded_package',
+      sourceUri: payload.archiveFileName ?? payload.archiveFile.name,
+      sourceStructure: payload.sourceStructure,
+      sourceFileCount: 1,
+    });
   },
   async createDatasetBatchImportJob(batchId, payload) {
     return this.createImportJob(batchId, payload);
@@ -2396,6 +2470,58 @@ export const fixtureApiClient: UrbanViolationApi = {
         checkedAt: new Date().toISOString(),
       },
     };
+  },
+  async getMyBatchLabelEditDraft() {
+    await delay();
+    return clone(batchDraftForCurrentUser());
+  },
+  async saveMyBatchLabelEditDraft(_datasetId, payload: BatchLabelEditDraftPayload) {
+    await delay();
+    return clone(saveBatchDraftSamples(payload));
+  },
+  async autosaveMyBatchLabelEditDraft(_datasetId, payload: BatchLabelEditDraftPayload) {
+    await delay();
+    const result = saveBatchDraftSamples(payload);
+    return clone({
+      ...result,
+      draft: result.draft
+        ? {
+            ...result.draft,
+            autosavedAt: result.updatedAt,
+          }
+        : undefined,
+    });
+  },
+  async submitBatchLabelEdits(_datasetId, payload: BatchLabelEditSubmitPayload): Promise<BatchLabelEditSubmitResult> {
+    await delay();
+    const now = new Date().toISOString();
+    const submittedSampleIds = Array.from(batchDraftSamples.keys()).filter(
+      (sampleId) =>
+        !payload.unsavedDirtySampleIds.includes(sampleId) &&
+        !payload.validationErrorSampleIds.includes(sampleId),
+    );
+    const releasedLeaseCount = submittedSampleIds.filter((sampleId) => leases.has(sampleId)).length;
+    batchAssignment = {
+      ...batchAssignment,
+      status: 'submitted',
+      submittedAt: now,
+      updatedAt: now,
+    };
+    submittedSampleIds.forEach((sampleId) => {
+      taskStatusBySample[sampleId] = 'submitted';
+      leases.delete(sampleId);
+    });
+    return clone({
+      submitted: true,
+      datasetId: dataset.id,
+      assignmentId: batchAssignment.assignmentId,
+      assigneeUserId: batchAssignment.assigneeUserId,
+      status: batchAssignment.status,
+      submittedAt: now,
+      submittedSampleCount: submittedSampleIds.length,
+      releasedLeaseCount,
+      assignment: batchAssignment,
+    });
   },
   async confirmLabelEditSubmission(_datasetId, sampleId, submissionId) {
     await delay();

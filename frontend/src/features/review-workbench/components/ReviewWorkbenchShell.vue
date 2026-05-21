@@ -1,5 +1,9 @@
+<script lang="ts">
+let activeReviewShortcutOwner: symbol | undefined;
+</script>
+
 <template>
-  <section class="sample-detail-workbench">
+  <section class="sample-detail-workbench" :class="{ 'is-switching-sample': isSwitchingSample }">
     <header class="qc-topbar">
       <div class="sample-meta">
         <div class="meta-block meta-block--sample">
@@ -41,19 +45,47 @@
       </div>
 
       <div class="top-actions">
-        <RouterLink v-if="previousQueueItem" class="toolbar-button" :to="reviewHref(previousQueueItem.sampleId)">
-          <ChevronLeft :size="16" />
-          Prev
-        </RouterLink>
-        <button v-else class="toolbar-button" type="button" disabled>
+        <span
+          v-if="isSwitchingSample"
+          class="toolbar-status"
+          role="status"
+          aria-live="polite"
+          data-testid="sample-switch-status"
+        >
+          <Loader2 :size="16" class="toolbar-status__spinner" />
+          正在切换到 {{ switchTargetSampleId || '下一个样本' }}
+        </span>
+        <span v-else-if="switchError" class="toolbar-status toolbar-status--error" role="status" data-testid="sample-switch-error">
+          <CircleAlert :size="16" />
+          {{ switchError }}
+        </span>
+        <button
+          v-if="previousQueueItem"
+          class="toolbar-button"
+          type="button"
+          :disabled="!canGoPrevious"
+          aria-keyshortcuts="ArrowLeft A"
+          @click="goToPreviousQueueItem"
+        >
           <ChevronLeft :size="16" />
           Prev
         </button>
-        <RouterLink v-if="nextQueueItem" class="toolbar-button" :to="reviewHref(nextQueueItem.sampleId)">
+        <button v-else class="toolbar-button" type="button" disabled aria-keyshortcuts="ArrowLeft A">
+          <ChevronLeft :size="16" />
+          Prev
+        </button>
+        <button
+          v-if="nextQueueItem"
+          class="toolbar-button"
+          type="button"
+          :disabled="!canGoNext"
+          aria-keyshortcuts="ArrowRight D"
+          @click="goToNextQueueItem"
+        >
           Next
           <ChevronRight :size="16" />
-        </RouterLink>
-        <button v-else class="toolbar-button" type="button" disabled>
+        </button>
+        <button v-else class="toolbar-button" type="button" disabled aria-keyshortcuts="ArrowRight D">
           Next
           <ChevronRight :size="16" />
         </button>
@@ -509,20 +541,35 @@
 
     <section class="review-action-bar" aria-label="标注修改底栏">
       <div class="bottom-status" aria-label="修改状态">
-        <span class="pill pill--blue">已修改 {{ operationCount }} 项</span>
+        <span class="pill pill--blue">当前样本修改 {{ operationCount }} 项</span>
+        <span class="pill pill--blue">批次草稿 {{ savedDraftSampleCount }}/{{ batchTotalCount }}</span>
+        <span class="pill" :class="autosavePillClass">{{ autosaveStatusText }}</span>
+        <label class="autosave-interval-control">
+          <span>间隔</span>
+          <select :value="autosaveIntervalMs" @change="setAutosaveInterval(inputValue($event))">
+            <option v-for="option in autosaveIntervalOptions" :key="option.value" :value="option.value">
+              {{ option.label }}
+            </option>
+          </select>
+        </label>
         <span class="pill" :class="validationPillClass">{{ validationStatusText }}</span>
-        <span class="pill" :class="patchSaved ? 'pill--amber' : 'pill--blue'">{{ draftSaveText }}</span>
-        <span class="pill pill--blue">{{ configVersionText }}</span>
       </div>
       <div class="label-edit-actions">
-        <button class="decision-button skip" type="button" @click="skipSample">
+        <button
+          class="decision-button skip"
+          type="button"
+          :disabled="!canSkipSample"
+          aria-keyshortcuts="X"
+          @click="skipSample"
+        >
           <SkipForward :size="17" />
           跳过样本
         </button>
         <button
           class="decision-button validate"
           type="button"
-          :disabled="!canEditLabels || validationPending"
+          :disabled="!canValidateChanges"
+          aria-keyshortcuts="V"
           @click="validateChanges"
         >
           <ShieldCheck :size="17" />
@@ -531,7 +578,8 @@
         <button
           class="save-button"
           type="button"
-          :disabled="!canSubmitLabelEdit || savePending"
+          :disabled="!canSaveBatchDraft"
+          aria-keyshortcuts="S"
           @click="saveDraft"
         >
           <Save :size="17" />
@@ -540,25 +588,72 @@
         <button
           class="submit-button"
           type="button"
-          :disabled="!canSubmitLabelEdit || submitPending"
-          @click="submitChanges"
+          :disabled="submitPending"
+          @click="openBatchSubmitModal"
         >
           <Send :size="17" />
-          提交修改
+          提交批次修改
         </button>
       </div>
     </section>
+
+    <div v-if="submitModalOpen" class="modal-backdrop" role="presentation">
+      <section
+        class="batch-submit-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="batch-submit-title"
+      >
+        <header class="batch-submit-header">
+          <div>
+            <span class="mini-label">Batch</span>
+            <h2 id="batch-submit-title">提交批次修改</h2>
+          </div>
+          <strong>{{ baseSample.asset.datasetId }}</strong>
+        </header>
+        <div class="batch-submit-stats" aria-label="批次提交统计">
+          <span>样本总数 <strong>{{ batchTotalCount }}</strong></span>
+          <span>已保存草稿 <strong>{{ savedDraftSampleCount }}</strong></span>
+          <span>未保存 <strong>{{ unsavedDraftSampleCount }}</strong></span>
+          <span>校验错误 <strong>{{ batchValidationErrorCount }}</strong></span>
+          <span>跳过/未修改 <strong>{{ skippedOrUnmodifiedCount }}</strong></span>
+          <span>本次有修改 <strong>{{ changedDraftSampleCount }}</strong></span>
+        </div>
+        <div v-if="batchSubmitBlockReasons.length" class="submit-blockers" aria-label="提交阻塞原因">
+          <strong>暂不能提交</strong>
+          <ul>
+            <li v-for="reason in batchSubmitBlockReasons" :key="reason">{{ reason }}</li>
+          </ul>
+        </div>
+        <p class="batch-submit-note">
+          提交后该批次进入待质检负责人确认状态，普通标注员不可继续编辑。
+        </p>
+        <footer class="batch-submit-actions">
+          <button class="decision-button" type="button" @click="submitModalOpen = false">取消</button>
+          <button
+            class="submit-button"
+            type="button"
+            :disabled="!batchSubmitReady || submitPending"
+            @click="confirmBatchSubmit"
+          >
+            <Send :size="17" />
+            确认提交批次修改
+          </button>
+        </footer>
+      </section>
+    </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, getCurrentInstance, ref, watch } from 'vue';
+import { computed, getCurrentInstance, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 import {
   ChevronLeft,
   ChevronRight,
   CircleAlert,
   ListChecks,
+  Loader2,
   Save,
   Send,
   ShieldCheck,
@@ -569,6 +664,13 @@ import {
 import BBoxOverlay, { type OverlayBox } from '../../../shared/components/BBoxOverlay.vue';
 import StatusChip from '../../../shared/components/StatusChip.vue';
 import type {
+  BatchLabelEditDraft,
+  BatchLabelEditDraftPayload,
+  BatchLabelEditDraftSaveResult,
+  BatchLabelEditDraftSample,
+  BatchLabelEditDraftValidation,
+  BatchLabelEditSubmitPayload,
+  BatchLabelEditSubmitResult,
   BBox,
   FactVerification,
   BatchQcAssignment,
@@ -576,8 +678,6 @@ import type {
   LabelConfig,
   LabelEditOperation,
   LabelEditPatchPayload,
-  LabelEditSubmitPayload,
-  LabelEditSubmitResult,
   LabelEditValidationResult,
   QcQueueItem,
   QcTask,
@@ -596,13 +696,19 @@ const props = defineProps<{
   labelSuggestions?: Record<string, string[]>;
   requestLabelSuggestions?: (field: string, query: string) => Promise<string[]>;
   validateLabelEdit?: (payload: LabelEditPatchPayload) => Promise<LabelEditValidationResult>;
-  submitLabelEdit?: (payload: LabelEditSubmitPayload) => Promise<LabelEditSubmitResult>;
+  batchDraft?: BatchLabelEditDraft;
+  saveBatchDraft?: (payload: BatchLabelEditDraftPayload) => Promise<BatchLabelEditDraftSaveResult>;
+  autosaveBatchDraft?: (payload: BatchLabelEditDraftPayload) => Promise<BatchLabelEditDraftSaveResult>;
+  submitBatchLabelEdits?: (payload: BatchLabelEditSubmitPayload) => Promise<BatchLabelEditSubmitResult>;
   currentUser?: CurrentUser;
   batchAssignment?: BatchQcAssignment;
   qcTask?: QcTask;
   sampleLease?: SampleLease;
   readonlyReason?: string;
   releaseSampleLease?: () => Promise<void> | void;
+  isSwitchingSample?: boolean;
+  switchTargetSampleId?: string;
+  switchError?: string;
 }>();
 
 interface RelationDraft {
@@ -637,6 +743,15 @@ interface ReviewDraft {
   deletedCandidateDrafts: CandidateDraft[];
 }
 
+interface BatchDraftEntry {
+  payload: BatchLabelEditDraftSample;
+  dirty: boolean;
+  saved: boolean;
+  savedAt?: string;
+  savedSignature?: string;
+  validation?: LabelEditValidationResult;
+}
+
 interface RelationView {
   base: StageRelation;
   verification?: FactVerification;
@@ -648,6 +763,16 @@ interface RelationView {
 
 type BBoxTone = NonNullable<OverlayBox['tone']>;
 type RelationIdentityTone = Exclude<BBoxTone, 'purple'>;
+type BatchSaveKind = 'manual' | 'autosave';
+
+const DEFAULT_AUTOSAVE_INTERVAL_MS = 180_000;
+const AUTOSAVE_INTERVAL_STORAGE_KEY = 'urbanViolationReviewAutosaveIntervalMs';
+const AUTOSAVE_INTERVAL_OPTIONS = [
+  { label: '1分钟', value: 60_000 },
+  { label: '2分钟', value: 120_000 },
+  { label: '3分钟', value: 180_000 },
+  { label: '5分钟', value: 300_000 },
+] as const;
 
 const instance = getCurrentInstance();
 const router = instance?.appContext.config.globalProperties.$router as
@@ -670,8 +795,19 @@ const actionMessage = ref('');
 const validationPending = ref(false);
 const savePending = ref(false);
 const submitPending = ref(false);
+const batchDraftEntries = ref<Record<string, BatchDraftEntry>>({});
+const batchSaveKind = ref<BatchSaveKind>();
+const saveQueue = ref<Promise<BatchLabelEditDraftSaveResult | undefined>>();
+const autosaveStatus = ref<'idle' | 'saving' | 'saved' | 'failed'>('idle');
+const autosaveMessage = ref('');
+const lastAutosavedAt = ref<string>();
+const autosaveIntervalMs = ref(readAutosaveIntervalMs());
+const submitModalOpen = ref(false);
+const navigationPending = ref(false);
 const DEFAULT_RELATION_TONES: RelationIdentityTone[] = ['blue', 'green', 'orange', 'cyan', 'yellow', 'teal'];
 const ORPHAN_RELATION_TONE: BBoxTone = 'purple';
+const shortcutOwner = Symbol('review-workbench-shortcuts');
+let autosaveTimer: number | undefined;
 
 if (reviewDraft.value.candidateDrafts.length) {
   activeCandidateId.value = reviewDraft.value.candidateDrafts[0].id;
@@ -680,15 +816,9 @@ if (reviewDraft.value.candidateDrafts.length) {
 watch(
   () => props.detail.asset.sampleId,
   () => {
-    reviewDraft.value = createReviewDraft(props.detail);
-    activeRelationKey.value = relationBadge(props.detail.stage1.keyRelations[0]?.relationIndex ?? 'R1');
-    activeImageRelationKey.value = '';
-    activeCandidateId.value = reviewDraft.value.candidateDrafts[0]?.id ?? '';
-    candidateTagInput.value = '';
+    resetReviewDraftForCurrentSample(true);
     remoteSuggestions.value = {};
-    validationResult.value = undefined;
     lastSavedAt.value = undefined;
-    patchSaved.value = Boolean(props.detail.humanReview);
     actionMessage.value = '';
   },
 );
@@ -771,7 +901,6 @@ const activeCandidateDraft = computed(() =>
 const activeCandidateRelationKeys = computed(() => new Set(activeCandidateDraft.value?.evidenceRelationIds ?? []));
 const operations = computed(() => buildOperations());
 const operationCount = computed(() => operations.value.length);
-const canSubmitLabelEdit = computed(() => canEditLabels.value && operationCount.value > 0);
 const patchPayload = computed<LabelEditPatchPayload>(() => ({
   sampleId: baseSample.value.asset.sampleId,
   taskMode: 'label_edit',
@@ -782,6 +911,55 @@ const patchPayload = computed<LabelEditPatchPayload>(() => ({
   taskRevision: props.qcTask?.taskRevision,
   operations: operations.value,
 }));
+const batchDraftEntryList = computed(() => Object.values(batchDraftEntries.value));
+const dirtyDraftEntries = computed(() =>
+  batchDraftEntryList.value.filter((entry) => entry.dirty && entry.payload.operations.length > 0),
+);
+const hasUnsavedDirty = computed(() => dirtyDraftEntries.value.length > 0);
+const unsavedDirtySampleIds = computed(() => dirtyDraftEntries.value.map((entry) => entry.payload.sampleId));
+const validationErrorSampleIds = computed(() =>
+  batchDraftEntryList.value
+    .filter((entry) => entry.validation && !entry.validation.valid)
+    .map((entry) => entry.payload.sampleId),
+);
+const savedDraftSampleIds = computed(() =>
+  Array.from(new Set(batchDraftEntryList.value.filter((entry) => entry.saved).map((entry) => entry.payload.sampleId))),
+);
+const savedDraftSampleCount = computed(() => {
+  const remoteCount = props.batchDraft?.savedSampleCount ?? 0;
+  return Math.max(remoteCount, savedDraftSampleIds.value.length);
+});
+const unsavedDraftSampleCount = computed(() => dirtyDraftEntries.value.length);
+const changedDraftSampleCount = computed(() =>
+  batchDraftEntryList.value.filter((entry) => entry.payload.operations.length > 0).length,
+);
+const batchTotalCount = computed(() =>
+  props.batchDraft?.totalSampleCount ?? (props.queueItems.length || Math.max(changedDraftSampleCount.value, 1)),
+);
+const skippedOrUnmodifiedCount = computed(() =>
+  Math.max(batchTotalCount.value - changedDraftSampleCount.value, 0),
+);
+const batchValidationErrorCount = computed(() =>
+  batchDraftEntryList.value.reduce((total, entry) => {
+    if (!entry.validation || entry.validation.valid) {
+      return total;
+    }
+    return total + Math.max(entry.validation.errors.length, 1);
+  }, 0),
+);
+const actionPending = computed(() =>
+  validationPending.value || savePending.value || submitPending.value || navigationPending.value || Boolean(props.isSwitchingSample),
+);
+const canSaveBatchDraft = computed(() =>
+  canEditLabels.value && hasUnsavedDirty.value && Boolean(props.saveBatchDraft) && !actionPending.value,
+);
+const canValidateChanges = computed(() =>
+  canEditLabels.value && Boolean(props.validateLabelEdit) && !actionPending.value,
+);
+const canRunNavigationAction = computed(() => !actionPending.value);
+const canGoPrevious = computed(() => Boolean(previousQueueItem.value) && canRunNavigationAction.value);
+const canGoNext = computed(() => Boolean(nextQueueItem.value) && canRunNavigationAction.value);
+const canSkipSample = computed(() => canRunNavigationAction.value);
 const validationIssueCount = computed(() => {
   if (!canEditLabels.value) {
     return 1;
@@ -806,16 +984,61 @@ const validationPillClass = computed(() => {
   }
   return 'pill--amber';
 });
-const draftSaveText = computed(() => {
-  if (patchSaved.value && lastSavedAt.value) {
-    return `草稿已保存 ${lastSavedAt.value}`;
+const autosaveStatusText = computed(() => {
+  if (savePending.value && batchSaveKind.value === 'manual') {
+    return '自动保存 等待手动保存完成';
   }
-  if (patchSaved.value) {
-    return '草稿已保存';
+  if (autosaveStatus.value === 'saving') {
+    return '自动保存中';
   }
-  return '未保存';
+  if (autosaveStatus.value === 'failed') {
+    return autosaveMessage.value ? `自动保存失败 ${autosaveMessage.value}` : '自动保存失败';
+  }
+  if (lastAutosavedAt.value) {
+    return `自动保存 ${lastAutosavedAt.value}`;
+  }
+  return hasUnsavedDirty.value ? '自动保存 待保存' : '自动保存 空闲';
+});
+const autosavePillClass = computed(() => {
+  if (autosaveStatus.value === 'failed') {
+    return 'pill--red';
+  }
+  if (autosaveStatus.value === 'saving' || hasUnsavedDirty.value) {
+    return 'pill--amber';
+  }
+  if (lastAutosavedAt.value) {
+    return 'pill--green';
+  }
+  return 'pill--blue';
 });
 const draftStateText = computed(() => (operationCount.value > 0 ? `${operationCount.value} dirty fields` : 'clean'));
+const batchSubmitBlockReasons = computed(() => {
+  const reasons: string[] = [];
+  const assignment = props.batchAssignment;
+  if (!assignment || assignment.status === 'revoked') {
+    reasons.push('当前批次没有有效 assignment');
+  }
+  if (props.readonlyReason) {
+    reasons.push(props.readonlyReason);
+  }
+  if (!props.labelConfig || props.labelConfigMissing) {
+    reasons.push(props.labelConfigGateMessage || '缺少 active label config');
+  }
+  if (savePending.value) {
+    reasons.push('草稿保存或自动保存仍在进行');
+  }
+  if (hasUnsavedDirty.value) {
+    reasons.push(`还有 ${unsavedDraftSampleCount.value} 个样本存在未保存修改`);
+  }
+  if (batchValidationErrorCount.value > 0) {
+    reasons.push(`存在 ${batchValidationErrorCount.value} 个校验错误`);
+  }
+  if (!props.submitBatchLabelEdits) {
+    reasons.push('缺少批次提交接口');
+  }
+  return Array.from(new Set(reasons));
+});
+const batchSubmitReady = computed(() => batchSubmitBlockReasons.value.length === 0);
 
 const overlayBoxes = computed<OverlayBox[]>(() => {
   const boxes: OverlayBox[] = [];
@@ -862,6 +1085,43 @@ const overlayBoxes = computed<OverlayBox[]>(() => {
     });
   }
   return boxes;
+});
+const autosaveIntervalOptions = AUTOSAVE_INTERVAL_OPTIONS;
+
+watch(
+  () => props.batchDraft,
+  () => {
+    syncRemoteBatchDraft();
+  },
+  { immediate: true },
+);
+
+watch(
+  () => [baseSample.value.asset.sampleId, draftSignature(patchPayload.value)],
+  () => {
+    syncCurrentBatchEntry();
+    scheduleAutosaveIfNeeded();
+  },
+  { immediate: true },
+);
+
+onMounted(() => {
+  activeReviewShortcutOwner = shortcutOwner;
+  scheduleAutosaveIfNeeded();
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+  document.addEventListener('keydown', handleWorkbenchKeydown);
+});
+
+onBeforeUnmount(() => {
+  if (activeReviewShortcutOwner === shortcutOwner) {
+    activeReviewShortcutOwner = undefined;
+  }
+  if (autosaveTimer !== undefined) {
+    window.clearTimeout(autosaveTimer);
+    autosaveTimer = undefined;
+  }
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
+  document.removeEventListener('keydown', handleWorkbenchKeydown);
 });
 
 function createReviewDraft(detail: ReviewSampleDetail): ReviewDraft {
@@ -919,6 +1179,20 @@ function createEmptyCandidate(): CandidateDraft {
     segmentationTargets: [],
     evidenceReasoning: '',
     evidenceRelationIds: activeRelationKey.value ? [activeRelationKey.value] : [],
+    relationHint: '',
+  };
+}
+
+function createRestoredCandidate(candidateId: string): CandidateDraft {
+  return {
+    id: candidateId,
+    sourceIndex: undefined,
+    violationCategory: '',
+    sampleCategory: '',
+    confidence: 0,
+    segmentationTargets: [],
+    evidenceReasoning: '',
+    evidenceRelationIds: [],
     relationHint: '',
   };
 }
@@ -1030,6 +1304,737 @@ function timeLeft(expiresAt: string) {
     return 'expired';
   }
   return `${Math.ceil(ms / 60000)}m left`;
+}
+
+function toBatchDraftValidation(validation?: LabelEditValidationResult): BatchLabelEditDraftValidation | undefined {
+  if (!validation) {
+    return undefined;
+  }
+  return {
+    valid: validation.valid,
+    errorCount: validation.errors.length,
+    warningCount: validation.warnings.length,
+    errors: validation.errors,
+    warnings: validation.warnings,
+  };
+}
+
+function fromBatchDraftValidation(validation?: BatchLabelEditDraftValidation): LabelEditValidationResult | undefined {
+  if (!validation) {
+    return undefined;
+  }
+  return {
+    valid: validation.valid,
+    errors: validation.errors,
+    warnings: validation.warnings,
+  };
+}
+
+function currentBatchDraftSample(): BatchLabelEditDraftSample {
+  return {
+    sampleId: patchPayload.value.sampleId,
+    labelConfigId: patchPayload.value.labelConfigId ?? null,
+    labelConfigVersion: patchPayload.value.labelConfigVersion ?? null,
+    leaseId: patchPayload.value.leaseId ?? null,
+    baseRevision: patchPayload.value.baseRevision ?? null,
+    operations: [...patchPayload.value.operations],
+    dirty: true,
+    saved: false,
+    validation: toBatchDraftValidation(validationResult.value),
+  };
+}
+
+function draftSignature(sample: Pick<BatchLabelEditDraftSample, 'operations' | 'labelConfigId' | 'labelConfigVersion'>) {
+  return JSON.stringify({
+    labelConfigId: sample.labelConfigId,
+    labelConfigVersion: sample.labelConfigVersion,
+    operations: sample.operations,
+  });
+}
+
+function normalizeBatchDraftSampleForCurrentContext(sample: BatchLabelEditDraftSample): BatchLabelEditDraftSample {
+  return {
+    ...sample,
+    sampleId: baseSample.value.asset.sampleId,
+    leaseId: sample.leaseId ?? patchPayload.value.leaseId ?? null,
+    baseRevision: sample.baseRevision ?? patchPayload.value.baseRevision ?? null,
+    labelConfigId: sample.labelConfigId ?? patchPayload.value.labelConfigId ?? null,
+    labelConfigVersion: sample.labelConfigVersion ?? patchPayload.value.labelConfigVersion ?? null,
+    operations: [...sample.operations],
+  };
+}
+
+function sampleLevelDraftEntry(): BatchLabelEditDraftSample | undefined {
+  const draft = props.detail.myDraft;
+  if (!draft || draft.sampleId !== baseSample.value.asset.sampleId) {
+    return undefined;
+  }
+  return {
+    sampleId: draft.sampleId,
+    leaseId: draft.leaseId ?? patchPayload.value.leaseId ?? null,
+    baseRevision: draft.taskRevision ?? patchPayload.value.baseRevision ?? null,
+    labelConfigId: draft.labelConfigId ?? patchPayload.value.labelConfigId ?? null,
+    labelConfigVersion: draft.labelConfigVersion ?? patchPayload.value.labelConfigVersion ?? null,
+    operations: [...draft.operations],
+    dirty: false,
+    saved: true,
+  };
+}
+
+function currentRemoteBatchDraftSample(): { sample: BatchLabelEditDraftSample; savedAt?: string } | undefined {
+  const sampleId = baseSample.value.asset.sampleId;
+  const sample = props.batchDraft?.samples.find((entry) => entry.sampleId === sampleId && entry.saved && !entry.dirty);
+  if (!sample) {
+    return undefined;
+  }
+  return {
+    sample: normalizeBatchDraftSampleForCurrentContext(sample),
+    savedAt: props.batchDraft?.updatedAt,
+  };
+}
+
+function restorableDraftSampleForCurrentSample():
+  | { sample: BatchLabelEditDraftSample; savedAt?: string; source: 'local' | 'batch' | 'sample' | 'cached' }
+  | undefined {
+  const sampleId = baseSample.value.asset.sampleId;
+  const existing = batchDraftEntries.value[sampleId];
+  if (existing?.dirty) {
+    return {
+      sample: normalizeBatchDraftSampleForCurrentContext(existing.payload),
+      savedAt: existing.savedAt,
+      source: 'local',
+    };
+  }
+
+  const remote = currentRemoteBatchDraftSample();
+  if (remote) {
+    return { ...remote, source: 'batch' };
+  }
+
+  const sampleLevelDraft = sampleLevelDraftEntry();
+  if (sampleLevelDraft) {
+    return {
+      sample: sampleLevelDraft,
+      savedAt: props.detail.myDraft?.updatedAt,
+      source: 'sample',
+    };
+  }
+
+  if (existing?.saved) {
+    return {
+      sample: normalizeBatchDraftSampleForCurrentContext(existing.payload),
+      savedAt: existing.savedAt,
+      source: 'cached',
+    };
+  }
+
+  return undefined;
+}
+
+function rememberBatchDraftEntry(
+  sample: BatchLabelEditDraftSample,
+  options: { dirty?: boolean; saved?: boolean; savedAt?: string; savedSignature?: string } = {},
+) {
+  const dirty = options.dirty ?? sample.dirty;
+  const saved = options.saved ?? sample.saved;
+  batchDraftEntries.value = {
+    ...batchDraftEntries.value,
+    [sample.sampleId]: {
+      payload: {
+        ...sample,
+        dirty,
+        saved,
+      },
+      dirty,
+      saved,
+      savedAt: options.savedAt,
+      savedSignature: options.savedSignature ?? (saved ? draftSignature(sample) : undefined),
+      validation: fromBatchDraftValidation(sample.validation),
+    },
+  };
+}
+
+function resetReviewDraftForCurrentSample(preferFirstSelection = false) {
+  const source = restorableDraftSampleForCurrentSample();
+  const baseDraft = createReviewDraft(props.detail);
+
+  if (!source) {
+    reviewDraft.value = baseDraft;
+    resetDraftSelection(baseDraft, preferFirstSelection);
+    validationResult.value = undefined;
+    patchSaved.value = Boolean(props.detail.humanReview);
+    return;
+  }
+
+  const applyResult = applyBatchDraftOperations(baseDraft, source.sample.operations);
+  reviewDraft.value = applyResult.draft;
+  resetDraftSelection(applyResult.draft, preferFirstSelection);
+  validationResult.value = fromBatchDraftValidation(source.sample.validation);
+
+  if (source.source === 'local') {
+    patchSaved.value = false;
+    rememberBatchDraftEntry(source.sample, {
+      dirty: true,
+      saved: false,
+      savedAt: source.savedAt,
+      savedSignature: batchDraftEntries.value[source.sample.sampleId]?.savedSignature,
+    });
+    return;
+  }
+
+  patchSaved.value = source.sample.saved;
+  const canonicalSavedSample: BatchLabelEditDraftSample = {
+    ...source.sample,
+    operations: [...operations.value],
+    dirty: false,
+    saved: true,
+    validation: source.sample.validation,
+  };
+  rememberBatchDraftEntry(canonicalSavedSample, {
+    dirty: false,
+    saved: true,
+    savedAt: source.savedAt,
+    savedSignature: applyResult.unsupportedOperationCount === 0
+      ? draftSignature(canonicalSavedSample)
+      : draftSignature(source.sample),
+  });
+}
+
+function resetDraftSelection(draft: ReviewDraft, preferFirstSelection = false) {
+  const relationIds = Object.keys(draft.relationDrafts);
+  const firstRelationId = relationIds[0] ?? relationBadge(props.detail.stage1.keyRelations[0]?.relationIndex ?? 'R1');
+  if (preferFirstSelection || !draft.relationDrafts[activeRelationKey.value]) {
+    activeRelationKey.value = firstRelationId;
+  }
+  activeImageRelationKey.value = '';
+  activeCandidateId.value =
+    !preferFirstSelection && draft.candidateDrafts.some((candidate) => candidate.id === activeCandidateId.value)
+      ? activeCandidateId.value
+      : draft.candidateDrafts[0]?.id ?? '';
+  candidateTagInput.value = '';
+}
+
+function cloneRelationDraft(draft: RelationDraft): RelationDraft {
+  return {
+    ...draft,
+    bbox: cloneBbox(draft.bbox),
+  };
+}
+
+function cloneCandidateDraft(draft: CandidateDraft): CandidateDraft {
+  return {
+    ...draft,
+    segmentationTargets: [...draft.segmentationTargets],
+    evidenceRelationIds: [...draft.evidenceRelationIds],
+  };
+}
+
+function cloneReviewDraft(draft: ReviewDraft): ReviewDraft {
+  return {
+    relationDrafts: Object.fromEntries(
+      Object.entries(draft.relationDrafts).map(([key, relation]) => [key, cloneRelationDraft(relation)]),
+    ),
+    candidateDrafts: draft.candidateDrafts.map((candidate) => cloneCandidateDraft(candidate)),
+    deletedCandidateDrafts: draft.deletedCandidateDrafts.map((candidate) => cloneCandidateDraft(candidate)),
+  };
+}
+
+function applyBatchDraftOperations(
+  baseDraft: ReviewDraft,
+  operationList: LabelEditOperation[],
+): { draft: ReviewDraft; unsupportedOperationCount: number } {
+  const draft = cloneReviewDraft(baseDraft);
+  let unsupportedOperationCount = 0;
+
+  operationList.forEach((operation) => {
+    if (operation.op === 'replace' && applyReplaceOperation(draft, operation)) {
+      return;
+    }
+    if (operation.op === 'delete_candidate' && applyDeleteCandidateOperation(draft, operation)) {
+      return;
+    }
+    unsupportedOperationCount += 1;
+  });
+
+  return { draft, unsupportedOperationCount };
+}
+
+function applyReplaceOperation(draft: ReviewDraft, operation: LabelEditOperation) {
+  const relationId = scopedId(operation.scope, 'relation');
+  if (relationId) {
+    return applyRelationReplaceOperation(draft, relationId, operation.field, operation.after);
+  }
+  const verificationRelationId = scopedId(operation.scope, 'verification');
+  if (verificationRelationId) {
+    return applyVerificationReplaceOperation(draft, verificationRelationId, operation.field, operation.after);
+  }
+  const candidateId = scopedId(operation.scope, 'candidate');
+  if (candidateId) {
+    return applyCandidateReplaceOperation(draft, candidateId, operation.field, operation.after);
+  }
+  return false;
+}
+
+function applyRelationReplaceOperation(draft: ReviewDraft, relationId: string, field: string, after: unknown) {
+  const relation = draft.relationDrafts[relationId];
+  if (!relation) {
+    return false;
+  }
+  if (field === 'subject') {
+    relation.subject = stringValue(after);
+    return true;
+  }
+  if (field === 'relation') {
+    relation.relation = stringValue(after);
+    return true;
+  }
+  if (field === 'object') {
+    relation.object = stringValue(after);
+    return true;
+  }
+  if (field === 'description') {
+    relation.description = stringValue(after);
+    return true;
+  }
+  if (field === 'bbox') {
+    const bbox = bboxValue(after);
+    if (!bbox) {
+      return false;
+    }
+    relation.bbox = bbox;
+    return true;
+  }
+  return false;
+}
+
+function applyVerificationReplaceOperation(draft: ReviewDraft, relationId: string, field: string, after: unknown) {
+  const relation = draft.relationDrafts[relationId];
+  if (!relation) {
+    return false;
+  }
+  if (field === 'visibility_level') {
+    relation.visibilityLevel = stringValue(after);
+    return true;
+  }
+  if (field === 'information_loss_type') {
+    relation.informationLossType = stringValue(after);
+    return true;
+  }
+  if (field === 'verification_result') {
+    relation.verificationResult = stringValue(after);
+    return true;
+  }
+  if (field === 'verification_confidence') {
+    relation.verificationConfidence = numberValueFromUnknown(after);
+    return true;
+  }
+  if (field === 'bbox_observation') {
+    relation.bboxObservation = stringValue(after);
+    return true;
+  }
+  if (field === 'global_context_observation') {
+    relation.globalContextObservation = stringValue(after);
+    return true;
+  }
+  return false;
+}
+
+function applyCandidateReplaceOperation(draft: ReviewDraft, candidateId: string, field: string, after: unknown) {
+  let candidate = draft.candidateDrafts.find((item) => item.id === candidateId);
+  if (!candidate) {
+    candidate = createRestoredCandidate(candidateId);
+    draft.candidateDrafts.push(candidate);
+  }
+  if (field === 'violation_category') {
+    candidate.violationCategory = stringValue(after);
+    return true;
+  }
+  if (field === 'sample_category') {
+    candidate.sampleCategory = stringValue(after);
+    return true;
+  }
+  if (field === 'confidence') {
+    candidate.confidence = numberValueFromUnknown(after);
+    return true;
+  }
+  if (field === 'segmentation_targets') {
+    candidate.segmentationTargets = stringArrayValue(after);
+    return true;
+  }
+  if (field === 'evidence_relations') {
+    candidate.evidenceRelationIds = stringArrayValue(after).map((item) => relationBadge(item));
+    return true;
+  }
+  if (field === 'evidence_reasoning') {
+    candidate.evidenceReasoning = stringValue(after);
+    return true;
+  }
+  if (field === 'relation_hint') {
+    candidate.relationHint = stringValue(after);
+    return true;
+  }
+  return false;
+}
+
+function applyDeleteCandidateOperation(draft: ReviewDraft, operation: LabelEditOperation) {
+  const candidateId = scopedId(operation.scope, 'candidate');
+  if (!candidateId) {
+    return false;
+  }
+  const candidateIndex = draft.candidateDrafts.findIndex((candidate) => candidate.id === candidateId);
+  if (candidateIndex < 0) {
+    return false;
+  }
+  const candidate = draft.candidateDrafts[candidateIndex];
+  draft.candidateDrafts.splice(candidateIndex, 1);
+  if (candidate.sourceIndex !== undefined && !draft.deletedCandidateDrafts.some((item) => item.id === candidate.id)) {
+    draft.deletedCandidateDrafts.push(candidate);
+  }
+  return true;
+}
+
+function scopedId(scope: string, prefix: 'relation' | 'verification' | 'candidate') {
+  const match = new RegExp(`^${prefix}:(.+)$`, 'i').exec(scope);
+  const raw = match?.[1]?.trim();
+  if (!raw) {
+    return '';
+  }
+  return prefix === 'candidate' ? candidateBadge(raw) : relationBadge(raw);
+}
+
+function candidateBadge(value: string | number) {
+  const raw = String(value || '').trim();
+  if (!raw) {
+    return 'C1';
+  }
+  return /^C/i.test(raw) ? raw.toUpperCase() : `C${raw}`;
+}
+
+function stringValue(value: unknown) {
+  return value == null ? '' : String(value);
+}
+
+function numberValueFromUnknown(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function stringArrayValue(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((item) => stringValue(item)).filter(Boolean);
+}
+
+function bboxValue(value: unknown): BBox | undefined {
+  if (!Array.isArray(value) || value.length < 4) {
+    return undefined;
+  }
+  const values = value.slice(0, 4).map((item) => Number(item));
+  if (values.some((item) => !Number.isFinite(item))) {
+    return undefined;
+  }
+  return [values[0], values[1], values[2], values[3]];
+}
+
+function syncRemoteBatchDraft() {
+  const remoteDraft = props.batchDraft;
+  if (!remoteDraft) {
+    return;
+  }
+  const nextEntries = { ...batchDraftEntries.value };
+  remoteDraft.samples.forEach((sample) => {
+    const existing = nextEntries[sample.sampleId];
+    if (existing?.dirty) {
+      return;
+    }
+    const saved = Boolean(sample.saved);
+    const dirty = Boolean(sample.dirty && !saved);
+    nextEntries[sample.sampleId] = {
+      payload: sample,
+      dirty,
+      saved,
+      savedAt: remoteDraft.updatedAt,
+      savedSignature: saved ? draftSignature(sample) : existing?.savedSignature,
+      validation: fromBatchDraftValidation(sample.validation),
+    };
+  });
+  batchDraftEntries.value = nextEntries;
+  resetReviewDraftForCurrentSample();
+}
+
+function syncCurrentBatchEntry() {
+  const sampleId = baseSample.value.asset.sampleId;
+  const operationsList = operations.value;
+  const existing = batchDraftEntries.value[sampleId];
+  const nextEntries = { ...batchDraftEntries.value };
+
+  if (operationsList.length === 0) {
+    if (existing?.dirty && !existing.saved) {
+      delete nextEntries[sampleId];
+      batchDraftEntries.value = nextEntries;
+    }
+    return;
+  }
+
+  const payload = currentBatchDraftSample();
+  const signature = draftSignature(payload);
+  const dirty = existing?.savedSignature !== signature;
+  nextEntries[sampleId] = {
+    payload: {
+      ...payload,
+      dirty,
+      saved: Boolean(existing?.saved && !dirty),
+    },
+    dirty,
+    saved: Boolean(existing?.saved && !dirty),
+    savedAt: existing?.savedAt,
+    savedSignature: existing?.savedSignature,
+    validation: toBatchDraftValidation(validationResult.value) ?? existing?.validation,
+  };
+  batchDraftEntries.value = nextEntries;
+}
+
+function savedAtForResult(result: BatchLabelEditDraftSaveResult) {
+  return result.updatedAt ?? new Date().toISOString();
+}
+
+function markEntriesSaved(samples: BatchLabelEditDraftSample[], result: BatchLabelEditDraftSaveResult) {
+  const savedAt = savedAtForResult(result);
+  const nextEntries = { ...batchDraftEntries.value };
+  const savedIds = new Set(result.sampleIds.length ? result.sampleIds : samples.map((sample) => sample.sampleId));
+  samples.forEach((sample) => {
+    if (!savedIds.has(sample.sampleId)) {
+      return;
+    }
+    const savedSignature = draftSignature(sample);
+    const current = nextEntries[sample.sampleId];
+    if (current && draftSignature(current.payload) !== savedSignature) {
+      nextEntries[sample.sampleId] = {
+        ...current,
+        payload: {
+          ...current.payload,
+          dirty: true,
+          saved: false,
+        },
+        dirty: true,
+        saved: false,
+      };
+      return;
+    }
+    nextEntries[sample.sampleId] = {
+      payload: {
+        ...sample,
+        dirty: false,
+        saved: true,
+      },
+      dirty: false,
+      saved: true,
+      savedAt,
+      savedSignature: draftSignature(sample),
+      validation: sample.validation,
+    };
+  });
+  batchDraftEntries.value = nextEntries;
+}
+
+function clearAutosaveTimer() {
+  if (autosaveTimer === undefined) {
+    return;
+  }
+  window.clearTimeout(autosaveTimer);
+  autosaveTimer = undefined;
+}
+
+function autosaveIntervalAllowed(value: number) {
+  return AUTOSAVE_INTERVAL_OPTIONS.some((option) => option.value === value);
+}
+
+function readAutosaveIntervalMs() {
+  if (typeof window === 'undefined') {
+    return DEFAULT_AUTOSAVE_INTERVAL_MS;
+  }
+  const value = Number(window.localStorage?.getItem(AUTOSAVE_INTERVAL_STORAGE_KEY));
+  return autosaveIntervalAllowed(value) ? value : DEFAULT_AUTOSAVE_INTERVAL_MS;
+}
+
+function setAutosaveInterval(value: string | number) {
+  const nextValue = Number(value);
+  if (!autosaveIntervalAllowed(nextValue)) {
+    return;
+  }
+  autosaveIntervalMs.value = nextValue;
+  try {
+    window.localStorage?.setItem(AUTOSAVE_INTERVAL_STORAGE_KEY, String(nextValue));
+  } catch {
+    // Preference persistence is best-effort; autosave scheduling still works.
+  }
+  clearAutosaveTimer();
+  scheduleAutosaveIfNeeded();
+}
+
+function scheduleAutosaveIfNeeded() {
+  if (
+    autosaveTimer !== undefined ||
+    saveQueue.value ||
+    !canEditLabels.value ||
+    !props.autosaveBatchDraft ||
+    !hasUnsavedDirty.value
+  ) {
+    return;
+  }
+  autosaveTimer = window.setTimeout(() => {
+    autosaveTimer = undefined;
+    void runBatchDraftSave('autosave');
+  }, autosaveIntervalMs.value);
+}
+
+async function runBatchDraftSave(kind: BatchSaveKind) {
+  syncCurrentBatchEntry();
+  clearAutosaveTimer();
+  if (!canEditLabels.value) {
+    if (kind === 'manual') {
+      actionMessage.value = editGateMessage.value;
+    }
+    return undefined;
+  }
+  if (saveQueue.value) {
+    if (kind === 'manual') {
+      actionMessage.value = '草稿保存正在进行';
+    }
+    return saveQueue.value;
+  }
+
+  const samples = dirtyDraftEntries.value.map((entry) => entry.payload);
+  if (!samples.length) {
+    if (kind === 'manual') {
+      actionMessage.value = '没有待保存的批次草稿';
+    }
+    return undefined;
+  }
+
+  const saveFn = kind === 'autosave' ? props.autosaveBatchDraft : props.saveBatchDraft;
+  if (!saveFn) {
+    if (kind === 'manual') {
+      actionMessage.value = '缺少批次草稿保存接口';
+    }
+    return undefined;
+  }
+
+  savePending.value = true;
+  batchSaveKind.value = kind;
+  if (kind === 'autosave') {
+    autosaveStatus.value = 'saving';
+  }
+  if (kind === 'manual') {
+    actionMessage.value = '';
+  }
+
+  const payload: BatchLabelEditDraftPayload = {
+    entries: samples,
+  };
+  const savePromise = saveFn(payload)
+    .then((result) => {
+      markEntriesSaved(samples, result);
+      const resultTime = currentTime();
+      if (samples.some((sample) => sample.sampleId === baseSample.value.asset.sampleId)) {
+        patchSaved.value = true;
+        lastSavedAt.value = resultTime;
+      }
+      if (kind === 'autosave') {
+        autosaveStatus.value = 'saved';
+        lastAutosavedAt.value = resultTime;
+      } else {
+        actionMessage.value = `批次草稿已保存 ${samples.length} 个样本`;
+      }
+      autosaveMessage.value = '';
+      return result;
+    })
+    .catch((error) => {
+      const message = error instanceof Error ? error.message : kind === 'autosave' ? '自动保存失败' : '保存草稿失败';
+      autosaveStatus.value = 'failed';
+      autosaveMessage.value = message;
+      if (kind === 'manual') {
+        actionMessage.value = message;
+      }
+      return undefined;
+    })
+    .finally(() => {
+      savePending.value = false;
+      batchSaveKind.value = undefined;
+      saveQueue.value = undefined;
+      scheduleAutosaveIfNeeded();
+    });
+
+  saveQueue.value = savePromise;
+  return savePromise;
+}
+
+function handleVisibilityChange() {
+  if (document.visibilityState === 'hidden' && hasUnsavedDirty.value) {
+    void runBatchDraftSave('autosave');
+  }
+}
+
+function handleWorkbenchKeydown(event: KeyboardEvent) {
+  if (activeReviewShortcutOwner !== shortcutOwner || !shouldHandlePlainShortcut(event)) {
+    return;
+  }
+
+  const key = event.key.toLowerCase();
+  if ((key === 'arrowleft' || key === 'a') && canGoPrevious.value) {
+    event.preventDefault();
+    void goToPreviousQueueItem();
+    return;
+  }
+  if ((key === 'arrowright' || key === 'd') && canGoNext.value) {
+    event.preventDefault();
+    void goToNextQueueItem();
+    return;
+  }
+  if (key === 'x' && canSkipSample.value) {
+    event.preventDefault();
+    void skipSample();
+    return;
+  }
+  if (key === 'v' && canValidateChanges.value) {
+    event.preventDefault();
+    void validateChanges();
+    return;
+  }
+  if (key === 's' && canSaveBatchDraft.value) {
+    event.preventDefault();
+    void saveDraft();
+  }
+}
+
+function shouldHandlePlainShortcut(event: KeyboardEvent) {
+  if (event.defaultPrevented || event.repeat || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) {
+    return false;
+  }
+
+  const key = event.key.toLowerCase();
+  if (!['arrowleft', 'arrowright', 'a', 'd', 'x', 'v', 's'].includes(key)) {
+    return false;
+  }
+
+  return !isEditableShortcutTarget(event.target);
+}
+
+function isEditableShortcutTarget(target: EventTarget | null) {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+
+  if (target.closest('input, textarea, select, button, [role="textbox"]')) {
+    return true;
+  }
+
+  const editable = target.closest('[contenteditable]');
+  if (!(editable instanceof HTMLElement)) {
+    return false;
+  }
+  return editable.getAttribute('contenteditable')?.toLowerCase() !== 'false';
 }
 
 function markEdited() {
@@ -1173,20 +2178,57 @@ function toggleCandidateRelation(relationId: string, checked: boolean) {
   setCandidateField('evidenceRelationIds', next);
 }
 
+async function navigateWithDirtyGuard(target: string) {
+  if (navigationPending.value || validationPending.value || savePending.value || submitPending.value) {
+    return false;
+  }
+
+  navigationPending.value = true;
+  try {
+    if (hasUnsavedDirty.value) {
+      const saved = await runBatchDraftSave('manual');
+      if (!saved) {
+        return false;
+      }
+    }
+    await props.releaseSampleLease?.();
+    if (router) {
+      await router.push(target);
+      return true;
+    }
+    globalThis.location?.assign(target);
+    return true;
+  } finally {
+    navigationPending.value = false;
+  }
+}
+
+async function goToPreviousQueueItem() {
+  if (!previousQueueItem.value || !canGoPrevious.value) {
+    return false;
+  }
+  return navigateWithDirtyGuard(reviewHref(previousQueueItem.value.sampleId));
+}
+
+async function goToNextQueueItem() {
+  if (!nextQueueItem.value || !canGoNext.value) {
+    return false;
+  }
+  return navigateWithDirtyGuard(reviewHref(nextQueueItem.value.sampleId));
+}
+
 async function skipSample() {
-  await props.releaseSampleLease?.();
+  if (!canSkipSample.value) {
+    return false;
+  }
   const target = nextQueueItem.value
     ? reviewHref(nextQueueItem.value.sampleId)
     : `/datasets/${baseSample.value.asset.datasetId}/qc`;
-  if (router) {
-    void router.push(target);
-    return;
-  }
-  globalThis.location?.assign(target);
+  return navigateWithDirtyGuard(target);
 }
 
 async function validateChanges() {
-  if (!canEditLabels.value || !props.validateLabelEdit) {
+  if (!canValidateChanges.value || !props.validateLabelEdit) {
     actionMessage.value = editGateMessage.value;
     return undefined;
   }
@@ -1195,6 +2237,7 @@ async function validateChanges() {
   try {
     const result = await props.validateLabelEdit(patchPayload.value);
     validationResult.value = result;
+    syncCurrentBatchEntry();
     actionMessage.value = result.valid ? '字段合法' : `字段非法 ${result.errors.length} 项`;
     return result;
   } catch (error) {
@@ -1204,6 +2247,7 @@ async function validateChanges() {
       errors: [{ operationIndex: -1, scope: 'label_edit', field: 'request', code: 'request_failed', message }],
       warnings: [],
     };
+    syncCurrentBatchEntry();
     actionMessage.value = message;
     return validationResult.value;
   } finally {
@@ -1212,56 +2256,40 @@ async function validateChanges() {
 }
 
 async function saveDraft() {
-  if (!canSubmitLabelEdit.value || !props.submitLabelEdit) {
-    actionMessage.value = editGateMessage.value;
-    return;
+  if (!canSaveBatchDraft.value) {
+    return undefined;
   }
-  savePending.value = true;
-  actionMessage.value = '';
-  try {
-    await props.submitLabelEdit({
-      ...patchPayload.value,
-      submitAction: 'save_draft',
-      taskStatus: 'annotation_draft',
-    });
-    patchSaved.value = true;
-    lastSavedAt.value = currentTime();
-    actionMessage.value = '草稿已保存';
-  } catch (error) {
-    actionMessage.value = error instanceof Error ? error.message : '保存草稿失败';
-  } finally {
-    savePending.value = false;
-  }
+  await runBatchDraftSave('manual');
 }
 
-async function submitChanges() {
-  if (!canSubmitLabelEdit.value || !props.submitLabelEdit) {
-    actionMessage.value = editGateMessage.value;
+function openBatchSubmitModal() {
+  if (navigationPending.value || submitPending.value) {
+    return;
+  }
+  syncCurrentBatchEntry();
+  submitModalOpen.value = true;
+}
+
+async function confirmBatchSubmit() {
+  syncCurrentBatchEntry();
+  if (submitPending.value || !batchSubmitReady.value || !props.submitBatchLabelEdits) {
+    actionMessage.value = batchSubmitBlockReasons.value.join('；') || editGateMessage.value;
     return;
   }
   submitPending.value = true;
   actionMessage.value = '';
   try {
-    const validation = await validateChanges();
-    if (!validation?.valid) {
-      return;
-    }
-    await props.submitLabelEdit({
-      ...patchPayload.value,
-      submitAction: 'submit_changes',
-      taskStatus: 'annotation_submitted',
+    await props.submitBatchLabelEdits({
+      unsavedDirtySampleIds: unsavedDirtySampleIds.value,
+      validationErrorSampleIds: validationErrorSampleIds.value,
+      notes: null,
     });
     patchSaved.value = true;
     lastSavedAt.value = currentTime();
-    actionMessage.value = '修改已提交';
+    submitModalOpen.value = false;
+    actionMessage.value = '批次修改已提交';
   } catch (error) {
-    const validation = validationFromSubmitError(error);
-    if (validation) {
-      validationResult.value = validation;
-      actionMessage.value = `字段非法 ${validation.errors.length} 项`;
-      return;
-    }
-    actionMessage.value = error instanceof Error ? error.message : '提交修改失败';
+    actionMessage.value = error instanceof Error ? error.message : '提交批次修改失败';
   } finally {
     submitPending.value = false;
   }
@@ -1269,17 +2297,6 @@ async function submitChanges() {
 
 function currentTime() {
   return new Date().toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' });
-}
-
-function validationFromSubmitError(error: unknown): LabelEditValidationResult | undefined {
-  if (!isObject(error) || !isObject(error.validation) || typeof error.validation.valid !== 'boolean') {
-    return undefined;
-  }
-  return error.validation as unknown as LabelEditValidationResult;
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object';
 }
 
 function relationDirty(base: StageRelation, verification: FactVerification | undefined, draft: RelationDraft) {
@@ -1585,6 +2602,37 @@ function candidateSnapshotFromBase(candidate: Stage2Candidate, id: string) {
   background: #262e3a;
 }
 
+.toolbar-status {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(79, 140, 255, 0.46);
+  border-radius: 999px;
+  background: rgba(79, 140, 255, 0.12);
+  color: #bfdbfe;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.toolbar-status--error {
+  border-color: rgba(245, 101, 101, 0.52);
+  background: rgba(245, 101, 101, 0.12);
+  color: #fed7d7;
+}
+
+.toolbar-status__spinner {
+  animation: toolbar-spin 0.9s linear infinite;
+}
+
+.sample-detail-workbench.is-switching-sample .review-grid,
+.sample-detail-workbench.is-switching-sample .review-action-bar {
+  pointer-events: none;
+  opacity: 0.92;
+}
+
 .gate-warning {
   display: flex;
   align-items: center;
@@ -1685,6 +2733,40 @@ function candidateSnapshotFromBase(candidate: Stage2Candidate, id: string) {
   border-color: rgba(245, 101, 101, 0.5);
   background: rgba(245, 101, 101, 0.1);
   color: #fed7d7;
+}
+
+.autosave-interval-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 25px;
+  border: 1px solid rgba(79, 140, 255, 0.46);
+  border-radius: 999px;
+  background: rgba(79, 140, 255, 0.1);
+  color: #bfdbfe;
+  padding: 3px 8px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.autosave-interval-control span {
+  font-weight: 800;
+}
+
+.autosave-interval-control select {
+  min-width: 62px;
+  height: 22px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 999px;
+  background: #111827;
+  color: #edf2f7;
+  padding: 0 7px;
+  font: inherit;
+}
+
+.autosave-interval-control select:focus-visible {
+  outline: 2px solid rgba(79, 140, 255, 0.72);
+  outline-offset: 2px;
 }
 
 .panel-body {
@@ -2129,6 +3211,104 @@ function candidateSnapshotFromBase(candidate: Stage2Candidate, id: string) {
   color: #ffffff;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: end center;
+  background: rgba(3, 7, 18, 0.58);
+  padding: 24px 16px 76px;
+}
+
+.batch-submit-modal {
+  display: grid;
+  gap: 16px;
+  width: min(720px, 100%);
+  border: 1px solid #4a5568;
+  border-radius: 8px;
+  background: #171b22;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.42);
+  color: #edf2f7;
+  padding: 18px;
+}
+
+.batch-submit-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.batch-submit-header h2 {
+  margin: 3px 0 0;
+  color: #f7fafc;
+  font-size: 20px;
+}
+
+.batch-submit-header strong {
+  max-width: 320px;
+  overflow-wrap: anywhere;
+  color: #bfdbfe;
+  font-size: 13px;
+}
+
+.batch-submit-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.batch-submit-stats span,
+.submit-blockers {
+  border: 1px solid #343d4c;
+  border-radius: 8px;
+  background: #0f131a;
+  padding: 10px;
+  color: #a0aec0;
+  font-size: 12px;
+}
+
+.batch-submit-stats strong {
+  margin-left: 4px;
+  color: #f7fafc;
+  font-size: 15px;
+}
+
+.submit-blockers {
+  border-color: rgba(245, 101, 101, 0.5);
+  background: rgba(245, 101, 101, 0.1);
+  color: #fed7d7;
+}
+
+.submit-blockers ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.submit-blockers li + li {
+  margin-top: 4px;
+}
+
+.batch-submit-note {
+  margin: 0;
+  color: #cbd5e0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.batch-submit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+@keyframes toolbar-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 button:disabled,
 input:disabled,
 select:disabled,
@@ -2171,6 +3351,14 @@ textarea:disabled {
   .candidate-editor,
   .label-edit-actions {
     grid-template-columns: 1fr;
+  }
+
+  .batch-submit-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .batch-submit-actions {
+    flex-direction: column-reverse;
   }
 
   .index-track {

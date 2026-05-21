@@ -11,7 +11,10 @@ import mimetypes
 import os
 from pathlib import Path
 import re
+import shutil
+import stat
 from typing import Any, Sequence
+import zipfile
 
 from fastapi import Request
 
@@ -31,6 +34,7 @@ from urban_violation_backend.api_schemas import (
     ChangedSampleSummary,
     CountDistributionItem,
     CurrentUserResponse,
+    DatasetDeleteResponse,
     DatasetTypeCreateRequest,
     DatasetTypeResponse,
     DatasetSummaryResponse,
@@ -51,6 +55,12 @@ from urban_violation_backend.api_schemas import (
     ImportMappingStep,
     ImportJobStatusResponse,
     ImportValidationRow,
+    BatchDraftSampleState,
+    BatchDraftSaveRequest,
+    BatchDraftSummaryResponse,
+    BatchDraftValidationState,
+    BatchSubmitRequest,
+    BatchSubmitResponse,
     LabelEditState,
     LabelEditSubmissionResponse,
     LabelEditOperation,
@@ -106,6 +116,7 @@ from urban_violation_backend.importer.parser import (
     normalize_media_url,
     pair_stage_samples,
     read_stage1_manifest,
+    read_stage1_manifest_with_failures,
     read_stage2_manifest,
 )
 from urban_violation_backend.labels import (
@@ -114,6 +125,7 @@ from urban_violation_backend.labels import (
     FileBackedLabelConfigRepository,
     InMemoryLabelConfigRepository,
     LabelConfigPersistenceError,
+    LabelConfigVersionConflictError,
     LabelFieldNotFoundError,
     LabelFieldConfig,
     LabelConfigValidationReport,
@@ -203,6 +215,10 @@ class LabelConfigPersistenceAccessError(ValueError):
     """Raised when persisted label config files cannot be reloaded safely."""
 
 
+class ArchiveUploadError(ValueError):
+    """Raised when an uploaded batch archive cannot be safely processed."""
+
+
 class LabelEditValidationFailedError(ValueError):
     """Raised when a submit_changes payload fails field-level validation."""
 
@@ -224,6 +240,9 @@ class RegisteredBatchRuntime:
     stage1_run_name: str | None
     stage2_run_name: str | None
     stage2_failure_artifact_count: int
+    hydration_warnings: list[str] = field(default_factory=list)
+    stage1_final_failed_ids: list[str] = field(default_factory=list)
+    stage2_missing_ids: list[str] = field(default_factory=list)
     samples: dict[str, FixtureSample] = field(default_factory=dict)
     pairs: dict[str, PairedSample] = field(default_factory=dict)
     reviews: dict[str, list[HumanReview]] = field(default_factory=dict)
@@ -232,9 +251,12 @@ class RegisteredBatchRuntime:
 
 SCOPE_PATTERN = re.compile(r"^(stage1|relation:[A-Za-z0-9_-]+|verification:[A-Za-z0-9_-]+|candidate:[A-Za-z0-9_-]+)$")
 SAFE_TAG_PATTERN = re.compile(r"^[\w\u4e00-\u9fff\s\-_/().,:#]+$")
+BATCH_KEY_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 MAX_SHORT_TEXT_LENGTH = 256
 MAX_LONG_TEXT_LENGTH = 2000
 OPEN_TAG_MAX_LENGTH = 64
+MAX_IMPORT_ARCHIVE_BYTES = 200 * 1024 * 1024
+MAX_IMPORT_ARCHIVE_EXTRACT_BYTES = 1024 * 1024 * 1024
 
 STAGE1_FIELDS = {"environment_analysis", "scene_elements", "key_anchors"}
 RELATION_FIELDS = {"subject", "relation", "object", "description", "bbox"}
@@ -304,7 +326,7 @@ class FixtureRuntimeService:
         self._label_config_store_root = (
             label_config_store_root.resolve()
             if label_config_store_root is not None
-            else self._dataset_root.parent.resolve()
+            else DEFAULT_RUNTIME_LABEL_CONFIG_ROOT.resolve()
         )
         self._dataset_type_registry_path = self._label_config_store_root / "dataset_types.json"
         self._batch_registry_path = self._label_config_store_root / "dataset_batches.json"
@@ -351,6 +373,7 @@ class FixtureRuntimeService:
         self._label_edit_counter = 0
         self._updated_at = datetime.now(timezone.utc)
         self._registered_batch_runtimes: dict[str, RegisteredBatchRuntime] = {}
+        self._registered_batch_runtime_errors: dict[str, str] = {}
         self._load_registered_batches()
         self._lifecycle_status = self._derive_lifecycle_status()
 
@@ -510,6 +533,186 @@ class FixtureRuntimeService:
                 return resolved
         return None
 
+    def _resolve_import_dataset_type(self, dataset_id: str, requested_dataset_type: str | None) -> str:
+        dataset_type = requested_dataset_type or (
+            dataset_id if dataset_id in self._dataset_type_display_names else self._resolve_dataset_type(dataset_id)
+        )
+        if dataset_type not in self._dataset_type_display_names:
+            raise DatasetNotFoundError(f"Dataset type not found: {dataset_type}")
+        return dataset_type
+
+    def _ensure_registered_batch_key_available(self, dataset_type: str, batch_key: str) -> None:
+        if not BATCH_KEY_PATTERN.match(batch_key):
+            raise ValueError(f"Invalid batch key: {batch_key}")
+        batch_dataset_id = f"{dataset_type}__{batch_key}"
+        if batch_dataset_id == self._dataset_id or batch_dataset_id in self._registered_batches:
+            raise ValueError(f"Dataset batch already exists: {batch_dataset_id}")
+
+    def max_import_archive_bytes(self) -> int:
+        raw_value = os.environ.get("PLATFORM_IMPORT_ARCHIVE_MAX_BYTES")
+        if raw_value is None:
+            return MAX_IMPORT_ARCHIVE_BYTES
+        try:
+            parsed = int(raw_value)
+        except ValueError:
+            return MAX_IMPORT_ARCHIVE_BYTES
+        return parsed if parsed > 0 else MAX_IMPORT_ARCHIVE_BYTES
+
+    def max_import_archive_extract_bytes(self) -> int:
+        raw_value = os.environ.get("PLATFORM_IMPORT_ARCHIVE_EXTRACT_MAX_BYTES")
+        if raw_value is None:
+            return MAX_IMPORT_ARCHIVE_EXTRACT_BYTES
+        try:
+            parsed = int(raw_value)
+        except ValueError:
+            return MAX_IMPORT_ARCHIVE_EXTRACT_BYTES
+        return parsed if parsed > 0 else MAX_IMPORT_ARCHIVE_EXTRACT_BYTES
+
+    @staticmethod
+    def _safe_archive_file_name(batch_key: str, archive_file_name: str | None) -> str:
+        raw_name = (archive_file_name or f"{batch_key}.zip").strip().replace("\\", "/").split("/")[-1]
+        if not raw_name:
+            raw_name = f"{batch_key}.zip"
+        safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", raw_name)
+        if not safe_name.lower().endswith(".zip"):
+            safe_name = f"{safe_name}.zip"
+        return safe_name
+
+    def prepare_import_archive_upload_path(
+        self,
+        *,
+        dataset_id: str,
+        batch_key: str,
+        dataset_type: str | None = None,
+        archive_file_name: str | None = None,
+    ) -> Path:
+        resolved_dataset_type = self._resolve_import_dataset_type(dataset_id, dataset_type)
+        self._ensure_registered_batch_key_available(resolved_dataset_type, batch_key)
+        archive_dir = (
+            self._platform_state_root
+            / "import_uploads"
+            / resolved_dataset_type
+            / batch_key
+            / "archives"
+        )
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        return archive_dir / self._safe_archive_file_name(batch_key, archive_file_name)
+
+    def _safe_extract_zip(self, archive_path: Path, destination: Path) -> None:
+        if not zipfile.is_zipfile(archive_path):
+            raise ArchiveUploadError("Uploaded archive must be a valid .zip file.")
+        destination.mkdir(parents=True, exist_ok=True)
+        resolved_destination = destination.resolve(strict=True)
+        extracted_files = 0
+        extracted_bytes = 0
+        max_extract_bytes = self.max_import_archive_extract_bytes()
+        with zipfile.ZipFile(archive_path) as archive:
+            for info in archive.infolist():
+                normalized_name = info.filename.replace("\\", "/")
+                parts = [part for part in normalized_name.split("/") if part and part != "."]
+                if not parts:
+                    continue
+                if parts[0] == "__MACOSX" or parts[-1] == ".DS_Store":
+                    continue
+                if normalized_name.startswith("/") or any(part == ".." for part in parts):
+                    raise ArchiveUploadError("Archive contains an unsafe path.")
+                file_mode = info.external_attr >> 16
+                if stat.S_ISLNK(file_mode):
+                    raise ArchiveUploadError("Archive symlinks are not supported.")
+                target_path = resolved_destination.joinpath(*parts)
+                if not target_path.resolve(strict=False).is_relative_to(resolved_destination):
+                    raise ArchiveUploadError("Archive path escapes the extraction directory.")
+                if info.is_dir():
+                    target_path.mkdir(parents=True, exist_ok=True)
+                    continue
+                extracted_bytes += info.file_size
+                if extracted_bytes > max_extract_bytes:
+                    raise ArchiveUploadError("Archive extracted content exceeds the configured size limit.")
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                with archive.open(info) as source, target_path.open("wb") as target:
+                    shutil.copyfileobj(source, target)
+                extracted_files += 1
+        if extracted_files == 0:
+            raise ArchiveUploadError("Archive does not contain any files.")
+
+    @staticmethod
+    def _looks_like_batch_source_root(path: Path) -> bool:
+        if (path / "images").is_dir():
+            return True
+        try:
+            children = list(path.iterdir())
+        except OSError:
+            return False
+        return any(child.is_dir() and child.name.lower().startswith("stage1") for child in children) or any(
+            child.is_dir() and child.name.lower().startswith("stage2") for child in children
+        )
+
+    def _select_extracted_source_root(self, extracted_root: Path, batch_key: str) -> Path:
+        direct_batch_root = extracted_root / batch_key
+        if direct_batch_root.is_dir() and self._looks_like_batch_source_root(direct_batch_root):
+            return direct_batch_root
+        if self._looks_like_batch_source_root(extracted_root):
+            return extracted_root
+        child_dirs = [
+            path
+            for path in extracted_root.iterdir()
+            if path.is_dir() and path.name != "__MACOSX" and self._looks_like_batch_source_root(path)
+        ]
+        if len(child_dirs) == 1:
+            return child_dirs[0]
+        raise ArchiveUploadError(
+            "Archive must contain a single batch root with images/, or stage1_run_*/stage2_run_* directories."
+        )
+
+    @staticmethod
+    def _infer_source_structure_from_root(source_root: Path) -> str:
+        has_stage1 = any(
+            path.is_dir() and (path.name.lower().startswith("stage1") or path.name.lower().startswith("step1"))
+            for path in source_root.iterdir()
+        )
+        has_stage2 = any(
+            path.is_dir() and (path.name.lower().startswith("stage2") or path.name.lower().startswith("step2"))
+            for path in source_root.iterdir()
+        )
+        return "images_with_preannotations" if has_stage1 or has_stage2 else "images_only"
+
+    def create_import_job_from_archive(
+        self,
+        *,
+        dataset_id: str,
+        request: ImportJobCreateRequest,
+        archive_path: Path,
+    ) -> ImportJobStatusResponse:
+        """Extract one uploaded zip archive into runtime state and register it as a batch."""
+        if not request.batch_key:
+            raise ArchiveUploadError("batch_key is required for archive uploads.")
+        dataset_type = self._resolve_import_dataset_type(dataset_id, request.dataset_type)
+        self._ensure_registered_batch_key_available(dataset_type, request.batch_key)
+        upload_root = self._platform_state_root / "import_uploads" / dataset_type / request.batch_key
+        extracting_root = upload_root / "extracting"
+        source_root = upload_root / "source"
+        shutil.rmtree(extracting_root, ignore_errors=True)
+        shutil.rmtree(source_root, ignore_errors=True)
+        extracting_root.mkdir(parents=True, exist_ok=True)
+        self._safe_extract_zip(archive_path, extracting_root)
+        selected_root = self._select_extracted_source_root(extracting_root, request.batch_key)
+        if selected_root == extracting_root:
+            extracting_root.replace(source_root)
+        else:
+            source_root.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(selected_root), str(source_root))
+            shutil.rmtree(extracting_root, ignore_errors=True)
+        source_structure = request.source_structure or self._infer_source_structure_from_root(source_root)
+        uploaded_request = request.model_copy(
+            update={
+                "dataset_type": dataset_type,
+                "source_mode": "uploaded_package",
+                "source_uri": str(source_root),
+                "source_structure": source_structure,
+            }
+        )
+        return self._create_registered_batch_import_job(dataset_id=dataset_id, request=uploaded_request)
+
     def _runtime_media_base_url(self, dataset_id: str) -> str:
         return f"/api/datasets/{dataset_id}/media/images"
 
@@ -567,6 +770,9 @@ class FixtureRuntimeService:
             stage1_run_name=None,
             stage2_run_name=None,
             stage2_failure_artifact_count=0,
+            hydration_warnings=[],
+            stage1_final_failed_ids=[],
+            stage2_missing_ids=[],
             samples=samples,
             reviews={sample_id: [] for sample_id in samples},
             label_edits={sample_id: [] for sample_id in samples},
@@ -580,6 +786,11 @@ class FixtureRuntimeService:
     ) -> RegisteredBatchRuntime:
         stage1_run_dir = discover_stage_run_dir(source_root, "stage1")
         stage2_run_dir = discover_stage_run_dir(source_root, "stage2")
+        stage1_entries, stage1_failed_entries = read_stage1_manifest_with_failures(
+            source_root,
+            stage1_run_dir=stage1_run_dir,
+        )
+        stage2_entries = read_stage2_manifest(source_root, stage2_run_dir=stage2_run_dir)
         bundle = import_fixture_samples(
             dataset_root=source_root,
             dataset_id=summary.dataset_id,
@@ -589,8 +800,18 @@ class FixtureRuntimeService:
             media_base_url=self._runtime_media_base_url(summary.dataset_id),
         )
         samples = {sample.sample_id: sample for sample in bundle.samples}
-        stage1_entries = read_stage1_manifest(source_root, stage1_run_dir=stage1_run_dir)
-        stage2_entries = read_stage2_manifest(source_root, stage2_run_dir=stage2_run_dir)
+        stage2_missing_ids = sorted(
+            sample_id for sample_id in samples if sample_id not in stage2_entries
+        )
+        hydration_warnings: list[str] = []
+        if stage1_failed_entries:
+            hydration_warnings.append(
+                f"Detected {len(stage1_failed_entries)} samples with final STEP1 failure state; excluded from queueable samples."
+            )
+        if stage2_missing_ids:
+            hydration_warnings.append(
+                f"Detected {len(stage2_missing_ids)} samples missing STEP2 manifest rows; kept as stage2_missing diagnostics."
+            )
         pairs = {
             pair.sample_id: pair
             for pair in pair_stage_samples(
@@ -609,6 +830,9 @@ class FixtureRuntimeService:
             stage1_run_name=stage1_run_dir.name,
             stage2_run_name=stage2_run_dir.name,
             stage2_failure_artifact_count=bundle.dataset.stage2_failure_count,
+            hydration_warnings=hydration_warnings,
+            stage1_final_failed_ids=sorted(stage1_failed_entries),
+            stage2_missing_ids=stage2_missing_ids,
             samples=samples,
             pairs=pairs,
             reviews={sample_id: [] for sample_id in samples},
@@ -636,10 +860,12 @@ class FixtureRuntimeService:
     ) -> RegisteredBatchRuntime | None:
         try:
             runtime = self._build_registered_batch_runtime(summary=summary, job=job)
-        except (FileNotFoundError, KeyError, ValueError, OSError):
+        except (FileNotFoundError, KeyError, ValueError, OSError) as exc:
+            self._registered_batch_runtime_errors[summary.dataset_id] = str(exc)
             return None
         if runtime is not None:
             self._registered_batch_runtimes[summary.dataset_id] = runtime
+            self._registered_batch_runtime_errors.pop(summary.dataset_id, None)
         return runtime
 
     def _is_fixture_dataset(self, dataset_id: str) -> bool:
@@ -896,6 +1122,14 @@ class FixtureRuntimeService:
                     dataset_id=dataset_id,
                 )
             if dataset_id not in self._registered_batch_runtimes:
+                hydration_error = self._registered_batch_runtime_errors.get(dataset_id)
+                if hydration_error:
+                    raise conflict(
+                        "source_not_ingested",
+                        f"Batch source hydration failed: {hydration_error}",
+                        dataset_id=dataset_id,
+                        hydration_error=hydration_error,
+                    )
                 raise conflict(
                     "source_not_ingested",
                     "Batch source must be ingested before QC queue generation.",
@@ -3124,6 +3358,59 @@ class FixtureRuntimeService:
             *sorted(registered, key=lambda item: item.dataset_id),
         ]
 
+    def delete_dataset_batch(self, *, dataset_id: str, context: AuthContext) -> DatasetDeleteResponse:
+        """Delete one registered dataset batch and its runtime state."""
+        if dataset_id in self._dataset_type_display_names:
+            raise conflict(
+                "dataset_batch_delete_forbidden",
+                "Dataset type id cannot be deleted as a dataset batch.",
+                dataset_id=dataset_id,
+            )
+        if dataset_id not in self._registered_batches:
+            if dataset_id in self._accepted_dataset_ids:
+                raise conflict(
+                    "dataset_batch_delete_forbidden",
+                    "Built-in fixture dataset cannot be deleted.",
+                    dataset_id=dataset_id,
+                )
+            raise DatasetNotFoundError(f"Dataset not found: {dataset_id}")
+
+        self._require_permission(context=context, action="dataset_batch:delete", dataset_id=dataset_id)
+        summary = self._registered_batches.pop(dataset_id)
+        self._registered_batch_runtimes.pop(dataset_id, None)
+        self._accepted_dataset_ids.discard(dataset_id)
+
+        removed_jobs = [
+            job_id
+            for job_id, job in self._import_jobs.items()
+            if job.dataset_id == dataset_id or job_id == summary.active_import_job_id
+        ]
+        for job_id in removed_jobs:
+            self._import_jobs.pop(job_id, None)
+
+        self._state_store.clear_qc_dataset_state(dataset_id)
+        removed_sample_pool_count = self._state_store.remove_sample_pool_items_for_dataset(dataset_id)
+        self._persist_registered_batches()
+        self._record_audit(
+            actor=context,
+            action="dataset_batch.delete",
+            entity="dataset_batch",
+            dataset_id=dataset_id,
+            details={
+                "dataset_type": summary.dataset_type,
+                "batch_key": summary.batch_key,
+                "removed_import_job_count": len(removed_jobs),
+                "removed_sample_pool_count": removed_sample_pool_count,
+            },
+            before=summary.model_dump(mode="json"),
+        )
+        return DatasetDeleteResponse(
+            deleted=True,
+            dataset_id=dataset_id,
+            dataset_type=summary.dataset_type,
+            batch_key=summary.batch_key,
+        )
+
     def _build_dataset_type_response(self, dataset_type: str) -> DatasetTypeResponse:
         """Build one dataset-type response row with its grouped batches."""
         if dataset_type not in self._dataset_type_display_names:
@@ -3259,6 +3546,18 @@ class FixtureRuntimeService:
     def list_users(self, context: AuthContext) -> list[UserAccountResponse]:
         self._require_permission(context=context, action="users:manage")
         return [self._to_user_response(user) for user in self._state_store.list_users()]
+
+    def list_assignable_users(
+        self,
+        dataset_id: str,
+        *,
+        context: AuthContext,
+    ) -> list[UserAccountResponse]:
+        """List active users that can be selected as batch assignees."""
+        self._require_dataset(dataset_id)
+        self._require_permission(context=context, action="batch_assignment:manage", dataset_id=dataset_id)
+        users = [user for user in self._state_store.list_users() if user.status == UserStatus.ACTIVE]
+        return [self._to_user_response(user) for user in sorted(users, key=lambda row: row.user_id)]
 
     def create_user(self, context: AuthContext, request: UserAccountCreateRequest) -> UserAccountResponse:
         self._require_permission(context=context, action="users:manage")
@@ -3510,16 +3809,42 @@ class FixtureRuntimeService:
         if not report.valid or config is None:
             raise LabelConfigValidationFailedError(report)
 
-        stored = self._label_config_repo.save(
-            dataset_id=dataset_type,
-            file_name=request.file_name,
+        stored = self._save_label_config_with_conflict_guard(
+            dataset_type=dataset_type,
+            dataset_id=dataset_id,
+            request=request,
             report=report,
             config=config,
-            activate=request.activate,
-            save_as_new_version=request.save_as_new_version,
         )
         self._lifecycle_status = self._derive_lifecycle_status()
         return self._bind_label_config_to_dataset(stored=stored, dataset_id=dataset_id)
+
+    def _save_label_config_with_conflict_guard(
+        self,
+        *,
+        dataset_type: str,
+        dataset_id: str,
+        request: LabelConfigSaveRequest,
+        report: LabelConfigValidationReport,
+        config: DatasetLabelConfig,
+    ) -> StoredLabelConfig:
+        try:
+            stored = self._label_config_repo.save(
+                dataset_id=dataset_type,
+                file_name=request.file_name,
+                report=report,
+                config=config,
+                activate=request.activate,
+                save_as_new_version=request.save_as_new_version,
+            )
+        except LabelConfigVersionConflictError as exc:
+            raise conflict(
+                "label_config_version_conflict",
+                str(exc),
+                dataset_id=dataset_id,
+                version=config.version,
+            ) from exc
+        return stored
 
     def activate_label_config(self, dataset_id: str, config_id: str) -> StoredLabelConfig:
         """Activate a previously saved label config version."""
@@ -3885,20 +4210,15 @@ class FixtureRuntimeService:
             warnings=[],
         )
 
-    def submit_label_edits(
+    def _require_assigned_batch_for_user(
         self,
-        dataset_id: str,
-        sample_id: str,
-        request: LabelEditSubmitRequest,
         *,
+        dataset_id: str,
         context: AuthContext,
-    ) -> LabelEditSubmitResponse:
-        """Save reviewDraft patch as draft or submitted label-edit state."""
-        self._require_sample(dataset_id, sample_id)
-        self._require_permission(context=context, action="label_edit:write", dataset_id=dataset_id)
+        require_editable: bool,
+    ) -> tuple[str, BatchQcAssignment]:
+        """Ensure the current user owns the batch assignment and it is editable when required."""
         active_dataset_id = self._effective_batch_dataset_id(dataset_id)
-        label_edits = self._label_edits_for_dataset(dataset_id)
-
         assignment = self._state_store.get_assignment(active_dataset_id)
         if assignment is None:
             raise conflict(
@@ -3913,6 +4233,37 @@ class FixtureRuntimeService:
                 dataset_id=active_dataset_id,
                 assignee_user_id=assignment.assignee_user_id,
             )
+        if require_editable and assignment.status not in {
+            BatchAssignmentStatus.ASSIGNED,
+            BatchAssignmentStatus.IN_PROGRESS,
+            BatchAssignmentStatus.RETURNED,
+        }:
+            raise conflict(
+                "batch_assignment_not_editable",
+                "Batch assignment is not editable.",
+                dataset_id=active_dataset_id,
+                assignment_status=assignment.status.value,
+            )
+        return active_dataset_id, assignment
+
+    def submit_label_edits(
+        self,
+        dataset_id: str,
+        sample_id: str,
+        request: LabelEditSubmitRequest,
+        *,
+        context: AuthContext,
+    ) -> LabelEditSubmitResponse:
+        """Save reviewDraft patch as draft or submitted label-edit state."""
+        self._require_sample(dataset_id, sample_id)
+        self._require_permission(context=context, action="label_edit:write", dataset_id=dataset_id)
+        active_dataset_id = self._effective_batch_dataset_id(dataset_id)
+        label_edits = self._label_edits_for_dataset(dataset_id)
+        self._require_assigned_batch_for_user(
+            dataset_id=dataset_id,
+            context=context,
+            require_editable=True,
+        )
 
         if request.lease_id is None:
             raise conflict(
@@ -4293,22 +4644,11 @@ class FixtureRuntimeService:
     ) -> LeaseAcquireResponse:
         self._require_sample(dataset_id, sample_id)
         self._require_permission(context=context, action="label_edit:write", dataset_id=dataset_id)
-        active_dataset_id = self._effective_batch_dataset_id(dataset_id)
-
-        assignment = self._state_store.get_assignment(active_dataset_id)
-        if assignment is None:
-            raise conflict(
-                "batch_assignment_required",
-                "Batch assignment is required before lease acquire.",
-                dataset_id=active_dataset_id,
-            )
-        if assignment.assignee_user_id != context.user_id:
-            raise conflict(
-                "batch_assigned_to_other_user",
-                "Batch is assigned to another user.",
-                dataset_id=active_dataset_id,
-                assignee_user_id=assignment.assignee_user_id,
-            )
+        active_dataset_id, _ = self._require_assigned_batch_for_user(
+            dataset_id=dataset_id,
+            context=context,
+            require_editable=True,
+        )
 
         task = self._get_task(active_dataset_id, sample_id)
         active = self._active_lease_for_sample(active_dataset_id, sample_id)
@@ -4465,6 +4805,458 @@ class FixtureRuntimeService:
         if draft is None:
             return None
         return self._to_draft_response(draft)
+
+    @staticmethod
+    def _validation_error_count(validation: BatchDraftValidationState | None) -> int:
+        if validation is None:
+            return 0
+        if validation.error_count > 0:
+            return validation.error_count
+        return len(validation.errors)
+
+    def _build_batch_draft_summary(
+        self,
+        *,
+        active_dataset_id: str,
+        user_id: str,
+        assignment_id: str | None,
+        stored_manifest: dict[str, Any] | None,
+    ) -> BatchDraftSummaryResponse:
+        entries_by_sample: dict[str, BatchDraftSampleState] = {}
+        for draft in self._state_store.list_drafts_for_user(active_dataset_id, user_id):
+            entries_by_sample[draft.sample_id] = BatchDraftSampleState(
+                sample_id=draft.sample_id,
+                draft_id=draft.draft_id,
+                task_id=draft.task_id,
+                lease_id=draft.lease_id,
+                base_revision=draft.base_revision,
+                label_config_id=draft.label_config_id,
+                label_config_version=draft.label_config_version,
+                operations=[LabelEditOperation.model_validate(item) for item in draft.operations],
+                dirty=False,
+                saved=True,
+                validation=None,
+                updated_at=draft.updated_at,
+            )
+
+        manifest_updated_at: datetime | None = None
+        if stored_manifest:
+            manifest_updated_at_raw = stored_manifest.get("updated_at")
+            if manifest_updated_at_raw:
+                manifest_updated_at = datetime.fromisoformat(str(manifest_updated_at_raw))
+            for raw_entry in stored_manifest.get("entries", []):
+                entry = BatchDraftSampleState.model_validate(raw_entry)
+                current = entries_by_sample.get(entry.sample_id)
+                if current is not None:
+                    merged = current.model_copy(
+                        update={
+                            "dirty": entry.dirty,
+                            "saved": entry.saved,
+                            "validation": entry.validation,
+                            "updated_at": entry.updated_at or current.updated_at,
+                        }
+                    )
+                    entries_by_sample[entry.sample_id] = merged
+                else:
+                    entries_by_sample[entry.sample_id] = entry
+
+        entries = sorted(entries_by_sample.values(), key=lambda item: item.sample_id)
+        dirty_count = sum(1 for entry in entries if entry.dirty)
+        saved_count = sum(1 for entry in entries if entry.saved)
+        validation_error_count = sum(self._validation_error_count(entry.validation) for entry in entries)
+        last_updated = max((entry.updated_at for entry in entries if entry.updated_at is not None), default=None)
+        if manifest_updated_at is not None and (last_updated is None or manifest_updated_at > last_updated):
+            last_updated = manifest_updated_at
+        return BatchDraftSummaryResponse(
+            dataset_id=active_dataset_id,
+            user_id=user_id,
+            assignment_id=assignment_id,
+            sample_count=len(entries),
+            dirty_count=dirty_count,
+            saved_count=saved_count,
+            validation_error_count=validation_error_count,
+            entries=entries,
+            updated_at=last_updated,
+        )
+
+    def get_my_batch_draft(
+        self,
+        dataset_id: str,
+        *,
+        context: AuthContext,
+    ) -> BatchDraftSummaryResponse:
+        self._require_dataset(dataset_id)
+        self._require_permission(context=context, action="label_edit:write", dataset_id=dataset_id)
+        active_dataset_id, assignment = self._require_assigned_batch_for_user(
+            dataset_id=dataset_id,
+            context=context,
+            require_editable=False,
+        )
+        stored_manifest = self._state_store.get_batch_draft(active_dataset_id, context.user_id)
+        return self._build_batch_draft_summary(
+            active_dataset_id=active_dataset_id,
+            user_id=context.user_id,
+            assignment_id=assignment.assignment_id,
+            stored_manifest=stored_manifest,
+        )
+
+    def _upsert_label_edit_draft(
+        self,
+        *,
+        dataset_id: str,
+        user_id: str,
+        task: QcTask,
+        lease_id: str | None,
+        base_revision: int,
+        label_config_id: str | None,
+        label_config_version: str | None,
+        operations: list[LabelEditOperation],
+        now: datetime,
+    ) -> LabelEditDraft:
+        existing = self._state_store.get_draft(dataset_id, task.sample_id, user_id)
+        created_at = existing.created_at if existing is not None else now
+        draft_id = existing.draft_id if existing is not None else self._state_store.new_id("draft")
+        normalized_lease_id = lease_id or (existing.lease_id if existing is not None else "")
+        draft = LabelEditDraft(
+            draft_id=draft_id,
+            dataset_id=dataset_id,
+            sample_id=task.sample_id,
+            user_id=user_id,
+            task_id=task.task_id,
+            lease_id=normalized_lease_id,
+            base_revision=base_revision,
+            label_config_id=label_config_id,
+            label_config_version=label_config_version,
+            operations=[op.model_dump(mode="json") for op in operations],
+            created_at=created_at,
+            updated_at=now,
+        )
+        self._state_store.save_draft(draft)
+        return draft
+
+    def save_my_batch_draft(
+        self,
+        dataset_id: str,
+        request: BatchDraftSaveRequest,
+        *,
+        context: AuthContext,
+        source: str,
+    ) -> BatchDraftSummaryResponse:
+        self._require_dataset(dataset_id)
+        self._require_permission(context=context, action="label_edit:write", dataset_id=dataset_id)
+        active_dataset_id, assignment = self._require_assigned_batch_for_user(
+            dataset_id=dataset_id,
+            context=context,
+            require_editable=True,
+        )
+        now = self._state_store.now()
+        entries_for_manifest: list[dict[str, Any]] = []
+        submitted_entries: list[BatchDraftSampleState] = []
+        for entry in request.entries:
+            self._require_sample(dataset_id, entry.sample_id)
+            task = self._get_task(active_dataset_id, entry.sample_id)
+            if entry.base_revision is not None and entry.base_revision != task.task_revision:
+                raise conflict(
+                    "base_revision_conflict",
+                    "Base revision is stale.",
+                    sample_id=entry.sample_id,
+                    expected_revision=task.task_revision,
+                    actual_revision=entry.base_revision,
+                )
+            if entry.lease_id is not None:
+                active_lease = self._active_lease_for_sample(active_dataset_id, entry.sample_id)
+                if active_lease is None:
+                    raise conflict(
+                        "lease_required",
+                        "Active sample lease is required.",
+                        dataset_id=active_dataset_id,
+                        sample_id=entry.sample_id,
+                    )
+                if active_lease.lease_id != entry.lease_id:
+                    raise conflict(
+                        "lease_required",
+                        "Lease id does not match active lease.",
+                        sample_id=entry.sample_id,
+                        lease_id=entry.lease_id,
+                    )
+                if active_lease.user_id != context.user_id or active_lease.status != LeaseStatus.ACTIVE:
+                    raise conflict(
+                        "lease_owned_by_other_user",
+                        "Lease is not editable by current user.",
+                        sample_id=entry.sample_id,
+                        lease_id=entry.lease_id,
+                    )
+            base_revision = entry.base_revision if entry.base_revision is not None else task.task_revision
+            saved_draft = self._upsert_label_edit_draft(
+                dataset_id=active_dataset_id,
+                user_id=context.user_id,
+                task=task,
+                lease_id=entry.lease_id,
+                base_revision=base_revision,
+                label_config_id=entry.label_config_id or task.label_config_id,
+                label_config_version=entry.label_config_version or task.label_config_version,
+                operations=entry.operations,
+                now=now,
+            )
+            if task.status in {
+                QcTaskStatus.ASSIGNED,
+                QcTaskStatus.IN_PROGRESS,
+                QcTaskStatus.RETURNED,
+                QcTaskStatus.QUEUED,
+            }:
+                self._save_task(
+                    active_dataset_id,
+                    task.model_copy(
+                        update={
+                            "status": QcTaskStatus.DRAFT_SAVED,
+                            "claimed_at": task.claimed_at or now,
+                        }
+                    ),
+                )
+            state = BatchDraftSampleState(
+                sample_id=entry.sample_id,
+                draft_id=saved_draft.draft_id,
+                task_id=task.task_id,
+                lease_id=saved_draft.lease_id or None,
+                base_revision=saved_draft.base_revision,
+                label_config_id=saved_draft.label_config_id,
+                label_config_version=saved_draft.label_config_version,
+                operations=[LabelEditOperation.model_validate(item) for item in saved_draft.operations],
+                dirty=False,
+                saved=True,
+                validation=entry.validation,
+                updated_at=now,
+            )
+            entries_for_manifest.append(state.model_dump(mode="json"))
+            submitted_entries.append(state)
+
+        if assignment.status in {BatchAssignmentStatus.ASSIGNED, BatchAssignmentStatus.RETURNED}:
+            updated_assignment = assignment.model_copy(update={"status": BatchAssignmentStatus.IN_PROGRESS})
+            self._state_store.save_assignment(updated_assignment)
+            assignment = updated_assignment
+
+        manifest_payload = {
+            "dataset_id": active_dataset_id,
+            "user_id": context.user_id,
+            "assignment_id": assignment.assignment_id,
+            "source": source,
+            "updated_at": now.isoformat(),
+            "entries": entries_for_manifest,
+        }
+        self._state_store.save_batch_draft(active_dataset_id, context.user_id, manifest_payload)
+        self._record_audit(
+            actor=context,
+            action=("label_edit.batch_autosave" if source == "autosave" else "label_edit.batch_save_draft"),
+            entity="label_edit_batch_draft",
+            dataset_id=active_dataset_id,
+            details={
+                "entry_count": len(submitted_entries),
+                "source": source,
+                "assignment_id": assignment.assignment_id,
+            },
+        )
+        return self._build_batch_draft_summary(
+            active_dataset_id=active_dataset_id,
+            user_id=context.user_id,
+            assignment_id=assignment.assignment_id,
+            stored_manifest=manifest_payload,
+        )
+
+    def _release_user_active_leases(
+        self,
+        *,
+        dataset_id: str,
+        user_id: str,
+        released_by: AuthContext,
+    ) -> int:
+        now = self._state_store.now()
+        leases = self._state_store.list_leases(dataset_id)
+        released_count = 0
+        updated: list[SampleLease] = []
+        for lease in leases:
+            if lease.user_id == user_id and lease.status == LeaseStatus.ACTIVE:
+                released_count += 1
+                updated.append(
+                    lease.model_copy(
+                        update={
+                            "status": LeaseStatus.RELEASED,
+                            "released_at": now,
+                        }
+                    )
+                )
+            else:
+                updated.append(lease)
+        if released_count > 0:
+            self._state_store.save_leases(dataset_id, updated)
+            self._record_audit(
+                actor=released_by,
+                action="sample_lease.release_batch",
+                entity="sample_lease",
+                dataset_id=dataset_id,
+                details={"count": released_count, "user_id": user_id},
+            )
+        return released_count
+
+    def submit_label_edit_batch(
+        self,
+        dataset_id: str,
+        request: BatchSubmitRequest,
+        *,
+        context: AuthContext,
+    ) -> BatchSubmitResponse:
+        self._require_dataset(dataset_id)
+        self._require_permission(context=context, action="label_edit:write", dataset_id=dataset_id)
+        active_dataset_id, assignment = self._require_assigned_batch_for_user(
+            dataset_id=dataset_id,
+            context=context,
+            require_editable=True,
+        )
+        # Batch-level submit contract requires an active label config even before sample iteration.
+        self.get_active_label_config(dataset_id)
+        if request.unsaved_dirty_sample_ids:
+            raise conflict(
+                "batch_submit_blocked_unsaved_dirty",
+                "Batch submit blocked by unsaved dirty entries.",
+                sample_ids=request.unsaved_dirty_sample_ids,
+            )
+        if request.validation_error_sample_ids:
+            raise conflict(
+                "batch_submit_blocked_validation_errors",
+                "Batch submit blocked by validation errors.",
+                sample_ids=request.validation_error_sample_ids,
+            )
+
+        drafts = self._state_store.list_drafts_for_user(active_dataset_id, context.user_id)
+        now = self._state_store.now()
+        submitted_sample_count = 0
+        validation_blocked_samples: list[str] = []
+        ready_items: list[tuple[LabelEditDraft, QcTask]] = []
+        for draft in drafts:
+            task = self._get_task(active_dataset_id, draft.sample_id)
+            if task.assignee_user_id != context.user_id:
+                raise conflict(
+                    "batch_assigned_to_other_user",
+                    "Task assignee differs from current user.",
+                    sample_id=draft.sample_id,
+                    task_assignee_user_id=task.assignee_user_id,
+                )
+            if draft.base_revision != task.task_revision:
+                raise conflict(
+                    "base_revision_conflict",
+                    "Base revision is stale.",
+                    sample_id=draft.sample_id,
+                    expected_revision=task.task_revision,
+                    actual_revision=draft.base_revision,
+                )
+
+            operations = [LabelEditOperation.model_validate(item) for item in draft.operations]
+            validation = self.validate_label_edits(
+                dataset_id=dataset_id,
+                sample_id=draft.sample_id,
+                request=LabelEditValidateRequest(
+                    task_mode="label_edit",
+                    label_config_id=draft.label_config_id,
+                    label_config_version=draft.label_config_version,
+                    operations=operations,
+                ),
+            )
+            if not validation.valid:
+                validation_blocked_samples.append(draft.sample_id)
+                continue
+            ready_items.append((draft, task))
+
+        if validation_blocked_samples:
+            raise conflict(
+                "batch_submit_blocked_validation_errors",
+                "Batch submit blocked by validation errors.",
+                sample_ids=validation_blocked_samples,
+            )
+
+        for draft, task in ready_items:
+            submission = LabelEditSubmission(
+                submission_id=self._state_store.new_id("subm"),
+                dataset_id=active_dataset_id,
+                sample_id=draft.sample_id,
+                user_id=context.user_id,
+                task_id=task.task_id,
+                lease_id=draft.lease_id,
+                base_revision=draft.base_revision,
+                label_config_id=draft.label_config_id,
+                label_config_version=draft.label_config_version,
+                operations=draft.operations,
+                created_at=now,
+            )
+            self._state_store.save_submission(submission)
+            updated_task = task.model_copy(
+                update={
+                    "status": QcTaskStatus.SUBMITTED,
+                    "submitted_at": now,
+                    "latest_submission_id": submission.submission_id,
+                    "task_revision": task.task_revision + 1,
+                    "label_config_id": draft.label_config_id or task.label_config_id,
+                    "label_config_version": draft.label_config_version or task.label_config_version,
+                }
+            )
+            self._save_task(active_dataset_id, updated_task)
+            self._state_store.delete_draft(active_dataset_id, draft.sample_id, context.user_id)
+            submitted_sample_count += 1
+            self._record_audit(
+                actor=context,
+                action="label_edit.submit",
+                entity="label_edit_submission",
+                dataset_id=active_dataset_id,
+                sample_id=draft.sample_id,
+                details={"task_id": task.task_id, "submission_id": submission.submission_id, "source": "batch"},
+            )
+
+        released_lease_count = self._release_user_active_leases(
+            dataset_id=active_dataset_id,
+            user_id=context.user_id,
+            released_by=context,
+        )
+        updated_assignment = assignment.model_copy(
+            update={
+                "status": BatchAssignmentStatus.SUBMITTED,
+                "submitted_at": now,
+            }
+        )
+        self._state_store.save_assignment(updated_assignment)
+        self._state_store.save_batch_draft(
+            active_dataset_id,
+            context.user_id,
+            {
+                "dataset_id": active_dataset_id,
+                "user_id": context.user_id,
+                "assignment_id": updated_assignment.assignment_id,
+                "source": "submitted",
+                "updated_at": now.isoformat(),
+                "entries": [],
+            },
+        )
+        self._record_audit(
+            actor=context,
+            action="label_edit.submit_batch",
+            entity="label_edit_batch_submission",
+            dataset_id=active_dataset_id,
+            details={
+                "assignment_id": updated_assignment.assignment_id,
+                "submitted_sample_count": submitted_sample_count,
+                "released_lease_count": released_lease_count,
+                "notes": request.notes or "",
+            },
+            before=assignment.model_dump(mode="json"),
+            after=updated_assignment.model_dump(mode="json"),
+        )
+        return BatchSubmitResponse(
+            submitted=True,
+            dataset_id=active_dataset_id,
+            assignment_id=updated_assignment.assignment_id,
+            assignee_user_id=updated_assignment.assignee_user_id,
+            status=updated_assignment.status,
+            submitted_sample_count=submitted_sample_count,
+            released_lease_count=released_lease_count,
+            submitted_at=now,
+        )
 
     def get_label_edit_history(
         self,
@@ -5175,15 +5967,19 @@ class FixtureRuntimeService:
         try:
             runtime = self._build_registered_batch_runtime(summary=summary, job=job)
         except (FileNotFoundError, KeyError, ValueError, OSError) as exc:
-            runtime_warnings.append(f"Source directory could not be ingested: {exc}")
+            error_message = str(exc)
+            runtime_warnings.append(f"Source directory could not be ingested: {error_message}")
+            self._registered_batch_runtime_errors[batch_dataset_id] = error_message
 
         if runtime is not None:
+            self._registered_batch_runtime_errors.pop(batch_dataset_id, None)
             actual_total = len(runtime.samples)
             actual_stage1 = actual_total if runtime.stage1_run_name is not None else 0
             actual_stage2_success = sum(
                 1 for sample in runtime.samples.values() if sample.stage2 is not None
             )
             actual_stage2_failures = runtime.stage2_failure_artifact_count
+            runtime_warnings.extend(runtime.hydration_warnings)
             if request.source_structure == "images_only":
                 runtime_warnings.append(
                     "Batch contains images only; STEP1/STEP2 pre-annotation is required before QC."
@@ -5605,6 +6401,9 @@ class FixtureRuntimeService:
 DEFAULT_DATASET_ROOT = Path(
     "/mnt/lc/LC/ares_xtws/0_train_data/data_platform/DATASET/urban_violation"
 )
+DEFAULT_RUNTIME_LABEL_CONFIG_ROOT = (
+    Path(__file__).resolve().parents[2] / ".runtime" / "label_config_state"
+)
 DEFAULT_FIXTURE_SAMPLE_IDS = (
     "000142_0_1762483003246",
     "001710_0_1763108687181",
@@ -5612,16 +6411,31 @@ DEFAULT_FIXTURE_SAMPLE_IDS = (
 
 
 def build_fixture_service(
-    dataset_root: Path = DEFAULT_DATASET_ROOT,
+    dataset_root: Path | None = None,
     sample_ids: Sequence[str] | None = None,
     label_config_store_root: Path | None = None,
     platform_state_root: Path | None = None,
 ) -> FixtureRuntimeService:
-    """Factory for runtime service with deterministic defaults."""
+    """Factory for runtime service with deterministic defaults.
+
+    Dataset root resolution order:
+    1. explicit ``dataset_root`` argument
+    2. ``DATASET_ROOT`` environment variable
+    3. ``DEFAULT_DATASET_ROOT`` development fallback
+    """
+    env_dataset_root = os.environ.get("DATASET_ROOT")
+    resolved_dataset_root = (
+        dataset_root
+        if dataset_root is not None
+        else (Path(env_dataset_root).resolve() if env_dataset_root else DEFAULT_DATASET_ROOT)
+    )
     env_store_root = os.environ.get("LABEL_CONFIG_STORE_ROOT")
-    resolved_store_root = label_config_store_root or (Path(env_store_root) if env_store_root else None)
+    resolved_store_root = (
+        label_config_store_root
+        or (Path(env_store_root).resolve() if env_store_root else DEFAULT_RUNTIME_LABEL_CONFIG_ROOT.resolve())
+    )
     return FixtureRuntimeService(
-        dataset_root=dataset_root,
+        dataset_root=resolved_dataset_root,
         sample_ids=sample_ids,
         label_config_store_root=resolved_store_root,
         platform_state_root=platform_state_root,
