@@ -140,6 +140,7 @@ import LabelConfigUploadPanel from '../features/datasets/components/LabelConfigU
 import AppShell from '../app/layouts/AppShell.vue';
 import LoginPage from '../features/auth/LoginPage.vue';
 import AccountPage from '../features/account/AccountPage.vue';
+import AuditPage from '../features/audit/AuditPage.vue';
 import UsersPage from '../features/users/UsersPage.vue';
 import { router as appRouter } from '../app/router';
 import { useAuthState } from '../features/auth/authState';
@@ -1248,6 +1249,33 @@ describe('route rendering and live route states', () => {
 
     expect(window.localStorage.getItem('uvp.devUserId')).toBe('annotator_a');
     expect(router.currentRoute.value.path).toBe('/sample-pool');
+    wrapper.unmount();
+  });
+
+  it('loads audit events without assuming the fixture dataset batch', async () => {
+    mockApiClient.listAuditEvents.mockResolvedValue([]);
+    mockApiClient.getQcProgress.mockResolvedValue({
+      datasetId: 'urban_violation__uploaded',
+      byStatus: {},
+      byUser: [],
+      total: 0,
+      updatedAt: '2026-05-21T00:00:00Z',
+    });
+
+    const wrapper = mount(AuditPage);
+    await flushPromises();
+
+    const initialFilters = mockApiClient.listAuditEvents.mock.calls[0]?.[0];
+    expect(initialFilters).toBeDefined();
+    expect(initialFilters?.datasetId).toBeUndefined();
+    expect(mockApiClient.getQcProgress).not.toHaveBeenCalled();
+
+    await wrapper.find('input[placeholder="dataset_id"]').setValue('urban_violation__uploaded');
+    await wrapper.find('form.filters').trigger('submit.prevent');
+    await flushPromises();
+
+    expect(mockApiClient.listAuditEvents.mock.calls[1]?.[0]?.datasetId).toBe('urban_violation__uploaded');
+    expect(mockApiClient.getQcProgress).toHaveBeenCalledWith('urban_violation__uploaded');
     wrapper.unmount();
   });
 
