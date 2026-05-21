@@ -330,3 +330,9 @@ Lead integration must run at minimum:
 - `VITE_API_BASE_URL=/api npm run build`
 - `git diff --check`
 - Docker config/build checks once Compose changes begin.
+
+## Related Documents
+
+- [State Persistence Boundaries](./state-persistence-boundaries.md)
+- [PostgreSQL + Redis Migration Runbook](./postgres-redis-migration-runbook.md)
+- [Docker LAN Deployment](./deployment.md)

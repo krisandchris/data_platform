@@ -5,9 +5,9 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 ## Phases
 
 1. Baseline and contract freeze.
-   - Status: in progress. Backend, QA, and Docs first-pass branches have completed; pending Lead Agent review and integration merge.
+   - Status: complete. Backend, QA, and Docs first-pass branches were merged and verified on `integration/TASK-019`.
 2. Store interface extraction.
-   - Status: in progress in `agent/TASK-019/backend/state-contracts`; pending Lead Agent review and integration merge.
+   - Status: complete. Backend protocol extraction and QA contract tests passed integration verification.
 3. PostgreSQL foundation for identity, registry, label config, import jobs, and audit.
    - Status: pending.
 4. PostgreSQL migration for QC, drafts, submissions, sample pool, exports, and evaluations.
@@ -22,14 +22,15 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 ## Agent Branches
 
 - `integration/TASK-019`
-- `agent/TASK-019/backend/state-contracts`
-- `agent/TASK-019/backend/db-foundation`
-- `agent/TASK-019/backend/qc-state`
-- `agent/TASK-019/backend/redis-runtime`
-- `agent/TASK-019/backend/import-tool`
-- `agent/TASK-019/frontend/progress-and-lease`
-- `agent/TASK-019/qa/test-matrix`
-- `agent/TASK-019/docs/runbooks`
+- Merged: `agent/TASK-019/backend/state-contracts` at `e1d145f`
+- Merged: `agent/TASK-019/qa/test-matrix` at `d64fc60`
+- Merged: `agent/TASK-019/docs/runbooks` at `df52cae`
+- Planned later:
+  - `agent/TASK-019/backend/db-foundation`
+  - `agent/TASK-019/backend/qc-state`
+  - `agent/TASK-019/backend/redis-runtime`
+  - `agent/TASK-019/backend/import-tool`
+  - `agent/TASK-019/frontend/progress-and-lease`
 
 ## Constraints
 
@@ -56,3 +57,28 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 Detailed sub-agent sequence and per-phase test design:
 
 - `docs/architecture/state_migration_agent_sequence.md`
+
+## Phase 1 Deliverables
+
+- Backend:
+  - Extract `PlatformStateStoreProtocol`.
+  - Extract `LabelConfigRepositoryProtocol`.
+  - Switch `FixtureRuntimeService`, `AuthService`, and `build_fixture_service` to protocol-typed dependencies.
+  - Keep default runtime wiring file-backed.
+- QA:
+  - Add file-backed state store contract tests.
+  - Add label config repository contract tests.
+  - Record baseline backend/frontend/docker-compose checks.
+- Docs:
+  - Document persistence boundaries.
+  - Document PostgreSQL/Redis migration runbook and operational gates.
+
+## Phase 1 Integration Verification
+
+- `git diff --check` -> passed.
+- `git diff --cached --check` -> passed.
+- `uv run pytest -k 'state_store_contract or label_config_repository_contract' -q` -> 4 passed.
+- `uv run pytest` -> 93 passed.
+- `npm run test` in `frontend/` with Node 20 -> 6 files passed, 114 tests passed.
+- `VITE_API_BASE_URL=/api npm run build` in `frontend/` with Node 20 -> passed.
+- `uv run python scripts/docker-compose-auto-subnet.py config` -> passed.

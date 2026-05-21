@@ -29,6 +29,33 @@
 
 - Backend Phase 1 branch is complete and clean at `e1d145f`; it added internal Python protocol boundaries without dependency changes or external API schema changes.
 - QA contract baseline branch is complete and clean at `d64fc60`; new file-backed store contract tests passed repeatedly.
+- Docs branch completed at `df52cae` with a clean worktree and docs-only handoff.
+- Sub-agent status polling for Docs did not emit a completion event before notification arrived, so Lead Agent also verified completion from git state and handoff contents.
+
+## Phase 1 Backend Findings
+
+- `FixtureRuntimeService` had direct concrete coupling to both `PlatformStateStore` and `FileBackedLabelConfigRepository`, which blocked later store substitution without touching service logic.
+- `AuthService` also typed directly to `PlatformStateStore`; this was updated to the protocol boundary so auth/session logic can operate with future database-backed stores.
+- Extracted protocol surface reflects real current usage:
+  - state store methods used by runtime/auth (users, sessions, RBAC bindings, QC state, drafts/submissions, snapshots/events, sample pool, exports/evaluations).
+  - label config repository methods used by runtime (list/save/activate/get_active/reload_active).
+- Protocol extraction does not alter external API schemas or route payload structure.
+
+## Phase 1 QA Findings
+
+- Added `tests/test_state_store_contract.py` to baseline file-backed behavior for users, role bindings, sessions, audit events, assignment, tasks, leases, drafts, submissions, snapshots, modification events, sample pool, exports, evaluations, and cleanup methods.
+- Added `tests/test_label_config_repository_contract.py` to validate save/default activation, hash dedup, version conflict, and active reload behavior.
+- Focused contract tests passed 5/5 repeated runs with 0 observed failures.
 - Full backend test runs in Backend/QA worktrees reported existing failures tied to missing `DATASET/urban` fixture data in those isolated worktrees, not a confirmed regression from the new protocol/test changes.
 - Frontend baseline commands in the QA worktree failed because `frontend/node_modules` was absent (`vitest` and `vue-tsc` not found); this requires dependency install or verification in the main workspace before final integration signoff.
-- Docs branch completed at `df52cae` with a clean worktree and docs-only handoff. Sub-agent status polling did not emit a completion event, so Lead Agent verified completion from git state and handoff contents.
+
+## Phase 1 Docs Findings
+
+- Current Compose file is at repository root `docker-compose.yml`, not `deploy/docker-compose.yml`.
+- Current Docker deployment is file-backed with backend/frontend services only; PostgreSQL and Redis are TASK-019 future rollout services.
+- `PlatformStateStore` stores users, role bindings, sessions, audit JSONL, QC assignments/tasks/leases, drafts, submissions, snapshots, modification events, sample pool items, export jobs, and evaluations under `PLATFORM_STATE_ROOT`.
+- `FileBackedLabelConfigRepository` stores label config versions, registries, and active pointers under `LABEL_CONFIG_STORE_ROOT/{dataset_type}/label_configs`.
+- `FixtureRuntimeService` persists dataset type and registered batch registries under `LABEL_CONFIG_STORE_ROOT`, while `_registered_batch_runtimes` is hydrated from source paths and must remain a rebuildable derived cache.
+- Uploaded archives and extracted uploaded batch sources live under `PLATFORM_STATE_ROOT/import_uploads/{dataset_type}/{batch_key}` and must remain filesystem state.
+- Export job metadata is mutable platform state, but generated export artifact files are filesystem artifacts and must not be stored as PostgreSQL blobs.
+- Redis loss must be treated as loss of active locks/progress/cache only; it must not lose drafts, submissions, audit, label configs, users, roles, or batch metadata.
