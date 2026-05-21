@@ -88,6 +88,12 @@ No.
 ## Phase 3 Dispatch Notes
 
 - Phase 3 starts from verified commit `a737c5b` on `main`.
+- Phase 3 dispatch record is committed at `c04223a`.
+- Active integration branch: `integration/TASK-019`.
 - Backend DB Foundation Agent is authorized to modify Python dependency files for SQLAlchemy/Alembic/PostgreSQL driver dependencies only, using `uv add`.
 - QA DB Foundation Agent owns database-mode test harness additions and must not modify product backend code.
 - Docs DB Foundation Agent owns documentation alignment and must update runbook command names after backend implementation lands.
+- Active sub-agents:
+  - Backend `Mencius`: `019e4b50-052f-7963-9c11-b4db84f695cf`
+  - QA `Raman`: `019e4b50-056f-7de0-b510-ea57222e21ab`
+  - Docs `Schrodinger`: `019e4b50-05b8-7c22-9f2b-7faac780122e`
