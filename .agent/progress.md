@@ -68,3 +68,8 @@
   - Frontend: `/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-019-frontend-qc-db-compat`
   - Docs: `/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-019-docs-qc-state-runbooks`
 - Wrote per-agent `.agent/` task files with ownership boundaries, expected checks, and handoff templates.
+- Spawned Phase 4 subagents:
+  - Backend Bacon: `019e4b6e-eb5e-7893-b0d9-7fe001bb3fd5`
+  - QA Boyle: `019e4b6e-eb9d-7272-a2c9-350a437ad6fa`
+  - Frontend Sagan: `019e4b6e-ebe2-7be3-9407-39009ea529ae`
+  - Docs Feynman: `019e4b6e-ec21-76f2-8ab4-6189434e4c6b`
