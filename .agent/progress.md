@@ -95,3 +95,9 @@
   - Added focused backend tests in `tests/test_db_qc_state_backend.py`.
   - Focused checks passed: `tests/test_db_qc_state_backend.py` -> 2 passed; `state_store_contract or db_foundation or db_qc_state` -> 13 passed, 1 skipped; DB foundation backend tests -> 4 passed; SQLite Alembic upgrade to head passed.
   - Full suite in backend worktree failed on existing fixture/environment-dependent `DATASET/urban` API tests, not Phase 4 DB-state tests.
+
+## 2026-05-22 Phase 4 Lead Integration
+
+- Started merging `agent/TASK-019/backend/qc-state`.
+- Product backend files, Alembic migration, and backend test file merged without conflict.
+- Root `.agent` files conflicted with Lead Agent integration records and were rewritten as integration records preserving backend findings.

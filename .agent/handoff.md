@@ -1,82 +1,58 @@
-# TASK-019 Phase 3 Integration Handoff
+# Handoff
 
 ## Agent Role
 
-Lead Agent
+Backend Agent
 
 ## Branch
 
-`integration/TASK-019`
+`agent/TASK-019/backend/qc-state`
 
 ## Worktree
 
-`/mnt/lc/LC/ares_xtws/0_train_data/data_platform`
+`/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-019-backend-qc-state`
 
 ## Scope Completed
 
-- Merged Phase 3 Backend, QA, and Docs branches into `integration/TASK-019`.
-- Reconciled docs against actual backend DB foundation behavior.
-- Fixed integration issues found by newly activated DB tests.
-- Ran final Phase 3 integration verification.
+- Implemented TASK-019 Phase 4 DB-mode durable state for QC/review domains in `DatabaseBackedPlatformStateStore`.
+- Added Alembic migration/table coverage for Phase 4 entities.
+- Added focused backend tests for DB durability and cleanup semantics.
 
-## Agent Branches Merged
+## Changed Files
 
-- `agent/TASK-019/backend/db-foundation` at `a640e85`.
-- `agent/TASK-019/qa/db-foundation-tests` at `064f7a2`.
-- `agent/TASK-019/docs/db-foundation-runbooks` at `816d862`.
-
-## Conflicts
-
-- Backend merge conflicted only in root `.agent` coordination files.
-- QA merge conflicted only in root `.agent` coordination files.
-- Docs merge conflicted only in root `.agent` coordination files.
-- Resolution: product code/tests/docs were preserved; root `.agent` files were rewritten as Lead Agent integration records.
+- `src/urban_violation_backend/db/models.py`
+- `src/urban_violation_backend/db/foundation.py`
+- `alembic/versions/20260522_0002_task019_phase4_qc_state.py`
+- `tests/test_db_qc_state_backend.py`
+- `.agent/findings.md`
+- `.agent/progress.md`
+- `.agent/handoff.md`
 
 ## Shared Contracts Changed
 
-- Runtime construction contract changed:
-  - `build_fixture_service(...)` accepts explicit DB-mode overrides and DB auto-migration toggle.
-  - `create_app(...)` exposes matching constructor args.
-- Internal persistence contract changed:
-  - DB foundation modules, SQLAlchemy models, Alembic migrations, and runtime selection wiring were added.
-- External API response contracts were not intentionally changed.
+- Yes.
+- Added new DB schema contract via Alembic + ORM models for Phase 4 QC/review durable state tables.
+- No frontend API response shape changes.
 
 ## Dependencies Changed
 
-- Added with `uv`:
-  - `sqlalchemy`
-  - `alembic`
-  - `psycopg[binary]`
+- None.
 
 ## Verification
 
-- Backend Agent reported:
-  - Focused backend DB/store tests -> 8 passed.
-  - Full suite in isolated backend worktree -> 4 failed, 93 passed due missing `DATASET/urban`.
-- QA Agent reported:
-  - New gated DB harness -> `sss.sss` before backend merge.
-  - File-backed contract baseline -> 4 passed.
-- Docs Agent reported:
-  - Manual link/structure review -> passed.
-  - `git diff --check` and `git diff --cached --check` -> passed.
-- Lead Agent ran:
-  - `uv sync` -> passed.
-  - `uv run pytest -k 'state_store_contract or label_config_repository_contract or db_foundation' -q` -> 14 passed, 1 skipped.
-  - `uv run pytest tests/test_db_foundation_contract.py tests/test_db_foundation_api.py tests/test_db_foundation_backend.py -q` -> 10 passed, 1 skipped.
-  - `DATABASE_URL=sqlite+pysqlite:////tmp/... uv run alembic upgrade head && ... alembic current` -> passed, current revision `20260522_0001`.
-  - `uv run pytest` -> 103 passed, 1 skipped.
-  - `npm run test` in `frontend/` with Node 20 -> 6 files passed, 114 tests passed.
-  - `VITE_API_BASE_URL=/api npm run build` in `frontend/` with Node 20 -> passed.
-  - `uv run python scripts/docker-compose-auto-subnet.py config` -> passed.
-  - `git diff --check` -> passed.
+- `uv sync` ✅
+- `uv run pytest tests/test_db_qc_state_backend.py -q` ✅
+- `uv run pytest -k "state_store_contract or db_foundation or db_qc_state" -q` ✅
+- `uv run pytest tests/test_db_foundation_backend.py -q` ✅
+- `DATABASE_URL=sqlite+pysqlite:////tmp/task019_phase4_smoke.sqlite uv run alembic upgrade head` ✅
+- `uv run pytest` ⚠️ failed in existing API tests due local fixture/env assumptions (`DATASET/urban` path and import-state expectations in this worktree).
 
 ## Known Risks
 
-- PostgreSQL-specific runtime smoke against a real PostgreSQL service was not run; local DB foundation verification used SQLite URL fallback.
-- Transitional hybrid mode is intentional for Phase 3: QC/review/export/evaluation remain file-backed until later migration phases.
-- Docker defaults remain file-backed; Phase 3 is not a production database rollout.
+- Dataset-scoped task/lease writes use transactional replace semantics (delete+insert), matching file-backed behavior but not granular row-level conflict merges.
+- Snapshot dedup relies on transactional read-then-insert with nullable key parts; heavy concurrent inserts could still race without a stricter DB uniqueness strategy.
 
-## Rollback Plan
+## Next Agent Notes
 
-- Revert the Phase 3 integration merge and agent merge commits.
-- File-backed mode remains the default runtime path, so database mode can be disabled by omitting `PLATFORM_STATE_BACKEND=database`.
+- If full-suite parity is required in this worktree, align/restore expected dataset fixture paths before relying on `uv run pytest` global result.
+- For future hardening, consider adding explicit unique indexes for snapshot dedup keys if concurrency pressure increases.

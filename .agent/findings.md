@@ -29,16 +29,25 @@
 ## Phase 3 Docs Findings
 
 - Docs DB foundation branch completed at `816d862`.
-- Docs were written before backend had landed, so Lead integration must reconcile remaining backend-confirmation wording with actual Alembic paths and test selectors.
-
-## Known Risks
-
-- PostgreSQL runtime validation against an actual PostgreSQL server still requires a real `TEST_DATABASE_URL`; integration used SQLite fallback plus Alembic smoke.
-- Rollback after database-mode writes remains a policy decision unless a tested reverse export tool is implemented.
-- Redis and full QC/review durable-state migration are not part of Phase 3.
+- Docs were reconciled during Lead integration with actual Alembic paths, command names, and test selectors.
 
 ## Phase 4 Dispatch Findings
 
 - Phase 4 must keep frontend API contracts stable while changing the database-mode authority for QC/review/export/evaluation metadata.
-- The highest backend risk is replacing list/read-all/write-all store methods for leases and drafts with transactional writes that do not lose concurrent autosave or submit changes.
 - The frontend agent is assigned compatibility validation rather than broad UI changes because Phase 4 is intended to be backend-state transparent.
+
+## Phase 4 Backend Findings
+
+- Backend Phase 4 branch completed at `254e9f0`.
+- `DatabaseBackedPlatformStateStore` previously overrode only identity/audit methods; QC/review methods still used file-backed storage via inheritance from `PlatformStateStore`.
+- Existing Alembic coverage ended at Phase 3 foundation tables and had no QC durable-state tables.
+- Service state transitions already go through `PlatformStateStoreProtocol`, so Phase 4 can be delivered by DB store plus migration/test updates without frontend contract changes.
+- Current `save_tasks` and `save_leases` implementations still replace the dataset-scoped set transactionally with delete+insert. This matches existing file-backed semantics and current service behavior, but does not provide row-level conflict resolution.
+- `save_annotation_snapshot` dedup is implemented with read-then-insert logic in one transaction; concurrent writers could still race without a dedicated unique index over nullable dedup keys.
+- Export artifacts remain filesystem files by design; only metadata and pointers are in PostgreSQL.
+
+## Known Risks
+
+- PostgreSQL runtime validation against an actual PostgreSQL server still requires a real `TEST_DATABASE_URL`; integration uses SQLite fallback plus Alembic smoke unless a PostgreSQL URL is provided.
+- Rollback after database-mode writes remains a policy decision unless a tested reverse export tool is implemented.
+- Redis is not part of Phase 4 and remains pending for active locks/live progress.

@@ -11,7 +11,7 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 3. PostgreSQL foundation for identity, registry, label config, import jobs, and audit.
    - Status: complete. Backend, QA, and Docs Phase 3 branches were merged and verified on `integration/TASK-019`.
 4. PostgreSQL migration for QC, drafts, submissions, sample pool, exports, and evaluations.
-   - Status: in_progress. Phase 4 worktrees have been created and agents are being dispatched.
+   - Status: in_progress. Phase 4 Backend branch is being integrated; QA, Frontend, and Docs branches are ready to integrate.
 5. Redis runtime state for active leases, locks, session cache, and import progress.
    - Status: pending.
 6. File-state import tool.
@@ -48,10 +48,10 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 
 ## Phase 4 Agent Branches
 
-- In progress: `agent/TASK-019/backend/qc-state`
-- In progress: `agent/TASK-019/qa/qc-state-tests`
-- In progress: `agent/TASK-019/frontend/qc-db-compat`
-- In progress: `agent/TASK-019/docs/qc-state-runbooks`
+- Integrating: `agent/TASK-019/backend/qc-state` at `254e9f0`
+- Ready to integrate: `agent/TASK-019/qa/qc-state-tests` at `a3c16e9`
+- Ready to integrate: `agent/TASK-019/frontend/qc-db-compat` at `011df88`
+- Ready to integrate: `agent/TASK-019/docs/qc-state-runbooks` at `b4f1042`
 
 ## Phase 4 Scope
 
