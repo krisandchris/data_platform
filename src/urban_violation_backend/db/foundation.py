@@ -13,15 +13,26 @@ from sqlalchemy.orm import Session
 from urban_violation_backend.api_schemas import DatasetSummaryResponse
 from urban_violation_backend.db.engine import SessionFactory, session_scope
 from urban_violation_backend.db.models import (
+    AnnotationSnapshotRow,
     AuditEventRow,
     DatasetBatchRow,
     DatasetTypeRegistryRow,
+    EvaluationRunRow,
+    ExportJobRow,
     ImportJobRow,
     LabelConfigActiveRow,
     LabelConfigRow,
+    ModificationEventRow,
     PlatformRoleBindingRow,
     PlatformSessionRow,
     PlatformUserRow,
+    QcAssignmentRow,
+    QcBatchDraftRow,
+    QcDraftRow,
+    QcLeaseRow,
+    QcSubmissionRow,
+    QcTaskRow,
+    SamplePoolItemRow,
 )
 from urban_violation_backend.labels import (
     ActiveLabelConfigNotFoundError,
@@ -32,7 +43,25 @@ from urban_violation_backend.labels import (
     LabelConfigVersionNotFoundError,
     StoredLabelConfig,
 )
-from urban_violation_backend.schemas import AuditEvent, AuthSession, ImportJob, RoleBinding, UserAccount
+from urban_violation_backend.schemas import (
+    AnnotationSnapshot,
+    AnnotationSnapshotType,
+    AuditEvent,
+    AuthSession,
+    BatchQcAssignment,
+    CorrectionSamplePoolItem,
+    EvaluationRun,
+    ExportJob,
+    ImportJob,
+    LabelEditDraft,
+    LabelEditSubmission,
+    ModificationEvent,
+    QcTask,
+    RoleBinding,
+    SampleLease,
+    SamplePoolItemStatus,
+    UserAccount,
+)
 from urban_violation_backend.state_store import PlatformStateStore
 
 
@@ -482,3 +511,509 @@ class DatabaseBackedPlatformStateStore(PlatformStateStore):
                 )
                 for row in rows
             ]
+
+    def list_annotation_snapshots(
+        self,
+        dataset_id: str,
+        *,
+        sample_id: str | None = None,
+        snapshot_type: AnnotationSnapshotType | None = None,
+    ) -> list[AnnotationSnapshot]:
+        with session_scope(self._session_factory) as session:
+            stmt = (
+                select(AnnotationSnapshotRow)
+                .where(AnnotationSnapshotRow.dataset_id == dataset_id)
+                .order_by(AnnotationSnapshotRow.created_at, AnnotationSnapshotRow.snapshot_id)
+            )
+            if sample_id is not None:
+                stmt = stmt.where(AnnotationSnapshotRow.sample_id == sample_id)
+            if snapshot_type is not None:
+                stmt = stmt.where(AnnotationSnapshotRow.snapshot_type == snapshot_type.value)
+            rows = session.scalars(stmt).all()
+            return [AnnotationSnapshot.model_validate(row.snapshot_payload) for row in rows]
+
+    def save_annotation_snapshot(self, snapshot: AnnotationSnapshot) -> AnnotationSnapshot:
+        with session_scope(self._session_factory) as session:
+            existing_rows = session.scalars(
+                select(AnnotationSnapshotRow).where(
+                    AnnotationSnapshotRow.dataset_id == snapshot.dataset_id,
+                    AnnotationSnapshotRow.sample_id == snapshot.sample_id,
+                    AnnotationSnapshotRow.snapshot_type == snapshot.snapshot_type.value,
+                )
+            ).all()
+            for row in existing_rows:
+                candidate = AnnotationSnapshot.model_validate(row.snapshot_payload)
+                if (
+                    candidate.payload_hash == snapshot.payload_hash
+                    and candidate.source_submission_id == snapshot.source_submission_id
+                    and candidate.label_config_id == snapshot.label_config_id
+                    and candidate.label_config_version == snapshot.label_config_version
+                ):
+                    return candidate
+
+            session.add(
+                AnnotationSnapshotRow(
+                    snapshot_id=snapshot.snapshot_id,
+                    dataset_id=snapshot.dataset_id,
+                    sample_id=snapshot.sample_id,
+                    snapshot_type=snapshot.snapshot_type.value,
+                    payload_hash=snapshot.payload_hash,
+                    source_submission_id=snapshot.source_submission_id,
+                    label_config_id=snapshot.label_config_id,
+                    label_config_version=snapshot.label_config_version,
+                    created_at=snapshot.created_at,
+                    snapshot_payload=snapshot.model_dump(mode="json"),
+                )
+            )
+            return snapshot
+
+    def list_modification_events(
+        self,
+        dataset_id: str,
+        *,
+        sample_id: str | None = None,
+        submission_id: str | None = None,
+    ) -> list[ModificationEvent]:
+        with session_scope(self._session_factory) as session:
+            stmt = (
+                select(ModificationEventRow)
+                .where(ModificationEventRow.dataset_id == dataset_id)
+                .order_by(ModificationEventRow.created_at, ModificationEventRow.event_id)
+            )
+            if sample_id is not None:
+                stmt = stmt.where(ModificationEventRow.sample_id == sample_id)
+            if submission_id is not None:
+                stmt = stmt.where(ModificationEventRow.submission_id == submission_id)
+            rows = session.scalars(stmt).all()
+            return [ModificationEvent.model_validate(row.event_payload) for row in rows]
+
+    def save_modification_events(
+        self,
+        dataset_id: str,
+        events: list[ModificationEvent],
+    ) -> list[ModificationEvent]:
+        if not events:
+            return []
+        with session_scope(self._session_factory) as session:
+            existing_keys = set(
+                session.scalars(
+                    select(ModificationEventRow.event_key).where(
+                        ModificationEventRow.dataset_id == dataset_id
+                    )
+                ).all()
+            )
+            inserted: list[ModificationEvent] = []
+            for event in events:
+                if event.event_key in existing_keys:
+                    continue
+                session.add(
+                    ModificationEventRow(
+                        event_id=event.event_id,
+                        event_key=event.event_key,
+                        dataset_id=event.dataset_id,
+                        sample_id=event.sample_id,
+                        submission_id=event.submission_id,
+                        created_at=event.created_at,
+                        event_payload=event.model_dump(mode="json"),
+                    )
+                )
+                existing_keys.add(event.event_key)
+                inserted.append(event)
+            return inserted
+
+    def list_sample_pool_items(self) -> list[CorrectionSamplePoolItem]:
+        with session_scope(self._session_factory) as session:
+            rows = session.scalars(
+                select(SamplePoolItemRow).order_by(
+                    SamplePoolItemRow.updated_at.desc(),
+                    SamplePoolItemRow.created_at.desc(),
+                    SamplePoolItemRow.item_id.desc(),
+                )
+            ).all()
+            return [CorrectionSamplePoolItem.model_validate(row.item_payload) for row in rows]
+
+    def get_sample_pool_item(self, item_id: str) -> CorrectionSamplePoolItem | None:
+        with session_scope(self._session_factory) as session:
+            row = session.get(SamplePoolItemRow, item_id)
+            if row is None:
+                return None
+            return CorrectionSamplePoolItem.model_validate(row.item_payload)
+
+    def get_sample_pool_item_by_key(self, item_key: str) -> CorrectionSamplePoolItem | None:
+        with session_scope(self._session_factory) as session:
+            row = session.scalar(
+                select(SamplePoolItemRow).where(SamplePoolItemRow.item_key == item_key)
+            )
+            if row is None:
+                return None
+            return CorrectionSamplePoolItem.model_validate(row.item_payload)
+
+    def upsert_sample_pool_item(self, item: CorrectionSamplePoolItem) -> CorrectionSamplePoolItem:
+        with session_scope(self._session_factory) as session:
+            existing = session.scalar(
+                select(SamplePoolItemRow).where(SamplePoolItemRow.item_key == item.item_key)
+            )
+            if existing is None:
+                session.add(
+                    SamplePoolItemRow(
+                        item_id=item.item_id,
+                        item_key=item.item_key,
+                        dataset_id=item.dataset_id,
+                        status=item.status.value,
+                        created_at=item.created_at,
+                        updated_at=item.updated_at,
+                        item_payload=item.model_dump(mode="json"),
+                    )
+                )
+                return item
+
+            merged = item.model_copy(
+                update={
+                    "item_id": existing.item_id,
+                    "created_at": _as_utc(existing.created_at),
+                }
+            )
+            existing.dataset_id = merged.dataset_id
+            existing.status = merged.status.value
+            existing.created_at = merged.created_at
+            existing.updated_at = merged.updated_at
+            existing.item_payload = merged.model_dump(mode="json")
+            return merged
+
+    def soft_remove_sample_pool_item(
+        self,
+        item_id: str,
+        *,
+        removed_at: datetime,
+    ) -> CorrectionSamplePoolItem | None:
+        with session_scope(self._session_factory) as session:
+            row = session.get(SamplePoolItemRow, item_id)
+            if row is None:
+                return None
+            item = CorrectionSamplePoolItem.model_validate(row.item_payload)
+            removed = item.model_copy(
+                update={"status": SamplePoolItemStatus.REMOVED, "updated_at": removed_at}
+            )
+            row.status = removed.status.value
+            row.updated_at = removed.updated_at
+            row.item_payload = removed.model_dump(mode="json")
+            return removed
+
+    def list_export_jobs(self) -> list[ExportJob]:
+        with session_scope(self._session_factory) as session:
+            rows = session.scalars(
+                select(ExportJobRow).order_by(
+                    ExportJobRow.created_at.desc(),
+                    ExportJobRow.export_id.desc(),
+                )
+            ).all()
+            return [ExportJob.model_validate(row.export_payload) for row in rows]
+
+    def get_export_job(self, export_id: str) -> ExportJob | None:
+        with session_scope(self._session_factory) as session:
+            row = session.get(ExportJobRow, export_id)
+            if row is None:
+                return None
+            return ExportJob.model_validate(row.export_payload)
+
+    def save_export_job(self, job: ExportJob) -> ExportJob:
+        with session_scope(self._session_factory) as session:
+            row = session.get(ExportJobRow, job.export_id)
+            if row is None:
+                row = ExportJobRow(
+                    export_id=job.export_id,
+                    status=job.status.value,
+                    created_at=job.created_at,
+                    export_payload=job.model_dump(mode="json"),
+                )
+                session.add(row)
+                return job
+
+            row.status = job.status.value
+            row.created_at = job.created_at
+            row.export_payload = job.model_dump(mode="json")
+            return job
+
+    def list_evaluations(self, dataset_id: str) -> list[EvaluationRun]:
+        with session_scope(self._session_factory) as session:
+            rows = session.scalars(
+                select(EvaluationRunRow)
+                .where(EvaluationRunRow.dataset_id == dataset_id)
+                .order_by(EvaluationRunRow.created_at.desc(), EvaluationRunRow.evaluation_id.desc())
+            ).all()
+            return [EvaluationRun.model_validate(row.evaluation_payload) for row in rows]
+
+    def list_all_evaluations(self) -> list[EvaluationRun]:
+        with session_scope(self._session_factory) as session:
+            rows = session.scalars(
+                select(EvaluationRunRow).order_by(
+                    EvaluationRunRow.created_at.desc(),
+                    EvaluationRunRow.evaluation_id.desc(),
+                )
+            ).all()
+            return [EvaluationRun.model_validate(row.evaluation_payload) for row in rows]
+
+    def get_evaluation(self, dataset_id: str, evaluation_id: str) -> EvaluationRun | None:
+        with session_scope(self._session_factory) as session:
+            row = session.get(EvaluationRunRow, evaluation_id)
+            if row is None or row.dataset_id != dataset_id:
+                return None
+            return EvaluationRun.model_validate(row.evaluation_payload)
+
+    def get_evaluation_by_id(self, evaluation_id: str) -> EvaluationRun | None:
+        with session_scope(self._session_factory) as session:
+            row = session.get(EvaluationRunRow, evaluation_id)
+            if row is None:
+                return None
+            return EvaluationRun.model_validate(row.evaluation_payload)
+
+    def save_evaluation(self, run: EvaluationRun) -> EvaluationRun:
+        with session_scope(self._session_factory) as session:
+            row = session.get(EvaluationRunRow, run.evaluation_id)
+            if row is None:
+                row = EvaluationRunRow(
+                    evaluation_id=run.evaluation_id,
+                    dataset_id=run.dataset_id,
+                    status=run.status.value,
+                    created_at=run.created_at,
+                    completed_at=run.completed_at,
+                    evaluation_payload=run.model_dump(mode="json"),
+                )
+                session.add(row)
+                return run
+
+            row.dataset_id = run.dataset_id
+            row.status = run.status.value
+            row.created_at = run.created_at
+            row.completed_at = run.completed_at
+            row.evaluation_payload = run.model_dump(mode="json")
+            return run
+
+    def get_assignment(self, dataset_id: str) -> BatchQcAssignment | None:
+        with session_scope(self._session_factory) as session:
+            row = session.get(QcAssignmentRow, dataset_id)
+            if row is None:
+                return None
+            return BatchQcAssignment.model_validate(row.assignment_payload)
+
+    def save_assignment(self, assignment: BatchQcAssignment | None) -> None:
+        if assignment is None:
+            return
+        with session_scope(self._session_factory) as session:
+            row = session.get(QcAssignmentRow, assignment.dataset_id)
+            if row is None:
+                session.add(
+                    QcAssignmentRow(
+                        dataset_id=assignment.dataset_id,
+                        assignment_payload=assignment.model_dump(mode="json"),
+                        updated_at=self.now(),
+                    )
+                )
+                return
+            row.assignment_payload = assignment.model_dump(mode="json")
+            row.updated_at = self.now()
+
+    def clear_assignment(self, dataset_id: str) -> None:
+        with session_scope(self._session_factory) as session:
+            session.execute(delete(QcAssignmentRow).where(QcAssignmentRow.dataset_id == dataset_id))
+
+    def clear_qc_dataset_state(self, dataset_id: str) -> None:
+        with session_scope(self._session_factory) as session:
+            session.execute(delete(QcAssignmentRow).where(QcAssignmentRow.dataset_id == dataset_id))
+            session.execute(delete(QcTaskRow).where(QcTaskRow.dataset_id == dataset_id))
+            session.execute(delete(QcLeaseRow).where(QcLeaseRow.dataset_id == dataset_id))
+            session.execute(delete(QcDraftRow).where(QcDraftRow.dataset_id == dataset_id))
+            session.execute(delete(QcBatchDraftRow).where(QcBatchDraftRow.dataset_id == dataset_id))
+            session.execute(delete(QcSubmissionRow).where(QcSubmissionRow.dataset_id == dataset_id))
+            session.execute(delete(AnnotationSnapshotRow).where(AnnotationSnapshotRow.dataset_id == dataset_id))
+            session.execute(delete(ModificationEventRow).where(ModificationEventRow.dataset_id == dataset_id))
+            session.execute(delete(EvaluationRunRow).where(EvaluationRunRow.dataset_id == dataset_id))
+
+    def remove_sample_pool_items_for_dataset(self, dataset_id: str) -> int:
+        with session_scope(self._session_factory) as session:
+            rows = session.scalars(
+                select(SamplePoolItemRow.item_id).where(SamplePoolItemRow.dataset_id == dataset_id)
+            ).all()
+            if not rows:
+                return 0
+            session.execute(delete(SamplePoolItemRow).where(SamplePoolItemRow.dataset_id == dataset_id))
+            return len(rows)
+
+    def list_tasks(self, dataset_id: str) -> list[QcTask]:
+        with session_scope(self._session_factory) as session:
+            rows = session.scalars(
+                select(QcTaskRow)
+                .where(QcTaskRow.dataset_id == dataset_id)
+                .order_by(QcTaskRow.task_order, QcTaskRow.task_id)
+            ).all()
+            return [QcTask.model_validate(row.task_payload) for row in rows]
+
+    def save_tasks(self, dataset_id: str, tasks: list[QcTask]) -> None:
+        with session_scope(self._session_factory) as session:
+            session.execute(delete(QcTaskRow).where(QcTaskRow.dataset_id == dataset_id))
+            now = self.now()
+            for idx, task in enumerate(tasks):
+                session.add(
+                    QcTaskRow(
+                        dataset_id=dataset_id,
+                        task_id=task.task_id,
+                        sample_id=task.sample_id,
+                        task_order=idx,
+                        task_payload=task.model_dump(mode="json"),
+                        updated_at=now,
+                    )
+                )
+
+    def list_leases(self, dataset_id: str) -> list[SampleLease]:
+        with session_scope(self._session_factory) as session:
+            rows = session.scalars(
+                select(QcLeaseRow)
+                .where(QcLeaseRow.dataset_id == dataset_id)
+                .order_by(QcLeaseRow.lease_order, QcLeaseRow.lease_id)
+            ).all()
+            return [SampleLease.model_validate(row.lease_payload) for row in rows]
+
+    def save_leases(self, dataset_id: str, leases: list[SampleLease]) -> None:
+        with session_scope(self._session_factory) as session:
+            session.execute(delete(QcLeaseRow).where(QcLeaseRow.dataset_id == dataset_id))
+            now = self.now()
+            for idx, lease in enumerate(leases):
+                session.add(
+                    QcLeaseRow(
+                        dataset_id=dataset_id,
+                        lease_id=lease.lease_id,
+                        sample_id=lease.sample_id,
+                        user_id=lease.user_id,
+                        lease_order=idx,
+                        lease_payload=lease.model_dump(mode="json"),
+                        updated_at=now,
+                    )
+                )
+
+    def get_draft(self, dataset_id: str, sample_id: str, user_id: str) -> LabelEditDraft | None:
+        with session_scope(self._session_factory) as session:
+            row = session.get(
+                QcDraftRow,
+                {
+                    "dataset_id": dataset_id,
+                    "sample_id": sample_id,
+                    "user_id": user_id,
+                },
+            )
+            if row is None:
+                return None
+            return LabelEditDraft.model_validate(row.draft_payload)
+
+    def list_drafts_for_user(self, dataset_id: str, user_id: str) -> list[LabelEditDraft]:
+        with session_scope(self._session_factory) as session:
+            rows = session.scalars(
+                select(QcDraftRow)
+                .where(QcDraftRow.dataset_id == dataset_id, QcDraftRow.user_id == user_id)
+                .order_by(QcDraftRow.updated_at, QcDraftRow.sample_id)
+            ).all()
+            return [LabelEditDraft.model_validate(row.draft_payload) for row in rows]
+
+    def save_draft(self, draft: LabelEditDraft) -> None:
+        with session_scope(self._session_factory) as session:
+            row = session.get(
+                QcDraftRow,
+                {
+                    "dataset_id": draft.dataset_id,
+                    "sample_id": draft.sample_id,
+                    "user_id": draft.user_id,
+                },
+            )
+            if row is None:
+                session.add(
+                    QcDraftRow(
+                        dataset_id=draft.dataset_id,
+                        sample_id=draft.sample_id,
+                        user_id=draft.user_id,
+                        draft_payload=draft.model_dump(mode="json"),
+                        updated_at=draft.updated_at,
+                    )
+                )
+                return
+            row.draft_payload = draft.model_dump(mode="json")
+            row.updated_at = draft.updated_at
+
+    def delete_draft(self, dataset_id: str, sample_id: str, user_id: str) -> None:
+        with session_scope(self._session_factory) as session:
+            session.execute(
+                delete(QcDraftRow).where(
+                    QcDraftRow.dataset_id == dataset_id,
+                    QcDraftRow.sample_id == sample_id,
+                    QcDraftRow.user_id == user_id,
+                )
+            )
+
+    def get_batch_draft(self, dataset_id: str, user_id: str) -> dict[str, Any] | None:
+        with session_scope(self._session_factory) as session:
+            row = session.get(
+                QcBatchDraftRow,
+                {"dataset_id": dataset_id, "user_id": user_id},
+            )
+            if row is None:
+                return None
+            return dict(row.draft_payload)
+
+    def save_batch_draft(self, dataset_id: str, user_id: str, payload: dict[str, Any]) -> None:
+        with session_scope(self._session_factory) as session:
+            row = session.get(QcBatchDraftRow, {"dataset_id": dataset_id, "user_id": user_id})
+            if row is None:
+                session.add(
+                    QcBatchDraftRow(
+                        dataset_id=dataset_id,
+                        user_id=user_id,
+                        draft_payload=payload,
+                        updated_at=self.now(),
+                    )
+                )
+                return
+            row.draft_payload = payload
+            row.updated_at = self.now()
+
+    def save_submission(self, submission: LabelEditSubmission) -> None:
+        with session_scope(self._session_factory) as session:
+            row = session.get(QcSubmissionRow, submission.submission_id)
+            if row is None:
+                session.add(
+                    QcSubmissionRow(
+                        submission_id=submission.submission_id,
+                        dataset_id=submission.dataset_id,
+                        sample_id=submission.sample_id,
+                        created_at=submission.created_at,
+                        submission_payload=submission.model_dump(mode="json"),
+                    )
+                )
+                return
+            row.dataset_id = submission.dataset_id
+            row.sample_id = submission.sample_id
+            row.created_at = submission.created_at
+            row.submission_payload = submission.model_dump(mode="json")
+
+    def list_submissions(self, dataset_id: str, sample_id: str) -> list[LabelEditSubmission]:
+        with session_scope(self._session_factory) as session:
+            rows = session.scalars(
+                select(QcSubmissionRow)
+                .where(
+                    QcSubmissionRow.dataset_id == dataset_id,
+                    QcSubmissionRow.sample_id == sample_id,
+                )
+                .order_by(QcSubmissionRow.created_at, QcSubmissionRow.submission_id)
+            ).all()
+            return [LabelEditSubmission.model_validate(row.submission_payload) for row in rows]
+
+    def get_submission(
+        self,
+        dataset_id: str,
+        sample_id: str,
+        submission_id: str,
+    ) -> LabelEditSubmission | None:
+        with session_scope(self._session_factory) as session:
+            row = session.get(QcSubmissionRow, submission_id)
+            if row is None:
+                return None
+            if row.dataset_id != dataset_id or row.sample_id != sample_id:
+                return None
+            return LabelEditSubmission.model_validate(row.submission_payload)

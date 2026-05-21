@@ -8,11 +8,13 @@
 
 ## Findings
 
-Pending backend inspection.
+- `DatabaseBackedPlatformStateStore` previously overrode only identity/audit methods; all QC/review methods still used file-backed storage via inheritance from `PlatformStateStore`.
+- Existing Alembic coverage ended at Phase 3 foundation tables and had no QC durable-state tables.
+- Service state transitions already go through `PlatformStateStoreProtocol`, so Phase 4 can be delivered by DB store + migration/test updates without frontend contract changes.
+- Full-repo pytest failures in this worktree are fixture/environment related (`DATASET/urban` path not present), not caused by Phase 4 DB state changes.
 
 ## Risks
 
-- Lease and draft flows currently use list/read-all/update patterns; database mode must avoid lost updates.
-- Export artifact files remain filesystem artifacts; only metadata and pointers belong in PostgreSQL.
-- Datetime normalization must stay timezone-aware to avoid SQLite/PostgreSQL readback regressions.
-
+- Current `save_tasks` / `save_leases` implementations still replace the dataset-scoped set transactionally (delete+insert). This matches existing file-backed semantics and current service behavior, but does not provide row-level conflict resolution.
+- `save_annotation_snapshot` dedup is implemented with read-then-insert logic in one transaction; concurrent writers could still race without a dedicated unique index over nullable dedup keys.
+- Export artifacts remain filesystem files by design; only metadata and pointers are in PostgreSQL.
