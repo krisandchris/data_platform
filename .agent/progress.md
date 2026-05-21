@@ -83,3 +83,9 @@
   - State-store/db-foundation/db-qc-state subset passed: 17 passed, 2 skipped.
   - Full suite failed on existing `tests/test_api.py` `DATASET/urban` fixture/environment assumptions in the QA worktree.
   - Race-oriented subset reran 5 times with 0 failures.
+- Frontend Sagan completed at `011df88`:
+  - Added a focused HTTP API adapter test for database-mode review payload fields.
+  - Verified existing coverage protects sample switching and readonly lease warning behavior.
+  - `npm run test` passed: 6 files, 115 tests.
+  - `VITE_API_BASE_URL=/api npm run build` passed.
+  - No backend code, API contracts, or dependency declarations changed.
