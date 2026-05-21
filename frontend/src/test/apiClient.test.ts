@@ -843,6 +843,144 @@ describe('HTTP API adapter', () => {
     });
   });
 
+  it('normalizes database-mode review state for lease readonly gates', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      jsonResponse({
+        asset: {
+          asset_id: 'asset-1',
+          dataset_id: 'ds-live',
+          sample_id: 'sample-1',
+          image_url: '/api/media/sample-1',
+          width: 1280,
+          height: 720,
+          qc_status: 'needs_review',
+        },
+        stage1_preannotation: {
+          sample_id: 'sample-1',
+          environment_analysis: 'street scene',
+          scene_elements: ['curb'],
+          key_anchors: [],
+          key_relations: [
+            {
+              relation_index: 'R1',
+              bbox: [320, 180, 640, 360],
+              subject: 'goods',
+              relation: 'blocks',
+              object: 'sidewalk',
+            },
+          ],
+        },
+        current_user: {
+          user_id: 'annotator_db',
+          display_name: 'DB Annotator',
+          status: 'active',
+          roles: ['annotator'],
+          permissions: ['label_edit:write'],
+          auth_mode: 'session',
+        },
+        batch_assignment: {
+          assignment_id: 'assignment-db-1',
+          dataset_id: 'ds-live',
+          assignee_user_id: 'annotator_db',
+          assignee_display_name: 'DB Annotator',
+          status: 'assigned',
+          assigned_at: '2026-05-22T00:00:00Z',
+        },
+        qc_task: {
+          task_id: 'task-db-1',
+          dataset_id: 'ds-live',
+          sample_id: 'sample-1',
+          status: 'in_progress',
+          assignee_user_id: 'annotator_db',
+          task_revision: 9,
+          latest_submission_id: 'submission-db-1',
+          label_config_version: 'urban_violation_labels_v2',
+        },
+        sample_lease: {
+          lease_id: 'lease-db-1',
+          dataset_id: 'ds-live',
+          sample_id: 'sample-1',
+          task_id: 'task-db-1',
+          user_id: 'annotator_db',
+          user_display_name: 'DB Annotator',
+          status: 'active',
+          expires_at: '2026-05-22T00:15:00Z',
+        },
+        my_draft: {
+          draft_id: 'draft-db-1',
+          dataset_id: 'ds-live',
+          sample_id: 'sample-1',
+          user_id: 'annotator_db',
+          lease_id: 'lease-db-1',
+          task_revision: 9,
+          label_config_id: 'label-config-2',
+          label_config_version: 'urban_violation_labels_v2',
+          operations: [
+            {
+              scope: 'relation:R1',
+              field: 'subject',
+              op: 'replace',
+              before: 'goods',
+              after: 'cones',
+            },
+          ],
+        },
+        latest_submission: {
+          submission_id: 'submission-db-1',
+          dataset_id: 'ds-live',
+          sample_id: 'sample-1',
+          user_id: 'annotator_db',
+          user_display_name: 'DB Annotator',
+          status: 'submitted',
+          operations: [],
+          submitted_at: '2026-05-22T00:12:00Z',
+        },
+      }),
+    );
+    const api = new HttpUrbanViolationApi(new HttpClient({ baseUrl: 'http://backend.test/api', fetcher }));
+
+    const detail = await api.getReviewSample('ds-live', 'sample-1');
+
+    expect(detail.currentUser).toMatchObject({
+      userId: 'annotator_db',
+      displayName: 'DB Annotator',
+      roles: ['annotator'],
+      permissions: ['label_edit:write'],
+    });
+    expect(detail.batchAssignment).toMatchObject({
+      assignmentId: 'assignment-db-1',
+      assigneeUserId: 'annotator_db',
+      assigneeDisplayName: 'DB Annotator',
+      status: 'assigned',
+    });
+    expect(detail.qcTask).toMatchObject({
+      taskId: 'task-db-1',
+      status: 'in_progress',
+      assigneeUserId: 'annotator_db',
+      taskRevision: 9,
+      latestSubmissionId: 'submission-db-1',
+      labelConfigVersion: 'urban_violation_labels_v2',
+    });
+    expect(detail.sampleLease).toMatchObject({
+      leaseId: 'lease-db-1',
+      userId: 'annotator_db',
+      userDisplayName: 'DB Annotator',
+      status: 'active',
+      taskId: 'task-db-1',
+    });
+    expect(detail.myDraft).toMatchObject({
+      draftId: 'draft-db-1',
+      leaseId: 'lease-db-1',
+      taskRevision: 9,
+      operations: [expect.objectContaining({ scope: 'relation:R1', field: 'subject', after: 'cones' })],
+    });
+    expect(detail.latestSubmission).toMatchObject({
+      submissionId: 'submission-db-1',
+      status: 'submitted',
+      userDisplayName: 'DB Annotator',
+    });
+  });
+
   it('uses batch draft autosave/save and batch submit label-edit endpoints', async () => {
     const fetcher = vi
       .fn<typeof fetch>()

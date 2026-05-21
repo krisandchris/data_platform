@@ -12,7 +12,8 @@ Lead Agent
 
 - Phase 4 subagents dispatched and completed.
 - Backend branch merged.
-- QA branch merge is in progress.
+- QA branch merged.
+- Frontend branch merge is in progress.
 
 ## Changed Files
 
@@ -37,5 +38,5 @@ Pending final integration verification.
 
 ## Next Agent Notes
 
-- Finish merging QA, Frontend, and Docs branches.
+- Finish merging Frontend and Docs branches.
 - Run focused backend/QA suites, full backend suite, frontend tests/build, Alembic smoke, and diff checks.
