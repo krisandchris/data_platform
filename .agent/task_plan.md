@@ -1,44 +1,63 @@
-# TASK-019 PostgreSQL + Redis State Migration Plan
+# TASK-019 Phase 5 QA Plan
 
-Objective: migrate mutable platform state from file-backed JSON/JSONL stores to PostgreSQL, use Redis for active leases/locks/progress, preserve current frontend API behavior, and provide a safe import path from existing runtime state.
+## Goal
 
-## Phases
+Add independent Redis/PostgreSQL integration coverage for Phase 5 runtime coordination and resolve the remaining Phase 4 risk of no real PostgreSQL validation.
 
-1. Baseline and contract freeze.
-   - Status: complete.
-2. Store interface extraction.
-   - Status: complete.
-3. PostgreSQL foundation for identity, registry, label config, import jobs, and audit.
-   - Status: complete.
-4. PostgreSQL migration for QC, drafts, submissions, sample pool, exports, and evaluations.
-   - Status: complete. Backend, QA, Frontend, and Docs branches are merged into `integration/TASK-019`; local integration verification passed with SQLite database fallback.
-5. Redis runtime state for active leases, locks, session cache, and import progress.
-   - Status: pending.
-6. File-state import tool.
-   - Status: pending.
-7. Docker rollout and full acceptance.
-   - Status: pending.
+## Role
 
-## Phase 4 Agent Branches
+QA Agent
 
-- Merged into integration: `agent/TASK-019/backend/qc-state` at `254e9f0`
-- Merged into integration: `agent/TASK-019/qa/qc-state-tests` at `a3c16e9`
-- Merged into integration: `agent/TASK-019/frontend/qc-db-compat` at `011df88`
-- Merged into integration: `agent/TASK-019/docs/qc-state-runbooks` at `b4f1042`
+## Branch
 
-## Phase 4 Scope
+`agent/TASK-019/qa/redis-runtime-tests`
 
-- Move authoritative QC assignments, task records, lease history, drafts, batch drafts, submissions, annotation snapshots, modification events, sample pool items, export job metadata, and evaluation run metadata to PostgreSQL in database mode.
-- Preserve file-backed mode and existing frontend API response contracts.
-- Keep raw dataset files, uploaded archives, extracted source trees, media files, and export artifacts on the filesystem.
-- Do not introduce Redis or switch Docker defaults in this phase.
+## Worktree
 
-## Phase 4 Exit Gate
+`/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-019-qa-redis-runtime-tests`
 
-- Database mode supports the full review workflow through confirmation and persistence across service recreation.
-- File-backed test suite remains green.
-- Frontend tests/build remain green.
-- QA database-mode tests pass with SQLite fallback and optionally with `TEST_DATABASE_URL`.
-- Docs and runbooks are reconciled with the implemented Phase 4 behavior.
+## Assigned Scope
 
-Exit gate status: complete for local integration. PostgreSQL-specific live validation still requires `TEST_DATABASE_URL`.
+- `tests/test_redis_runtime_api.py`
+- `tests/test_postgres_redis_smoke.py`
+- Test helpers under `tests/`
+- Optional non-product verification scripts under `scripts/`
+- `.agent/**`
+
+## Out Of Scope
+
+- Product backend implementation under `src/**`
+- Frontend product code
+- Dependency changes
+- Docker Compose production rollout changes
+
+## Planned Steps
+
+1. Inspect Phase 4 DB tests and current API helpers.
+2. Add tests for Redis enabled/disabled behavior:
+   - concurrent lease acquire;
+   - heartbeat by non-owner;
+   - release by non-owner;
+   - TTL expiry;
+   - backend restart with Redis progress expired.
+3. Add duplicate QC queue generation lock tests.
+4. Add import progress present/absent tests.
+5. Add PostgreSQL smoke tests gated by `TEST_DATABASE_URL`.
+6. Add Redis smoke tests gated by `TEST_REDIS_URL`.
+7. Prefer deterministic tests without external services; gate real service tests clearly.
+8. Update `.agent/progress.md` and complete `.agent/handoff.md`; commit changes.
+
+## Acceptance Criteria
+
+- Focused QA tests pass after backend Phase 5 implementation is integrated.
+- Real PostgreSQL tests are skipped unless `TEST_DATABASE_URL` is set.
+- Real Redis tests are skipped unless `TEST_REDIS_URL` is set.
+- Test failure messages distinguish missing service configuration from implementation failures.
+
+## Expected Checks
+
+- `uv sync`
+- `uv run pytest tests/test_redis_runtime_api.py tests/test_postgres_redis_smoke.py -q`
+- `uv run pytest -k "redis_runtime or postgres_live or db_qc_state" -q`
+- If Docker services are available: run the same tests with `TEST_DATABASE_URL` and `TEST_REDIS_URL`.
+
