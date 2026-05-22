@@ -159,3 +159,18 @@
   - `docker version --format '{{.Server.Version}}'` returned `29.1.2`.
   - `docker compose version` returned `Docker Compose version v2.40.3`.
 - Existing unrelated `.gitignore` user modification remains unstaged.
+
+## 2026-05-22 Phase 7 Backend Agent Execution (docker-rollout)
+
+- Backend Ohm completed `agent/TASK-019/backend/docker-rollout` at `77b9a08`.
+- Implemented Phase 7 Compose defaults:
+  - added `postgres` service with `postgres_data` volume and health check;
+  - added `redis` service with health check;
+  - set backend to database/Redis mode by default with env overrides;
+  - added backend health-gated dependencies on `postgres` and `redis`;
+  - copied `alembic.ini` and `alembic/` into the backend image.
+- Backend branch verification passed:
+  - `uv run python scripts/docker-compose-auto-subnet.py config`
+  - `scripts/docker-compose-auto-subnet.py build backend`
+  - `git diff --check`
+- Lead integration preserved the root `.agent` records and summarized backend handoff details instead of replacing integration planning files with the backend agent's local `.agent` files.

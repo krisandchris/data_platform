@@ -101,3 +101,18 @@
 - Existing `.gitignore` has an unrelated user modification in the main workspace; it should remain unstaged unless explicitly requested.
 - Baseline `uv run python scripts/docker-compose-auto-subnet.py config` on Phase 7 start renders only `backend` and `frontend`; this confirms the four-service rollout is not yet implemented.
 - Docker is available locally (`Docker Server 29.1.2`, Compose `v2.40.3`), so Phase 7 live build/smoke validation should be attempted unless later resource or port conflicts appear.
+
+## Phase 7 Backend Findings (agent/TASK-019/backend/docker-rollout)
+
+- Backend branch completed at `77b9a08` and is being merged into integration.
+- Compose now defines `postgres:16` and `redis:7-alpine` services with health checks; `postgres` uses named volume `postgres_data`.
+- Backend Compose defaults are database/Redis mode:
+  - `PLATFORM_STATE_BACKEND=${PLATFORM_STATE_BACKEND:-database}`
+  - `PLATFORM_DB_AUTO_MIGRATE=${PLATFORM_DB_AUTO_MIGRATE:-1}`
+  - `DATABASE_URL` defaults to the Compose `postgres` service.
+  - `PLATFORM_REDIS_ENABLED=${PLATFORM_REDIS_ENABLED:-1}`
+  - `REDIS_URL=${REDIS_URL:-redis://redis:6379/0}`
+- Backend now depends on healthy `postgres` and `redis`.
+- Backend image now copies `alembic.ini` and `alembic/`, resolving the startup migration packaging gap.
+- No dependency files changed.
+- Remaining rollout risk: file-backed env rollback still starts `postgres` and `redis` services unless operators use a narrower compose invocation/profile; docs/QA should make this explicit or improve ergonomics in a follow-up.

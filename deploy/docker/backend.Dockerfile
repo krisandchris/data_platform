@@ -10,6 +10,8 @@ WORKDIR /app
 COPY --from=ghcr.io/astral-sh/uv:0.7.13 /uv /uvx /usr/local/bin/
 
 COPY pyproject.toml uv.lock ./
+COPY alembic.ini ./
+COPY alembic ./alembic
 COPY docs ./docs
 COPY src ./src
 
