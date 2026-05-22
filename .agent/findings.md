@@ -99,3 +99,5 @@
 - `scripts/docker-compose-auto-subnet.py` already wraps all `docker compose` commands with an auto-selected 172.x subnet and should remain the supported operator entrypoint.
 - Phase 7 should not move raw dataset files, uploaded archives, extracted sources, media, or export blobs into PostgreSQL; PostgreSQL stores durable metadata/state only.
 - Existing `.gitignore` has an unrelated user modification in the main workspace; it should remain unstaged unless explicitly requested.
+- Baseline `uv run python scripts/docker-compose-auto-subnet.py config` on Phase 7 start renders only `backend` and `frontend`; this confirms the four-service rollout is not yet implemented.
+- Docker is available locally (`Docker Server 29.1.2`, Compose `v2.40.3`), so Phase 7 live build/smoke validation should be attempted unless later resource or port conflicts appear.

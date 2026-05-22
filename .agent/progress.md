@@ -154,4 +154,8 @@
   - QA Poincare: `019e4da1-66f1-7661-b413-5d3f17f80088`
   - Frontend Maxwell: `019e4da1-94de-7b33-a250-cd0b7a540ba3`
   - Docs Mill: `019e4da1-bca9-7f62-b9ff-95b7ef673527`
+- Ran main-worktree baseline checks:
+  - `uv run python scripts/docker-compose-auto-subnet.py config` rendered current two-service file-backed Compose.
+  - `docker version --format '{{.Server.Version}}'` returned `29.1.2`.
+  - `docker compose version` returned `Docker Compose version v2.40.3`.
 - Existing unrelated `.gitignore` user modification remains unstaged.
