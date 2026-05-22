@@ -53,6 +53,7 @@ from urban_violation_backend.api_schemas import (
     ExportResponse,
     ImportJobCreateRequest,
     ImportMappingStep,
+    ImportLiveProgressResponse,
     ImportJobStatusResponse,
     ImportValidationRow,
     BatchDraftSampleState,
@@ -147,6 +148,11 @@ from urban_violation_backend.labels import (
     validate_label_config,
 )
 from urban_violation_backend.permissions import PermissionEvaluator, ROLE_PERMISSIONS
+from urban_violation_backend.runtime_coordination import (
+    RedisClientProtocol,
+    RuntimeCoordinatorProtocol,
+    build_runtime_coordinator,
+)
 from urban_violation_backend.schemas import (
     AnnotationSnapshot,
     AnnotationSnapshotType,
@@ -335,6 +341,9 @@ class FixtureRuntimeService:
         platform_state_store: PlatformStateStoreProtocol | None = None,
         foundation_registry_repo: FoundationRegistryRepositoryProtocol | None = None,
         enable_fixture_batch: bool = True,
+        runtime_coordinator: RuntimeCoordinatorProtocol | None = None,
+        redis_lease_ttl_seconds: int = 600,
+        redis_lock_ttl_seconds: int = 120,
     ) -> None:
         self._dataset_root = dataset_root.resolve()
         self._label_config_store_root = (
@@ -378,6 +387,16 @@ class FixtureRuntimeService:
         self._updated_at = datetime.now(timezone.utc)
         self._registered_batch_runtimes: dict[str, RegisteredBatchRuntime] = {}
         self._registered_batch_runtime_errors: dict[str, str] = {}
+        self._runtime_coordinator = runtime_coordinator or build_runtime_coordinator(
+            redis_enabled=False,
+            redis_url=None,
+            lease_ttl_seconds=redis_lease_ttl_seconds,
+            lock_ttl_seconds=redis_lock_ttl_seconds,
+            import_progress_ttl_seconds=1800,
+            session_cache_ttl_seconds=300,
+        )
+        self._redis_lease_ttl_seconds = max(5, redis_lease_ttl_seconds)
+        self._redis_lock_ttl_seconds = max(5, redis_lock_ttl_seconds)
 
         if enable_fixture_batch:
             self._bundle = import_fixture_samples(dataset_root=self._dataset_root, sample_ids=sample_ids)
@@ -437,6 +456,7 @@ class FixtureRuntimeService:
         self._auth_service = AuthService(
             store=self._state_store,
             settings=AuthService.default_settings(),
+            session_cache=self._runtime_coordinator,
         )
         self._auth_service.ensure_bootstrap_admin()
         if self._fixture_batch_enabled:
@@ -1164,44 +1184,58 @@ class FixtureRuntimeService:
         """Generate batch-scoped QC tasks once STEP outputs and label config are ready."""
         self._require_dataset(dataset_id)
         self._require_permission(context=context, action="batch_assignment:manage", dataset_id=dataset_id)
-        if dataset_id in self._registered_batches:
-            summary = self._registered_batches[dataset_id]
-            if summary.source_structure == "images_only":
-                raise conflict(
-                    "preannotation_required",
-                    "Images-only batch requires STEP1/STEP2 pre-annotation before QC queue generation.",
-                    dataset_id=dataset_id,
-                )
-            if dataset_id not in self._registered_batch_runtimes:
-                hydration_error = self._registered_batch_runtime_errors.get(dataset_id)
-                if hydration_error:
+        active_dataset_id = self._effective_batch_dataset_id(dataset_id)
+        runtime_lock = self._runtime_coordinator.try_acquire_lock(
+            scope="qc_queue_generation",
+            dataset_id=active_dataset_id,
+            resource_id=active_dataset_id,
+            ttl_seconds=self._redis_lock_ttl_seconds,
+        )
+        if runtime_lock is None:
+            raise conflict(
+                "qc_queue_generation_locked",
+                "QC queue generation is already running for this dataset.",
+                dataset_id=active_dataset_id,
+            )
+        with runtime_lock:
+            if dataset_id in self._registered_batches:
+                summary = self._registered_batches[dataset_id]
+                if summary.source_structure == "images_only":
+                    raise conflict(
+                        "preannotation_required",
+                        "Images-only batch requires STEP1/STEP2 pre-annotation before QC queue generation.",
+                        dataset_id=dataset_id,
+                    )
+                if dataset_id not in self._registered_batch_runtimes:
+                    hydration_error = self._registered_batch_runtime_errors.get(dataset_id)
+                    if hydration_error:
+                        raise conflict(
+                            "source_not_ingested",
+                            f"Batch source hydration failed: {hydration_error}",
+                            dataset_id=dataset_id,
+                            hydration_error=hydration_error,
+                        )
                     raise conflict(
                         "source_not_ingested",
-                        f"Batch source hydration failed: {hydration_error}",
+                        "Batch source must be ingested before QC queue generation.",
                         dataset_id=dataset_id,
-                        hydration_error=hydration_error,
                     )
-                raise conflict(
-                    "source_not_ingested",
-                    "Batch source must be ingested before QC queue generation.",
-                    dataset_id=dataset_id,
+                try:
+                    self._label_config_repo.get_active(dataset_id=summary.dataset_type)
+                except ActiveLabelConfigNotFoundError as exc:
+                    raise conflict(
+                        "label_config_required",
+                        "Active label config is required before QC queue generation.",
+                        dataset_id=dataset_id,
+                        dataset_type=summary.dataset_type,
+                    ) from exc
+                qc_queue_id = self._queue_id_for_dataset(dataset_id)
+                self._registered_batches[dataset_id] = summary.model_copy(
+                    update={"qc_queue_id": qc_queue_id}
                 )
-            try:
-                self._label_config_repo.get_active(dataset_id=summary.dataset_type)
-            except ActiveLabelConfigNotFoundError as exc:
-                raise conflict(
-                    "label_config_required",
-                    "Active label config is required before QC queue generation.",
-                    dataset_id=dataset_id,
-                    dataset_type=summary.dataset_type,
-                ) from exc
-            qc_queue_id = self._queue_id_for_dataset(dataset_id)
-            self._registered_batches[dataset_id] = summary.model_copy(
-                update={"qc_queue_id": qc_queue_id}
-            )
-            self._persist_registered_batches()
-        self._ensure_qc_tasks_for_dataset(dataset_id)
-        return self.list_qc_queue(dataset_id=dataset_id, context=context)
+                self._persist_registered_batches()
+            self._ensure_qc_tasks_for_dataset(dataset_id)
+            return self.list_qc_queue(dataset_id=dataset_id, context=context)
 
     def resolve_auth_context(self, request: Request) -> AuthContext:
         """Resolve request identity from session token or dev headers."""
@@ -3234,6 +3268,10 @@ class FixtureRuntimeService:
                 and lease.status == LeaseStatus.ACTIVE
                 and lease.expires_at <= now
             ):
+                self._runtime_coordinator.force_release_sample_lease_lock(
+                    dataset_id=dataset_id,
+                    sample_id=sample_id,
+                )
                 current = lease.model_copy(update={"status": LeaseStatus.EXPIRED})
                 changed = True
             updated.append(current)
@@ -3437,6 +3475,7 @@ class FixtureRuntimeService:
             if job.dataset_id == dataset_id or job_id == summary.active_import_job_id
         ]
         for job_id in removed_jobs:
+            self._runtime_coordinator.clear_import_progress(dataset_id=dataset_id, job_id=job_id)
             self._import_jobs.pop(job_id, None)
 
         self._state_store.clear_qc_dataset_state(dataset_id)
@@ -4666,6 +4705,10 @@ class FixtureRuntimeService:
         for lease in leases:
             if lease.status == LeaseStatus.ACTIVE:
                 changed = True
+                self._runtime_coordinator.force_release_sample_lease_lock(
+                    dataset_id=dataset_id,
+                    sample_id=lease.sample_id,
+                )
                 updated.append(
                     lease.model_copy(
                         update={
@@ -4712,6 +4755,28 @@ class FixtureRuntimeService:
                 lease_user_id=active.user_id,
             )
         if active is not None and active.user_id == context.user_id:
+            lease_lock_ok = self._runtime_coordinator.heartbeat_sample_lease_lock(
+                dataset_id=active_dataset_id,
+                sample_id=sample_id,
+                lease_id=active.lease_id,
+                user_id=context.user_id,
+                ttl_seconds=self._redis_lease_ttl_seconds,
+            )
+            if not lease_lock_ok:
+                lease_lock_ok = self._runtime_coordinator.acquire_sample_lease_lock(
+                    dataset_id=active_dataset_id,
+                    sample_id=sample_id,
+                    lease_id=active.lease_id,
+                    user_id=context.user_id,
+                    ttl_seconds=self._redis_lease_ttl_seconds,
+                )
+            if not lease_lock_ok:
+                raise conflict(
+                    "lease_expired",
+                    "Active lease lock is expired.",
+                    sample_id=sample_id,
+                    lease_id=active.lease_id,
+                )
             extended = active.model_copy(
                 update={
                     "heartbeat_at": now,
@@ -4738,6 +4803,19 @@ class FixtureRuntimeService:
             released_at=None,
             revoked_at=None,
         )
+        acquired = self._runtime_coordinator.acquire_sample_lease_lock(
+            dataset_id=active_dataset_id,
+            sample_id=sample_id,
+            lease_id=lease.lease_id,
+            user_id=context.user_id,
+            ttl_seconds=self._redis_lease_ttl_seconds,
+        )
+        if not acquired:
+            raise conflict(
+                "lease_owned_by_other_user",
+                "Active lease is owned by another user.",
+                sample_id=sample_id,
+            )
         leases = self._state_store.list_leases(active_dataset_id)
         leases.append(lease)
         self._state_store.save_leases(active_dataset_id, leases)
@@ -4792,6 +4870,19 @@ class FixtureRuntimeService:
             updated.append(current)
         if matched is None:
             raise conflict("lease_required", "Lease not found.", lease_id=lease_id)
+        lock_ok = self._runtime_coordinator.heartbeat_sample_lease_lock(
+            dataset_id=active_dataset_id,
+            sample_id=sample_id,
+            lease_id=lease_id,
+            user_id=context.user_id,
+            ttl_seconds=self._redis_lease_ttl_seconds,
+        )
+        if not lock_ok:
+            raise conflict(
+                "lease_expired",
+                "Lease lock is expired.",
+                lease_id=lease_id,
+            )
         self._state_store.save_leases(active_dataset_id, updated)
         self._record_audit(
             actor=context,
@@ -4817,11 +4908,13 @@ class FixtureRuntimeService:
         now = self._state_store.now()
         updated: list[SampleLease] = []
         matched: SampleLease | None = None
+        force_release = False
         for lease in leases:
             current = lease
             if lease.lease_id == lease_id:
                 if lease.user_id != context.user_id:
                     self._require_permission(context=context, action="lease:force_release", dataset_id=dataset_id)
+                    force_release = True
                 current = lease.model_copy(
                     update={
                         "status": LeaseStatus.RELEASED,
@@ -4832,6 +4925,23 @@ class FixtureRuntimeService:
             updated.append(current)
         if matched is None:
             raise conflict("lease_required", "Lease not found.", lease_id=lease_id)
+        released = self._runtime_coordinator.release_sample_lease_lock(
+            dataset_id=active_dataset_id,
+            sample_id=sample_id,
+            lease_id=lease_id,
+            user_id=matched.user_id,
+        )
+        if not released and force_release:
+            self._runtime_coordinator.force_release_sample_lease_lock(
+                dataset_id=active_dataset_id,
+                sample_id=sample_id,
+            )
+        elif not released:
+            raise conflict(
+                "lease_expired",
+                "Lease lock is expired.",
+                lease_id=lease_id,
+            )
         self._state_store.save_leases(active_dataset_id, updated)
         self._record_audit(
             actor=context,
@@ -5127,6 +5237,10 @@ class FixtureRuntimeService:
         for lease in leases:
             if lease.user_id == user_id and lease.status == LeaseStatus.ACTIVE:
                 released_count += 1
+                self._runtime_coordinator.force_release_sample_lease_lock(
+                    dataset_id=dataset_id,
+                    sample_id=lease.sample_id,
+                )
                 updated.append(
                     lease.model_copy(
                         update={
@@ -5886,6 +6000,10 @@ class FixtureRuntimeService:
         else:
             validation_rows = []
         payload = job.model_dump()
+        live_progress = self._runtime_coordinator.get_import_progress(
+            dataset_id=job.dataset_id,
+            job_id=job.job_id,
+        )
         payload.update(
             {
                 "dataset_id": job.dataset_id,
@@ -5897,10 +6015,31 @@ class FixtureRuntimeService:
                 "warnings": job.warnings,
                 "validation_rows": validation_rows,
                 "mapping_steps": self._build_mapping_steps(job),
+                "live_progress": self._live_import_progress_response(live_progress),
             }
         )
         return ImportJobStatusResponse(
             **payload
+        )
+
+    @staticmethod
+    def _live_import_progress_response(payload: dict[str, Any] | None) -> ImportLiveProgressResponse | None:
+        if payload is None:
+            return None
+        updated_at_raw = payload.get("updated_at")
+        updated_at: datetime | None = None
+        if isinstance(updated_at_raw, str) and updated_at_raw:
+            try:
+                updated_at = datetime.fromisoformat(updated_at_raw)
+            except ValueError:
+                updated_at = None
+        return ImportLiveProgressResponse(
+            stage=str(payload.get("stage") or "unknown"),
+            state=str(payload.get("state") or "processing"),
+            current=max(0, int(payload.get("current", 0) or 0)),
+            total=max(0, int(payload.get("total", 0) or 0)),
+            message=str(payload.get("message") or ""),
+            updated_at=updated_at,
         )
 
     def list_import_jobs(self, dataset_id: str) -> list[ImportJobStatusResponse]:
@@ -5938,6 +6077,15 @@ class FixtureRuntimeService:
             warnings=[],
         )
         self._set_import_job(job)
+        self._runtime_coordinator.set_import_progress(
+            dataset_id=job.dataset_id,
+            job_id=job.job_id,
+            stage="create",
+            state="draft",
+            current=0,
+            total=job.expected_assets,
+            message="Import job created.",
+        )
         return self._build_import_job_status(job)
 
     def _create_registered_batch_import_job(
@@ -6074,6 +6222,15 @@ class FixtureRuntimeService:
         if runtime is not None:
             self._registered_batch_runtimes[batch_dataset_id] = runtime
         self._import_jobs[job.job_id] = job
+        self._runtime_coordinator.set_import_progress(
+            dataset_id=job.dataset_id,
+            job_id=job.job_id,
+            stage="create",
+            state=("completed" if job.state == ImportJobState.IMPORTED else "draft"),
+            current=job.imported_assets,
+            total=job.expected_assets,
+            message="Batch import job registered.",
+        )
         self._persist_registered_batches()
         return self._build_import_job_status(job)
 
@@ -6085,93 +6242,225 @@ class FixtureRuntimeService:
     def scan_import_job(self, dataset_id: str, job_id: str) -> ImportJobStatusResponse:
         """Execute scan phase; records interim state only."""
         job = self._get_import_job(dataset_id=dataset_id, job_id=job_id)
-        scanned = job.model_copy(update={"state": ImportJobState.SCANNING, "imported_assets": 0})
-        if scanned.dataset_id == self._dataset_id:
-            self._set_import_job(scanned)
-        else:
-            self._import_jobs[scanned.job_id] = scanned
-            self._update_registered_batch_from_job(scanned)
-        return self._build_import_job_status(scanned)
+        runtime_lock = self._runtime_coordinator.try_acquire_lock(
+            scope="import_job_scan",
+            dataset_id=job.dataset_id,
+            resource_id=job.job_id,
+            ttl_seconds=self._redis_lock_ttl_seconds,
+        )
+        if runtime_lock is None:
+            raise conflict(
+                "import_job_locked",
+                "Import job scan is already running.",
+                dataset_id=job.dataset_id,
+                job_id=job.job_id,
+            )
+        with runtime_lock:
+            self._runtime_coordinator.set_import_progress(
+                dataset_id=job.dataset_id,
+                job_id=job.job_id,
+                stage="scan",
+                state="running",
+                current=0,
+                total=job.expected_assets,
+                message="Scanning source files.",
+            )
+            scanned = job.model_copy(update={"state": ImportJobState.SCANNING, "imported_assets": 0})
+            if scanned.dataset_id == self._dataset_id:
+                self._set_import_job(scanned)
+            else:
+                self._import_jobs[scanned.job_id] = scanned
+                self._update_registered_batch_from_job(scanned)
+            self._runtime_coordinator.set_import_progress(
+                dataset_id=scanned.dataset_id,
+                job_id=scanned.job_id,
+                stage="scan",
+                state="completed",
+                current=scanned.imported_assets,
+                total=scanned.expected_assets,
+                message="Scan stage completed.",
+            )
+            return self._build_import_job_status(scanned)
 
     def validate_import_job(self, dataset_id: str, job_id: str) -> ImportJobStatusResponse:
         """Execute validate phase; STEP2 failures are non-blocking warnings."""
         job = self._get_import_job(dataset_id=dataset_id, job_id=job_id)
-        if job.dataset_id != self._dataset_id:
-            warnings: list[str] = []
-            if job.source_structure == "images_only":
-                warnings.append("Batch contains images only; STEP1/STEP2 pre-annotation is required before QC.")
-            elif job.stage2_failure_file_count:
-                warnings.append(
-                    f"Detected {job.stage2_failure_file_count} STEP2 failure artifacts; preserved as import diagnostics."
+        runtime_lock = self._runtime_coordinator.try_acquire_lock(
+            scope="import_job_validate",
+            dataset_id=job.dataset_id,
+            resource_id=job.job_id,
+            ttl_seconds=self._redis_lock_ttl_seconds,
+        )
+        if runtime_lock is None:
+            raise conflict(
+                "import_job_locked",
+                "Import job validation is already running.",
+                dataset_id=job.dataset_id,
+                job_id=job.job_id,
+            )
+        with runtime_lock:
+            self._runtime_coordinator.set_import_progress(
+                dataset_id=job.dataset_id,
+                job_id=job.job_id,
+                stage="validate",
+                state="running",
+                current=job.imported_assets,
+                total=job.expected_assets,
+                message="Validating imported assets.",
+            )
+            if job.dataset_id != self._dataset_id:
+                warnings: list[str] = []
+                if job.source_structure == "images_only":
+                    warnings.append("Batch contains images only; STEP1/STEP2 pre-annotation is required before QC.")
+                elif job.stage2_failure_file_count:
+                    warnings.append(
+                        f"Detected {job.stage2_failure_file_count} STEP2 failure artifacts; preserved as import diagnostics."
+                    )
+                validated = job.model_copy(
+                    update={
+                        "state": ImportJobState.VALIDATION_PASSED,
+                        "failure_count": job.stage2_failure_file_count,
+                        "warnings": warnings,
+                        "validation_errors": [],
+                    }
                 )
+                self._import_jobs[validated.job_id] = validated
+                self._update_registered_batch_from_job(validated)
+                self._runtime_coordinator.set_import_progress(
+                    dataset_id=validated.dataset_id,
+                    job_id=validated.job_id,
+                    stage="validate",
+                    state="completed",
+                    current=validated.imported_assets,
+                    total=validated.expected_assets,
+                    message="Validation completed.",
+                )
+                return self._build_import_job_status(validated)
+
             validated = job.model_copy(
                 update={
                     "state": ImportJobState.VALIDATION_PASSED,
-                    "failure_count": job.stage2_failure_file_count,
-                    "warnings": warnings,
+                    "failure_count": self._bundle.dataset.stage2_failure_count,
+                    "warnings": self._build_stage2_warning_messages(),
                     "validation_errors": [],
                 }
             )
-            self._import_jobs[validated.job_id] = validated
-            self._update_registered_batch_from_job(validated)
+            self._set_import_job(validated)
+            self._runtime_coordinator.set_import_progress(
+                dataset_id=validated.dataset_id,
+                job_id=validated.job_id,
+                stage="validate",
+                state="completed",
+                current=validated.imported_assets,
+                total=validated.expected_assets,
+                message="Validation completed.",
+            )
             return self._build_import_job_status(validated)
-
-        validated = job.model_copy(
-            update={
-                "state": ImportJobState.VALIDATION_PASSED,
-                "failure_count": self._bundle.dataset.stage2_failure_count,
-                "warnings": self._build_stage2_warning_messages(),
-                "validation_errors": [],
-            }
-        )
-        self._set_import_job(validated)
-        return self._build_import_job_status(validated)
 
     def confirm_import_job(self, dataset_id: str, job_id: str) -> ImportJobStatusResponse:
         """Execute confirm/import phase and persist as latest batch import."""
         job = self._get_import_job(dataset_id=dataset_id, job_id=job_id)
-        if job.dataset_id != self._dataset_id:
+        runtime_lock = self._runtime_coordinator.try_acquire_lock(
+            scope="import_job_confirm",
+            dataset_id=job.dataset_id,
+            resource_id=job.job_id,
+            ttl_seconds=self._redis_lock_ttl_seconds,
+        )
+        if runtime_lock is None:
+            raise conflict(
+                "import_job_locked",
+                "Import job confirmation is already running.",
+                dataset_id=job.dataset_id,
+                job_id=job.job_id,
+            )
+        with runtime_lock:
+            self._runtime_coordinator.set_import_progress(
+                dataset_id=job.dataset_id,
+                job_id=job.job_id,
+                stage="confirm",
+                state="running",
+                current=job.imported_assets,
+                total=job.expected_assets,
+                message="Confirming import state.",
+            )
+            if job.dataset_id != self._dataset_id:
+                confirmed = job.model_copy(
+                    update={
+                        "state": ImportJobState.IMPORTED,
+                        "imported_assets": job.image_count or job.expected_assets,
+                        "failure_count": job.stage2_failure_file_count,
+                        "validation_errors": [],
+                    }
+                )
+                self._import_jobs[confirmed.job_id] = confirmed
+                self._update_registered_batch_from_job(confirmed)
+                self._runtime_coordinator.set_import_progress(
+                    dataset_id=confirmed.dataset_id,
+                    job_id=confirmed.job_id,
+                    stage="confirm",
+                    state="completed",
+                    current=confirmed.imported_assets,
+                    total=confirmed.expected_assets,
+                    message="Import confirmed.",
+                )
+                return self._build_import_job_status(confirmed)
+
             confirmed = job.model_copy(
                 update={
                     "state": ImportJobState.IMPORTED,
-                    "imported_assets": job.image_count or job.expected_assets,
-                    "failure_count": job.stage2_failure_file_count,
+                    "imported_assets": len(self._samples),
+                    "failure_count": self._bundle.dataset.stage2_failure_count,
+                    "warnings": self._build_stage2_warning_messages(),
                     "validation_errors": [],
                 }
             )
-            self._import_jobs[confirmed.job_id] = confirmed
-            self._update_registered_batch_from_job(confirmed)
+            self._set_import_job(confirmed)
+            self._runtime_coordinator.set_import_progress(
+                dataset_id=confirmed.dataset_id,
+                job_id=confirmed.job_id,
+                stage="confirm",
+                state="completed",
+                current=confirmed.imported_assets,
+                total=confirmed.expected_assets,
+                message="Import confirmed.",
+            )
             return self._build_import_job_status(confirmed)
-
-        confirmed = job.model_copy(
-            update={
-                "state": ImportJobState.IMPORTED,
-                "imported_assets": len(self._samples),
-                "failure_count": self._bundle.dataset.stage2_failure_count,
-                "warnings": self._build_stage2_warning_messages(),
-                "validation_errors": [],
-            }
-        )
-        self._set_import_job(confirmed)
-        return self._build_import_job_status(confirmed)
 
     def retry_import_job(self, dataset_id: str, job_id: str) -> ImportJobStatusResponse:
         """Reset one job to draft for a new scan/validate/confirm round."""
         job = self._get_import_job(dataset_id=dataset_id, job_id=job_id)
-        retried = job.model_copy(
-            update={
-                "state": ImportJobState.DRAFT,
-                "imported_assets": 0,
-                "warnings": [],
-                "validation_errors": [],
-            }
+        runtime_lock = self._runtime_coordinator.try_acquire_lock(
+            scope="import_job_retry",
+            dataset_id=job.dataset_id,
+            resource_id=job.job_id,
+            ttl_seconds=self._redis_lock_ttl_seconds,
         )
-        if retried.dataset_id == self._dataset_id:
-            self._set_import_job(retried)
-        else:
-            self._import_jobs[retried.job_id] = retried
-            self._update_registered_batch_from_job(retried)
-        return self._build_import_job_status(retried)
+        if runtime_lock is None:
+            raise conflict(
+                "import_job_locked",
+                "Import job retry is already running.",
+                dataset_id=job.dataset_id,
+                job_id=job.job_id,
+            )
+        with runtime_lock:
+            retried = job.model_copy(
+                update={
+                    "state": ImportJobState.DRAFT,
+                    "imported_assets": 0,
+                    "warnings": [],
+                    "validation_errors": [],
+                }
+            )
+            if retried.dataset_id == self._dataset_id:
+                self._set_import_job(retried)
+            else:
+                self._import_jobs[retried.job_id] = retried
+                self._update_registered_batch_from_job(retried)
+            self._runtime_coordinator.clear_import_progress(
+                dataset_id=retried.dataset_id,
+                job_id=retried.job_id,
+            )
+            return self._build_import_job_status(retried)
 
     def _build_validation_rows(self) -> list[ImportValidationRow]:
         """Build manifest pairing rows for the import validation page."""
@@ -6485,6 +6774,8 @@ def build_fixture_service(
     database_url: str | None = None,
     platform_db_auto_migrate: bool | None = None,
     enable_fixture_batch: bool | None = None,
+    runtime_coordinator: RuntimeCoordinatorProtocol | None = None,
+    redis_client: RedisClientProtocol | None = None,
 ) -> FixtureRuntimeService:
     """Factory for runtime service with deterministic defaults.
 
@@ -6530,6 +6821,15 @@ def build_fixture_service(
         if platform_db_auto_migrate is None
         else platform_db_auto_migrate
     )
+    effective_runtime_coordinator = runtime_coordinator or build_runtime_coordinator(
+        redis_enabled=settings.redis_enabled,
+        redis_url=settings.redis_url,
+        lease_ttl_seconds=settings.redis_lease_ttl_seconds,
+        lock_ttl_seconds=settings.redis_lock_ttl_seconds,
+        import_progress_ttl_seconds=settings.redis_import_progress_ttl_seconds,
+        session_cache_ttl_seconds=settings.redis_session_cache_ttl_seconds,
+        redis_client=redis_client,
+    )
 
     if effective_backend == PlatformStateBackend.DATABASE:
         if not effective_db_url:
@@ -6562,4 +6862,7 @@ def build_fixture_service(
             if enable_fixture_batch is None
             else enable_fixture_batch
         ),
+        runtime_coordinator=effective_runtime_coordinator,
+        redis_lease_ttl_seconds=settings.redis_lease_ttl_seconds,
+        redis_lock_ttl_seconds=settings.redis_lock_ttl_seconds,
     )

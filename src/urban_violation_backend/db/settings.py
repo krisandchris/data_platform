@@ -23,10 +23,16 @@ class DatabaseRuntimeSettings(BaseModel):
     platform_state_backend: PlatformStateBackend = PlatformStateBackend.FILE
     database_url: str | None = None
     platform_db_auto_migrate: bool = False
+    platform_redis_enabled: bool = False
+    redis_url: str | None = None
+    redis_lease_ttl_seconds: int = Field(default=600, ge=5, le=86400)
+    redis_lock_ttl_seconds: int = Field(default=120, ge=5, le=3600)
+    redis_import_progress_ttl_seconds: int = Field(default=1800, ge=5, le=86400)
+    redis_session_cache_ttl_seconds: int = Field(default=300, ge=5, le=86400)
 
-    @field_validator("database_url")
+    @field_validator("database_url", "redis_url")
     @classmethod
-    def validate_database_url(cls, value: str | None) -> str | None:
+    def validate_optional_url(cls, value: str | None) -> str | None:
         """Normalize optional URL and reject blank values."""
         if value is None:
             return None
@@ -37,6 +43,11 @@ class DatabaseRuntimeSettings(BaseModel):
     def database_enabled(self) -> bool:
         """Return whether the database-backed mode was selected."""
         return self.platform_state_backend == PlatformStateBackend.DATABASE
+
+    @property
+    def redis_enabled(self) -> bool:
+        """Return whether Redis runtime coordination is effectively enabled."""
+        return self.platform_redis_enabled and self.redis_url is not None
 
     def require_database_url(self) -> str:
         """Return DATABASE_URL or raise a clear configuration error."""
@@ -49,13 +60,28 @@ class DatabaseRuntimeSettings(BaseModel):
         """Build validated settings from process environment variables."""
         backend_raw = (os.environ.get("PLATFORM_STATE_BACKEND", "file") or "file").strip().lower()
         auto_migrate_raw = (os.environ.get("PLATFORM_DB_AUTO_MIGRATE", "0") or "0").strip().lower()
+        redis_enabled_raw = (os.environ.get("PLATFORM_REDIS_ENABLED", "0") or "0").strip().lower()
         database_url = os.environ.get("DATABASE_URL")
+        redis_url = os.environ.get("REDIS_URL")
 
         auto_migrate = auto_migrate_raw in {"1", "true", "yes", "on"}
+        redis_enabled = redis_enabled_raw in {"1", "true", "yes", "on"}
         payload = {
             "platform_state_backend": backend_raw,
             "database_url": database_url,
             "platform_db_auto_migrate": auto_migrate,
+            "platform_redis_enabled": redis_enabled,
+            "redis_url": redis_url,
+            "redis_lease_ttl_seconds": os.environ.get("PLATFORM_REDIS_LEASE_TTL_SECONDS", "600"),
+            "redis_lock_ttl_seconds": os.environ.get("PLATFORM_REDIS_LOCK_TTL_SECONDS", "120"),
+            "redis_import_progress_ttl_seconds": os.environ.get(
+                "PLATFORM_REDIS_IMPORT_PROGRESS_TTL_SECONDS",
+                "1800",
+            ),
+            "redis_session_cache_ttl_seconds": os.environ.get(
+                "PLATFORM_REDIS_SESSION_CACHE_TTL_SECONDS",
+                "300",
+            ),
         }
         try:
             return cls.model_validate(payload)

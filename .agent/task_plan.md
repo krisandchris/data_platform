@@ -11,44 +11,20 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 3. PostgreSQL foundation for identity, registry, label config, import jobs, and audit.
    - Status: complete.
 4. PostgreSQL migration for QC, drafts, submissions, sample pool, exports, and evaluations.
-   - Status: complete. Backend, QA, Frontend, and Docs branches are merged into `integration/TASK-019`; local integration verification passed with SQLite database fallback.
+   - Status: complete.
 5. Redis runtime state for active leases, locks, session cache, and import progress.
-   - Status: in_progress. Phase 5 Redis runtime worktrees have been created and agents are being dispatched.
+   - Status: in_progress. Backend Redis runtime branch is being integrated; QA, Frontend, and Docs branches are ready.
 6. File-state import tool.
    - Status: pending.
 7. Docker rollout and full acceptance.
    - Status: pending.
 
-## Phase 4 Agent Branches
-
-- Merged into integration: `agent/TASK-019/backend/qc-state` at `254e9f0`
-- Merged into integration: `agent/TASK-019/qa/qc-state-tests` at `a3c16e9`
-- Merged into integration: `agent/TASK-019/frontend/qc-db-compat` at `011df88`
-- Merged into integration: `agent/TASK-019/docs/qc-state-runbooks` at `b4f1042`
-
-## Phase 4 Scope
-
-- Move authoritative QC assignments, task records, lease history, drafts, batch drafts, submissions, annotation snapshots, modification events, sample pool items, export job metadata, and evaluation run metadata to PostgreSQL in database mode.
-- Preserve file-backed mode and existing frontend API response contracts.
-- Keep raw dataset files, uploaded archives, extracted source trees, media files, and export artifacts on the filesystem.
-- Do not introduce Redis or switch Docker defaults in this phase.
-
-## Phase 4 Exit Gate
-
-- Database mode supports the full review workflow through confirmation and persistence across service recreation.
-- File-backed test suite remains green.
-- Frontend tests/build remain green.
-- QA database-mode tests pass with SQLite fallback and optionally with `TEST_DATABASE_URL`.
-- Docs and runbooks are reconciled with the implemented Phase 4 behavior.
-
-Exit gate status: complete for local integration. PostgreSQL-specific live validation still requires `TEST_DATABASE_URL`.
-
 ## Phase 5 Agent Branches
 
-- In progress: `agent/TASK-019/backend/redis-runtime`
-- In progress: `agent/TASK-019/qa/redis-runtime-tests`
-- In progress: `agent/TASK-019/frontend/progress-and-lease`
-- In progress: `agent/TASK-019/docs/redis-runtime-runbooks`
+- Integrating: `agent/TASK-019/backend/redis-runtime` at `28f70c6`
+- Ready to integrate: `agent/TASK-019/qa/redis-runtime-tests` at `3529101`
+- Ready to integrate: `agent/TASK-019/frontend/progress-and-lease` at `151131c`
+- Ready to integrate: `agent/TASK-019/docs/redis-runtime-runbooks` at `3ff44e3`
 
 ## Phase 5 Scope
 
