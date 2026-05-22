@@ -58,3 +58,12 @@
 - Append/upsert-style DB methods such as audit append, sample-pool upsert, export/evaluation save, and label config save have useful primitives but still need same-ID conflict checks for migration reporting.
 - File-backed label config state is stored under `{LABEL_CONFIG_STORE_ROOT}/{dataset_id}/label_configs/{versions,registry.json,active.json}` and can be loaded through `FileBackedLabelConfigRepository`.
 - Existing `.gitignore` has an unrelated user modification in the main workspace; it should stay unstaged unless the user explicitly wants it committed.
+
+## Phase 6 Backend Findings (agent/TASK-019/backend/import-tool)
+
+- `FileBackedLabelConfigRepository` is not safe as a read-only migration source because `_load_dataset()` can normalize and persist files; Phase 6 importer now reads `label_configs/versions/*.json` and `active.json` directly to avoid mutating file-backed roots.
+- Existing DB label-config APIs did not support preserved-ID imports; added explicit helpers:
+  - `DatabaseLabelConfigRepository.import_with_preserved_id(stored)` for same-ID match/conflict detection.
+  - `DatabaseLabelConfigRepository.import_active_pointer(dataset_id, config_id)` for non-overwriting active-pointer import.
+- DB store and registry APIs are still reused for all other mutable-state domains, with importer-side conflict checks to prevent silent overwrite.
+- Import command returns exit code `3` on conflicts so operators can stop and inspect the JSON report.
