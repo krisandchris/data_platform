@@ -91,24 +91,57 @@
           <span class="muted">{{ filteredQueue.length }} samples</span>
         </div>
         <div v-if="filteredQueue.length === 0" class="empty-state">No QC task matched this view.</div>
-        <div class="queue-grid">
+        <div v-else class="queue-list">
+          <div class="queue-row queue-row--head" aria-hidden="true">
+            <span>sample_id</span>
+            <span>状态</span>
+            <span>类别</span>
+            <span>负责人</span>
+            <span>Lease</span>
+            <span>Label Config</span>
+            <span>提交</span>
+            <span>操作</span>
+          </div>
           <RouterLink
-            v-for="item in filteredQueue"
+            v-for="item in paginatedQueue"
             :key="item.sampleId"
-            class="queue-card"
+            class="queue-row"
             :class="{ readonly: !canOpenEditable(item) }"
             :to="`/datasets/${id}/samples/${item.sampleId}/review`"
           >
-            <div class="queue-card__head">
-              <strong>{{ item.sampleId }}</strong>
-              <StatusChip :value="item.taskStatus ?? item.status" />
-            </div>
-            <span>{{ item.primaryCategory ?? 'uncategorized' }}</span>
-            <span>assignee {{ item.assigneeDisplayName || item.assigneeUserId || 'unassigned' }}</span>
-            <span>lease {{ item.leaseStatus ?? 'none' }}</span>
-            <span>config {{ item.labelConfigVersion ?? item.task?.labelConfigVersion ?? '-' }}</span>
-            <span v-if="item.latestSubmission">submitted {{ item.latestSubmission.submittedAt || item.latestSubmission.status }}</span>
+            <span class="queue-cell queue-cell--sample" :title="item.sampleId">{{ item.sampleId }}</span>
+            <span class="queue-cell"><StatusChip :value="item.taskStatus ?? item.status" /></span>
+            <span class="queue-cell" :title="item.primaryCategory ?? 'uncategorized'">{{ item.primaryCategory ?? 'uncategorized' }}</span>
+            <span class="queue-cell" :title="item.assigneeDisplayName || item.assigneeUserId || 'unassigned'">
+              {{ item.assigneeDisplayName || item.assigneeUserId || 'unassigned' }}
+            </span>
+            <span class="queue-cell" :title="item.leaseStatus ?? 'none'">{{ item.leaseStatus ?? 'none' }}</span>
+            <span class="queue-cell" :title="item.labelConfigVersion ?? item.task?.labelConfigVersion ?? '-'">
+              {{ item.labelConfigVersion ?? item.task?.labelConfigVersion ?? '-' }}
+            </span>
+            <span class="queue-cell" :title="item.latestSubmission?.submittedAt || item.latestSubmission?.status || '-'">
+              {{ item.latestSubmission?.submittedAt || item.latestSubmission?.status || '-' }}
+            </span>
+            <span class="queue-cell queue-cell--action">查看</span>
           </RouterLink>
+        </div>
+
+        <div v-if="filteredQueue.length" class="pagination-bar" aria-label="质检任务分页">
+          <span>{{ queuePaginationText }}</span>
+          <div class="pagination-bar__controls">
+            <button type="button" :disabled="queuePage === 1" aria-label="上一页" @click="queuePage = Math.max(1, queuePage - 1)">
+              <ChevronLeft :size="16" />
+            </button>
+            <strong>{{ queuePage }} / {{ queueTotalPages }}</strong>
+            <button
+              type="button"
+              :disabled="queuePage === queueTotalPages"
+              aria-label="下一页"
+              @click="queuePage = Math.min(queueTotalPages, queuePage + 1)"
+            >
+              <ChevronRight :size="16" />
+            </button>
+          </div>
         </div>
       </section>
     </div>
@@ -116,8 +149,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
+import { ChevronLeft, ChevronRight } from 'lucide-vue-next';
 import { ApiClientError } from '../../services/http';
 import { apiClient } from '../../services/urbanViolationApi';
 import StatusChip from '../../shared/components/StatusChip.vue';
@@ -137,6 +171,8 @@ const assignmentActionTone = ref<'success' | 'error'>('success');
 const assignmentAction = ref<'' | 'assign' | 'release'>('');
 const selectedAssignee = ref('annotator_a');
 const activeTab = ref<'mine' | 'in_progress' | 'skipped' | 'submitted' | 'confirmed' | 'returned'>('mine');
+const queuePageSize = 10;
+const queuePage = ref(1);
 const tabs = [
   { key: 'mine' as const, label: '我的批次' },
   { key: 'in_progress' as const, label: '进行中样本' },
@@ -183,6 +219,27 @@ const filteredQueue = computed(() =>
   }),
 );
 const activeTabLabel = computed(() => tabs.find((tab) => tab.key === activeTab.value)?.label ?? 'QC tasks');
+const queueTotalPages = computed(() => Math.max(1, Math.ceil(filteredQueue.value.length / queuePageSize)));
+const queuePageStartIndex = computed(() => (filteredQueue.value.length ? (queuePage.value - 1) * queuePageSize : 0));
+const queuePageEndIndex = computed(() => Math.min(filteredQueue.value.length, queuePageStartIndex.value + queuePageSize));
+const paginatedQueue = computed(() => filteredQueue.value.slice(queuePageStartIndex.value, queuePageEndIndex.value));
+const queuePaginationText = computed(() =>
+  filteredQueue.value.length
+    ? `显示 ${queuePageStartIndex.value + 1}-${queuePageEndIndex.value} / ${filteredQueue.value.length}，每页 ${queuePageSize} 条`
+    : `显示 0 / 0，每页 ${queuePageSize} 条`,
+);
+
+watch(activeTab, () => {
+  queuePage.value = 1;
+});
+watch(
+  () => filteredQueue.value.length,
+  () => {
+    if (queuePage.value > queueTotalPages.value) {
+      queuePage.value = queueTotalPages.value;
+    }
+  },
+);
 
 async function load() {
   loading.value = true;
@@ -371,7 +428,7 @@ function assignmentErrorMessage(err: unknown, fallback: string) {
 
 .assignment-summary span,
 .assignment-summary em,
-.queue-card span,
+.queue-cell,
 .submitted-row span {
   color: var(--muted);
   font-size: 12px;
@@ -472,48 +529,112 @@ function assignmentErrorMessage(err: unknown, fallback: string) {
   padding: 10px;
 }
 
-.queue-grid {
+.queue-list {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  padding: 16px;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 14px 16px 6px;
 }
 
-.queue-card {
+.queue-row {
   display: grid;
-  gap: 9px;
+  grid-template-columns:
+    minmax(150px, 1.25fr) minmax(82px, 0.55fr) minmax(110px, 0.85fr) minmax(105px, 0.8fr)
+    minmax(72px, 0.5fr) minmax(118px, 0.9fr) minmax(96px, 0.72fr) 42px;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  min-height: 42px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--panel-subtle);
-  padding: 14px;
+  background: #fff;
+  padding: 8px 10px;
 }
 
-.queue-card.readonly {
+.queue-row.readonly {
   background: #f8fafc;
 }
 
-.queue-card__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
+.queue-row--head {
+  min-height: 34px;
+  background: var(--panel-subtle);
+  border-color: transparent;
+  color: #475467;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
 }
 
-.queue-card strong,
-.queue-card span {
+.queue-cell,
+.queue-row--head span {
   min-width: 0;
-  overflow-wrap: anywhere;
 }
 
-.queue-card:hover {
+.queue-cell {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-cell--sample {
+  color: var(--blue);
+  font-weight: 820;
+  line-height: 1.32;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.queue-cell--action {
+  justify-self: end;
+  color: var(--blue);
+  font-weight: 900;
+}
+
+.queue-row:not(.queue-row--head):hover {
   border-color: var(--blue);
+}
+
+.pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.pagination-bar__controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pagination-bar button {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+}
+
+.pagination-bar button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 @media (max-width: 1080px) {
   .assignment-body,
   .assignment-actions,
-  .submitted-row,
-  .queue-grid {
+  .submitted-row {
     grid-template-columns: 1fr;
   }
 }

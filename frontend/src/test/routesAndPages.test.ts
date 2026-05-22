@@ -2298,7 +2298,10 @@ describe('route rendering and live route states', () => {
       },
       global: {
         stubs: {
-          RouterLink: true,
+          RouterLink: {
+            props: ['to'],
+            template: '<a :href="to"><slot /></a>',
+          },
         },
       },
     });
@@ -2791,6 +2794,60 @@ describe('route rendering and live route states', () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain('实时进度暂不可用，当前任务仍处于处理中。');
+  });
+
+  it('renders my QC batch as paginated horizontal rows with bounded long sample ids', async () => {
+    const longSampleId =
+      'urban_violation_0520_really_long_sample_identifier_for_queue_layout_regression_00000000000000000001';
+    const queue = Array.from({ length: 12 }, (_, index): QcQueueItem => ({
+      ...qcQueue[0],
+      sampleId: `${longSampleId}_${String(index + 1).padStart(2, '0')}`,
+      assetId: `asset-${index + 1}`,
+      updatedAt: `2026-05-15T00:${String(index).padStart(2, '0')}:00Z`,
+    }));
+    mockApiClient.getQcWorkspace.mockResolvedValue({
+      datasetId: 'ds-live',
+      assignment: {
+        assignmentId: 'assignment-annotator',
+        datasetId: 'ds-live',
+        assigneeUserId: 'annotator_a',
+        assigneeDisplayName: '标注员 A',
+        status: 'assigned',
+      },
+      queue,
+      tasks: [],
+      leases: [],
+    });
+
+    const wrapper = mount(QcPage, {
+      props: {
+        id: 'ds-live',
+      },
+      global: {
+        stubs: {
+          RouterLink: {
+            props: ['to'],
+            template: '<a :href="to"><slot /></a>',
+          },
+        },
+      },
+    });
+    await flushPromises();
+
+    expect(wrapper.find('.queue-card').exists()).toBe(false);
+    expect(wrapper.findAll('.queue-row:not(.queue-row--head)')).toHaveLength(10);
+    expect(wrapper.text()).toContain('显示 1-10 / 12，每页 10 条');
+    expect(wrapper.text()).toContain(`${longSampleId}_01`);
+    expect(wrapper.text()).not.toContain(`${longSampleId}_11`);
+    expect(wrapper.find('.queue-cell--sample').attributes('title')).toBe(`${longSampleId}_01`);
+
+    await wrapper.find('button[aria-label="下一页"]').trigger('click');
+    await flushPromises();
+
+    expect(wrapper.findAll('.queue-row:not(.queue-row--head)')).toHaveLength(2);
+    expect(wrapper.text()).toContain('显示 11-12 / 12，每页 10 条');
+    expect(wrapper.text()).not.toContain(`${longSampleId}_01`);
+    expect(wrapper.text()).toContain(`${longSampleId}_11`);
   });
 
   it('uses assignable-users for qc lead batch assignment instead of the admin user directory', async () => {
