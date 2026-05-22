@@ -253,3 +253,11 @@
   - Result: total frontend line coverage is 81.36%.
 - `package.json`, `package-lock.json`, `pyproject.toml`, and `uv.lock` remained unchanged.
 - Conclusion: Phase 7 functional smoke/regression testing is complete, but the requested 95% coverage quality gate is not complete.
+# 2026-05-22 TASK-020 Dispatch
+
+- User requested import validation UI improvements:
+  - blocking error and non-blocking warning cards must show concrete backend detail instead of only generic labels like `Backend warning`;
+  - scan validation and import preview cards must paginate lists with 10 entries per page.
+- Created integration branch `integration/TASK-020`.
+- Created frontend worktree `/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-020-frontend-import-validation-ui` on branch `agent/TASK-020/frontend/import-validation-ui`.
+- Existing unrelated `.gitignore` user modification remains unstaged in the main workspace.

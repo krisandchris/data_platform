@@ -58,3 +58,21 @@ Backend Docker rollout, frontend production-build, docs rollout, and QA rollout 
 
 - Use the documented rollback env path with `PLATFORM_STATE_BACKEND=file` and `PLATFORM_REDIS_ENABLED=0` against the preserved mounted runtime roots.
 - If database-mode writes have already occurred, choose PostgreSQL or the pre-cutover file backup as the authoritative state source; reverse export from PostgreSQL to file-backed JSON roots is not implemented.
+# TASK-020 Integration Handoff
+
+## Lead Scope
+
+Integration branch: `integration/TASK-020`
+
+Goal: merge a verified frontend fix for import validation detail rendering and 10-item pagination.
+
+## Planned Branches
+
+- `agent/TASK-020/frontend/import-validation-ui`
+
+## Status
+
+- Frontend worktree created.
+- Implementation pending.
+
+---
