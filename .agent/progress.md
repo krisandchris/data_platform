@@ -19,8 +19,10 @@
 
 - Merged `agent/TASK-019/backend/redis-runtime` into `integration/TASK-019` at merge commit `f9f2314`.
 - Merged `agent/TASK-019/qa/redis-runtime-tests` into `integration/TASK-019` at merge commit `c9275a2`.
-- Started merging `agent/TASK-019/frontend/progress-and-lease`.
-- Backend product files, dependency files, new Redis runtime module, backend Redis tests, QA Redis/PostgreSQL test files, and frontend compatibility files merged without product-file conflicts.
+- Merged `agent/TASK-019/frontend/progress-and-lease` into `integration/TASK-019` at merge commit `50eec19`.
+- Merged `agent/TASK-019/docs/redis-runtime-runbooks` into `integration/TASK-019`.
+- Backend, QA, frontend, and docs files merged without product/doc/test content conflicts.
 - Lead integration patched frontend import job normalization to read backend `live_progress`.
+- Lead integration reconciled docs test selectors to `redis_runtime or postgres_live or db_qc_state`.
 - Root `.agent` files conflicted with Lead Agent integration records and were rewritten as integration records preserving agent findings.
 - Untracked `prompts_complete.md` exists in the main worktree and was left untouched.

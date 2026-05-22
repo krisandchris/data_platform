@@ -13,7 +13,7 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 4. PostgreSQL migration for QC, drafts, submissions, sample pool, exports, and evaluations.
    - Status: complete.
 5. Redis runtime state for active leases, locks, session cache, and import progress.
-   - Status: in_progress. Backend and QA are merged into integration; Frontend is being merged; Docs is ready.
+   - Status: verifying. Backend, QA, Frontend, and Docs branches are merged into integration; final verification is pending.
 6. File-state import tool.
    - Status: pending.
 7. Docker rollout and full acceptance.
@@ -23,8 +23,8 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 
 - Merged into integration: `agent/TASK-019/backend/redis-runtime` at `28f70c6`
 - Merged into integration: `agent/TASK-019/qa/redis-runtime-tests` at `3529101`
-- Integrating: `agent/TASK-019/frontend/progress-and-lease` at `151131c`
-- Ready to integrate: `agent/TASK-019/docs/redis-runtime-runbooks` at `3ff44e3`
+- Merged into integration: `agent/TASK-019/frontend/progress-and-lease` at `151131c`
+- Merged into integration: `agent/TASK-019/docs/redis-runtime-runbooks` at `3ff44e3`
 
 ## Phase 5 Scope
 

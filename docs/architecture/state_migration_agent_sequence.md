@@ -39,6 +39,7 @@ agent/TASK-019/qa/db-foundation-tests
 agent/TASK-019/docs/runbooks
 agent/TASK-019/docs/db-foundation-runbooks
 agent/TASK-019/docs/qc-state-runbooks
+agent/TASK-019/docs/redis-runtime-runbooks
 ```
 
 Do not start a later phase until the previous phase's exit gate passes on the integration branch.
@@ -231,12 +232,23 @@ QA tasks:
 - Test concurrent lease acquire, heartbeat by non-owner, release by non-owner, TTL expiry, and backend restart.
 - Test duplicate QC queue generation under lock.
 - Test import progress present and absent cases.
+- Provide real-service smoke commands using `TEST_DATABASE_URL` and `TEST_REDIS_URL`.
+
+Docs tasks:
+
+- Document `REDIS_URL`, `PLATFORM_REDIS_ENABLED`, `TEST_DATABASE_URL`, and `TEST_REDIS_URL`.
+- Document TTL behavior and Redis loss recovery boundaries.
+- Document that Redis loss affects only active locks, live progress hints, and optional caches.
+- Keep PostgreSQL as durable authority and filesystem artifact boundaries explicit.
+- Keep Docker production switch as Phase 7 unless backend and QA explicitly land and verify a different behavior.
 
 Exit gate:
 
 - Redis loss does not lose drafts, submissions, label configs, audit, or batch metadata.
 - Active lease is cross-process safe.
 - Frontend import progress remains usable when Redis progress expires.
+- Real PostgreSQL/Redis smoke validation has been run against isolated services or documented as blocked.
+- Runbooks identify any backend/QA-confirmed TTL env names and exact test selectors.
 
 ## Phase 6: File-State Import Tool
 

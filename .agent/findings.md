@@ -23,15 +23,15 @@
 
 ## Phase 5 Frontend Findings
 
-- Frontend Phase 5 branch completed at `151131c` and is being merged into integration.
+- Frontend Phase 5 branch completed at `151131c` and is merged into integration.
 - Frontend accepts optional import progress variants and keeps upload progress behavior.
 - Lead integration aligned frontend normalization with backend `live_progress`.
 - Frontend treats expired leases as readonly and avoids heartbeat/release for expired or other-user leases.
 
 ## Phase 5 Docs Findings
 
-- Docs Phase 5 branch completed at `3ff44e3`.
-- Docs need final reconciliation after backend/QA integration for exact env names and test selectors.
+- Docs Phase 5 branch completed at `3ff44e3` and is merged into integration.
+- Lead integration changed docs test selectors to the actual QA selector: `redis_runtime or postgres_live or db_qc_state`.
 
 ## Known Risks
 
