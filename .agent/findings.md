@@ -1,13 +1,18 @@
 # Findings
 
-- Phase 7 starts from `integration/TASK-019` at `6557415`.
-- Prior live PostgreSQL/Redis smoke tests are env-gated through `TEST_DATABASE_URL` and `TEST_REDIS_URL`.
-- Existing Docker helper must be used so subnet selection avoids host conflicts.
-- Current Compose defaults are still file-backed until backend rollout branch lands.
-- Added `tests/test_docker_rollout_phase7.py` with two layers:
-  - Always-safe config checks for current file-backed Compose defaults.
-  - Phase-7 assertions (postgres/redis, backend DB/Redis env defaults, healthchecks, Alembic packaging assumptions) gated by `QA_EXPECT_PHASE7_DOCKER_ROLLOUT=1` so this QA branch merges cleanly before backend Compose rollout lands.
-- Added env-gated live Docker smoke test `test_docker_rollout_live_smoke_env_gated` guarded by:
+- Resumed QA branch after backend Phase 7 merge commit `416ff39` into `integration/TASK-019`.
+- `docker-compose.yml` now renders the default four-service rollout: `backend`, `frontend`, `postgres`, `redis`.
+- Backend defaults now include database/redis mode wiring:
+  - `PLATFORM_STATE_BACKEND=database`
+  - `PLATFORM_DB_AUTO_MIGRATE=1`
+  - `DATABASE_URL` defaults to Compose `postgres`
+  - `PLATFORM_REDIS_ENABLED=1`
+  - `REDIS_URL` defaults to Compose `redis`
+- Backend now depends on healthy `postgres` and `redis` services.
+- `deploy/docker/backend.Dockerfile` now includes `COPY alembic.ini ./` and `COPY alembic ./alembic`, satisfying Alembic packaging assumptions for containerized migration startup.
+- Updated `tests/test_docker_rollout_phase7.py` so config-level defaults always assert the Phase 7 four-service Compose (no rollout flag required).
+- Added explicit config assertion for file-backed rollback implications: overriding `PLATFORM_STATE_BACKEND=file` and `PLATFORM_REDIS_ENABLED=0` still renders safely, while postgres/redis services remain defined.
+- Live Docker smoke remains strictly env-gated:
   - `QA_RUN_DOCKER_ROLLOUT_SMOKE=1`
   - `QA_DOCKER_SMOKE_CONFIRM_ISOLATED=1`
-- Live smoke uses isolated compose project naming (`task019qa_*`), temp host mounts, dynamic local port, `scripts/docker-compose-auto-subnet.py` for all Compose actions, and enforced cleanup via `down -v --remove-orphans`.
+- No product Docker code changes were made in this QA corrective pass.

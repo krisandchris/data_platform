@@ -1,6 +1,7 @@
 # Progress
 
-- Completed required context review: `AGENTS.md`, `.agent/task_plan.md`, `.agent/findings.md`, `docs/architecture/deployment.md`, existing tests, and `scripts/docker-compose-auto-subnet.py`.
-- Implemented `tests/test_docker_rollout_phase7.py` for Phase 7 Docker rollout verification.
-- Executed focused pytest checks and a 5-run flakiness sweep for docker/postgres/redis smoke selection.
-- Prepared handoff with explicit skip reasons and rollout-flag gating.
+- Merged `integration/TASK-019` into QA branch and resumed from stale QA commit `7d55b04`.
+- Resolved all merge conflict markers under `.agent/**`.
+- Updated Phase 7 QA config tests to validate merged four-service defaults and rollback override render behavior.
+- Kept destructive Docker smoke checks env-gated and unchanged in safety posture.
+- Ran required verification commands and prepared final handoff.

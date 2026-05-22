@@ -15,7 +15,6 @@ ROOT = Path(__file__).resolve().parents[1]
 COMPOSE_HELPER = ROOT / "scripts" / "docker-compose-auto-subnet.py"
 COMPOSE_FILE = ROOT / "docker-compose.yml"
 BACKEND_DOCKERFILE = ROOT / "deploy" / "docker" / "backend.Dockerfile"
-PHASE7_FLAG = "QA_EXPECT_PHASE7_DOCKER_ROLLOUT"
 LIVE_SMOKE_FLAG = "QA_RUN_DOCKER_ROLLOUT_SMOKE"
 LIVE_SMOKE_ISOLATED_FLAG = "QA_DOCKER_SMOKE_CONFIRM_ISOLATED"
 
@@ -125,21 +124,37 @@ def _wait_http_ok(url: str, *, timeout_seconds: int = 180) -> dict[str, Any]:
     pytest.fail(f"timeout waiting for healthy endpoint {url}: {last_error}")
 
 
-def test_docker_compose_current_defaults_are_file_backed(tmp_path: Path) -> None:
+def test_docker_compose_phase7_defaults_are_four_service_database_redis(tmp_path: Path) -> None:
     config = _render_compose_config(tmp_path)
     services = config.get("services", {})
 
     assert "backend" in services
     assert "frontend" in services
-    assert "postgres" not in services
-    assert "redis" not in services
+    assert "postgres" in services
+    assert "redis" in services
 
     backend = services["backend"]
     backend_env = backend.get("environment", {})
     assert backend_env.get("PLATFORM_AUTH_MODE") == "session"
     assert backend_env.get("PLATFORM_DEV_ANON") == "0"
     assert backend_env.get("PLATFORM_ENABLE_FIXTURE_BATCH") in {"0", 0}
+    assert str(backend_env.get("PLATFORM_STATE_BACKEND", "")).lower() == "database"
+    assert str(backend_env.get("PLATFORM_REDIS_ENABLED", "")).strip() in {"1", "true", "True"}
+    assert "DATABASE_URL" in backend_env
+    assert "postgres" in str(backend_env["DATABASE_URL"]).lower()
+    assert "REDIS_URL" in backend_env
+    assert "redis://" in str(backend_env["REDIS_URL"]).lower()
     assert "healthcheck" in backend
+
+    depends_on = backend.get("depends_on", {})
+    assert depends_on.get("postgres", {}).get("condition") == "service_healthy"
+    assert depends_on.get("redis", {}).get("condition") == "service_healthy"
+
+    postgres = services["postgres"]
+    redis = services["redis"]
+    assert "healthcheck" in postgres
+    assert "healthcheck" in redis
+    assert postgres.get("volumes"), "Postgres service must persist data via a mounted volume."
 
     volumes = backend.get("volumes", [])
     volume_targets = {
@@ -151,42 +166,28 @@ def test_docker_compose_current_defaults_are_file_backed(tmp_path: Path) -> None
     assert "/data/label_config_state" in volume_targets
 
 
-def test_docker_compose_phase7_postgres_redis_defaults_when_enabled(tmp_path: Path) -> None:
-    if os.environ.get(PHASE7_FLAG, "").strip() != "1":
-        pytest.skip(
-            f"Phase 7 Compose assertions are waiting for backend rollout branch; set {PHASE7_FLAG}=1 when postgres/redis defaults land."
-        )
-
+def test_docker_compose_file_backed_rollback_overrides_are_renderable(tmp_path: Path) -> None:
     config = _render_compose_config(tmp_path)
-    services = config.get("services", {})
+    rollback_env = _compose_fixture_env(tmp_path)
+    rollback_env["PLATFORM_STATE_BACKEND"] = "file"
+    rollback_env["PLATFORM_REDIS_ENABLED"] = "0"
+    rollback_rendered = _run_compose_helper(["config", "--format", "json"], env=rollback_env)
+    assert rollback_rendered.returncode == 0, rollback_rendered.stderr
+    rollback_config = json.loads(rollback_rendered.stdout)
 
-    assert "postgres" in services, "Phase 7 rollout must define a postgres service."
-    assert "redis" in services, "Phase 7 rollout must define a redis service."
-
+    services = rollback_config.get("services", {})
+    assert "postgres" in services
+    assert "redis" in services
     backend = services["backend"]
     backend_env = backend.get("environment", {})
+    assert str(backend_env.get("PLATFORM_STATE_BACKEND", "")).lower() == "file"
+    assert str(backend_env.get("PLATFORM_REDIS_ENABLED", "")).strip() in {"0", "false", "False"}
+    # Rollback mode still renders the same four services; operators can keep this as non-destructive fallback wiring.
     assert "DATABASE_URL" in backend_env
-    assert "postgres" in str(backend_env["DATABASE_URL"]).lower()
-    assert str(backend_env.get("PLATFORM_STATE_BACKEND", "")).lower() == "database"
-    assert str(backend_env.get("PLATFORM_REDIS_ENABLED", "")).strip() in {"1", "true", "True"}
     assert "REDIS_URL" in backend_env
-
-    depends_on = backend.get("depends_on", {})
-    assert "postgres" in depends_on
-    assert "redis" in depends_on
-
-    postgres = services["postgres"]
-    redis = services["redis"]
-    assert "healthcheck" in postgres
-    assert "healthcheck" in redis
-    assert postgres.get("volumes"), "Postgres service must persist data via a mounted volume."
 
 
 def test_backend_dockerfile_keeps_alembic_migration_entrypoints_packaged() -> None:
-    if os.environ.get(PHASE7_FLAG, "").strip() != "1":
-        pytest.skip(
-            f"Alembic packaging assertions are waiting for backend rollout branch; set {PHASE7_FLAG}=1 when Docker image includes migration assets."
-        )
     content = BACKEND_DOCKERFILE.read_text(encoding="utf-8")
     assert "COPY alembic" in content
     assert "COPY alembic.ini" in content

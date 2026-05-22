@@ -1,4 +1,38 @@
 services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-urban_platform}
+      POSTGRES_USER: ${POSTGRES_USER:-platform}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-platform_dev_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    networks:
+      - platform
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-platform} -d ${POSTGRES_DB:-urban_platform}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    expose:
+      - "6379"
+    networks:
+      - platform
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
   backend:
     build:
       context: .
@@ -7,6 +41,11 @@ services:
       DATASET_ROOT: /data/datasets/urban_violation
       PLATFORM_STATE_ROOT: /data/platform_state
       LABEL_CONFIG_STORE_ROOT: /data/label_config_state
+      PLATFORM_STATE_BACKEND: ${PLATFORM_STATE_BACKEND:-database}
+      PLATFORM_DB_AUTO_MIGRATE: ${PLATFORM_DB_AUTO_MIGRATE:-1}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://${POSTGRES_USER:-platform}:${POSTGRES_PASSWORD:-platform_dev_password}@postgres:5432/${POSTGRES_DB:-urban_platform}}
+      PLATFORM_REDIS_ENABLED: ${PLATFORM_REDIS_ENABLED:-1}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       PLATFORM_IMPORT_ARCHIVE_MAX_BYTES: ${PLATFORM_IMPORT_ARCHIVE_MAX_BYTES:-8589934592}
       PLATFORM_IMPORT_ARCHIVE_EXTRACT_MAX_BYTES: ${PLATFORM_IMPORT_ARCHIVE_EXTRACT_MAX_BYTES:-34359738368}
       PLATFORM_ENABLE_FIXTURE_BATCH: ${PLATFORM_ENABLE_FIXTURE_BATCH:-0}
@@ -22,6 +61,11 @@ services:
       - ${LABEL_CONFIG_HOST_ROOT:-/srv/urban-platform/runtime/label_config_state}:/data/label_config_state
     expose:
       - "8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - platform
     healthcheck:
@@ -53,3 +97,6 @@ networks:
     ipam:
       config:
         - subnet: ${PLATFORM_DOCKER_SUBNET:?Set PLATFORM_DOCKER_SUBNET or run scripts/docker-compose-auto-subnet.py}
+
+volumes:
+  postgres_data:
