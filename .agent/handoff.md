@@ -22,12 +22,14 @@ QA corrective pass completed after backend Phase 7 merge into `integration/TASK-
 1. `uv run pytest tests/test_docker_rollout_phase7.py -q`
 2. `uv run pytest -k "docker_rollout or postgres_live or redis_runtime" -q`
 3. `git diff --check`
+4. `for i in 1 2 3 4 5; do uv run pytest -k "docker_rollout or postgres_live or redis_runtime" -q; done`
 
 ## Results
 
 - `tests/test_docker_rollout_phase7.py`: passed with expected skip only for live smoke gate.
 - Selector run `docker_rollout or postgres_live or redis_runtime`: passed with expected skips for env-gated live checks.
 - `git diff --check`: passed.
+- Flakiness rerun (5x selector sweep): 5/5 passed, observed failure rate `0%`.
 
 ## Live Smoke Gating
 
