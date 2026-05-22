@@ -54,4 +54,7 @@
 - File-backed label configs are read through `FileBackedLabelConfigRepository` under `LABEL_CONFIG_STORE_ROOT`.
 - Database targets are already represented by `DatabaseFoundationRegistryRepository`, `DatabaseLabelConfigRepository`, and `DatabaseBackedPlatformStateStore`.
 - The import should prefer existing store APIs where possible, but conflict reporting requires explicit same-ID same-content vs same-ID different-content checks.
+- `DatabaseBackedPlatformStateStore.save_users`, `save_role_bindings`, `save_sessions`, `save_tasks`, and `save_leases` are replace-style operations, so a migration tool must avoid using them blindly for conflict-sensitive imports unless it compares destination rows first.
+- Append/upsert-style DB methods such as audit append, sample-pool upsert, export/evaluation save, and label config save have useful primitives but still need same-ID conflict checks for migration reporting.
+- File-backed label config state is stored under `{LABEL_CONFIG_STORE_ROOT}/{dataset_id}/label_configs/{versions,registry.json,active.json}` and can be loaded through `FileBackedLabelConfigRepository`.
 - Existing `.gitignore` has an unrelated user modification in the main workspace; it should stay unstaged unless the user explicitly wants it committed.
