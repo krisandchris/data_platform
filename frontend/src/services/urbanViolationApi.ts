@@ -44,6 +44,7 @@ import type {
   ImportJobCreatePayload,
   ImportJobDetail,
   ImportJobId,
+  ImportProcessingProgress,
   ImportJobState,
   ImportJobSummary,
   ImportValidationReport,
@@ -3318,7 +3319,71 @@ const normalizeImportJobSummary = (payload: unknown, datasetId: DatasetId): Impo
     blockingIssueCount: validation?.blockingErrors.length ?? detail.warnings.filter((item) => item.severity === 'blocking').length,
     warningCount: validation?.warnings.length ?? detail.warnings.filter((item) => item.severity !== 'blocking').length,
     totals: detail.totals,
+    processingProgress: detail.processingProgress,
   };
+};
+
+const hasImportProgressFlatFields = (record: Record<string, unknown>) => (
+  record.progress_percent !== undefined ||
+  record.processing_percent !== undefined ||
+  record.progressPercent !== undefined ||
+  record.processingPercent !== undefined ||
+  record.processed_items !== undefined ||
+  record.processedItems !== undefined ||
+  record.completed_items !== undefined ||
+  record.completedItems !== undefined ||
+  record.total_items !== undefined ||
+  record.totalItems !== undefined ||
+  record.progress_message !== undefined ||
+  record.progressMessage !== undefined ||
+  record.progress_phase !== undefined ||
+  record.progressPhase !== undefined ||
+  record.progress_expires_at !== undefined ||
+  record.progressExpiresAt !== undefined
+);
+
+const normalizeImportProcessingProgress = (payload: unknown, fallbackRecord?: Record<string, unknown>): ImportProcessingProgress | undefined => {
+  const record = firstRecord(payload) ?? (fallbackRecord && hasImportProgressFlatFields(fallbackRecord) ? fallbackRecord : undefined);
+  if (!record) {
+    return undefined;
+  }
+  const ratio = maybeNumber(record.ratio ?? record.fraction ?? record.progress_ratio ?? record.progressRatio);
+  const percent = maybeNumber(
+    record.percent ??
+      record.percentage ??
+      record.progress_percent ??
+      record.progressPercent ??
+      record.processing_percent ??
+      record.processingPercent,
+  ) ?? (ratio !== undefined ? ratio * 100 : undefined);
+  const processedItems = maybeNumber(
+    record.processedItems ??
+      record.processed_items ??
+      record.completedItems ??
+      record.completed_items ??
+      record.current ??
+      record.current_items,
+  );
+  const totalItems = maybeNumber(
+    record.totalItems ??
+      record.total_items ??
+      record.total ??
+      record.expectedItems ??
+      record.expected_items ??
+      record.expected,
+  );
+  const progress: ImportProcessingProgress = {
+    phase: optionalString(record.phase ?? record.stage ?? record.step ?? record.progress_phase ?? record.progressPhase),
+    status: optionalString(record.status ?? record.state),
+    message: optionalString(record.message ?? record.detail ?? record.description ?? record.progress_message ?? record.progressMessage),
+    processedItems,
+    totalItems,
+    percent,
+    updatedAt: optionalString(record.updatedAt ?? record.updated_at ?? record.progress_updated_at ?? record.progressUpdatedAt),
+    expiresAt: optionalString(record.expiresAt ?? record.expires_at ?? record.progress_expires_at ?? record.progressExpiresAt),
+    expired: typeof record.expired === 'boolean' ? record.expired : undefined,
+  };
+  return Object.values(progress).some((value) => value !== undefined) ? progress : undefined;
 };
 
 const normalizeImportValidationReport = (
@@ -3405,6 +3470,17 @@ const normalizeImportJob = (payload: unknown, datasetId: DatasetId, jobId: Impor
       stage2Parsed: totals.stage2Parsed,
       failureCount: totals.stage2Failures,
     }),
+    processingProgress: normalizeImportProcessingProgress(
+      record.processingProgress ??
+        record.processing_progress ??
+        record.importProgress ??
+        record.import_progress ??
+        backend.processing_progress ??
+        backend.import_progress ??
+        record.progress ??
+        backend.progress,
+      record,
+    ),
   };
 
   const validationReportValue = firstRecord(record.validationReport, record.validation_report, record.report);

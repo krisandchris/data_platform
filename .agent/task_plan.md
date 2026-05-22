@@ -34,13 +34,17 @@ Frontend Agent
 
 ## Planned Steps
 
-1. Inspect existing import job normalization and upload progress UI.
-2. Add optional backend processing progress fields to frontend API types/normalizers if backend exposes them.
-3. Preserve current browser upload progress behavior.
-4. Show backend processing progress when present and fall back to stable "processing" copy when absent/expired.
-5. Verify lease conflict and readonly messaging remains stable when Redis lease state is missing, expired, or owned by another user.
-6. Add focused frontend tests.
-7. Update `.agent/progress.md` and complete `.agent/handoff.md`; commit changes.
+1. [x] Inspect existing import job normalization and upload progress UI.
+2. [x] Add optional backend processing progress fields to frontend API types/normalizers if backend exposes them.
+3. [x] Preserve current browser upload progress behavior.
+4. [x] Show backend processing progress when present and fall back to stable "processing" copy when absent/expired.
+5. [x] Verify lease conflict and readonly messaging remains stable when Redis lease state is missing, expired, or owned by another user.
+6. [x] Add focused frontend tests.
+7. [x] Update `.agent/progress.md` and complete `.agent/handoff.md`; commit changes.
+
+## Status
+
+Implementation and frontend verification complete in this worktree. Changes are ready for the required frontend agent commit.
 
 ## Acceptance Criteria
 
@@ -54,4 +58,3 @@ Frontend Agent
 - `source "$HOME/.nvm/nvm.sh" && nvm use "$(cat ../.nvmrc)"`
 - `cd frontend && npm run test`
 - `cd frontend && VITE_API_BASE_URL=/api npm run build`
-

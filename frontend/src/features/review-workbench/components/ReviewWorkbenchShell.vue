@@ -827,7 +827,8 @@ const leaseText = computed(() => {
     return 'no lease';
   }
   const suffix = lease.expiresAt ? ` · ${timeLeft(lease.expiresAt)}` : '';
-  return `${lease.status} · ${lease.userDisplayName || lease.userId}${suffix}`;
+  const status = lease.status === 'active' && leaseExpired(lease.expiresAt) ? 'expired' : lease.status;
+  return `${status} · ${lease.userDisplayName || lease.userId}${suffix}`;
 });
 const currentQueueIndex = computed(() =>
   props.queueItems.findIndex((item) => item.sampleId === baseSample.value.asset.sampleId),
@@ -1293,6 +1294,14 @@ function timeLeft(expiresAt: string) {
     return 'expired';
   }
   return `${Math.ceil(ms / 60000)}m left`;
+}
+
+function leaseExpired(expiresAt: string | undefined) {
+  if (!expiresAt) {
+    return false;
+  }
+  const ms = new Date(expiresAt).getTime() - Date.now();
+  return Number.isFinite(ms) && ms <= 0;
 }
 
 function toBatchDraftValidation(validation?: LabelEditValidationResult): BatchLabelEditDraftValidation | undefined {
