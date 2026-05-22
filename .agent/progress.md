@@ -118,3 +118,126 @@
   - `uv run python scripts/docker-compose-auto-subnet.py config`
   - `git diff --check`
 - Existing unrelated `.gitignore` user modification remained unstaged.
+
+## 2026-05-22 Phase 7 Dispatch
+
+- Started `integration/TASK-019` for Phase 7 from local `main` at `8559528`.
+- Read Phase 7 requirements from:
+  - `docs/architecture/state_migration_agent_sequence.md`
+  - `docs/architecture/postgres-redis-migration-runbook.md`
+  - `docs/architecture/deployment.md`
+- Inspected current Docker and runtime wiring:
+  - `docker-compose.yml`
+  - `deploy/docker/backend.Dockerfile`
+  - `deploy/docker/frontend.Dockerfile`
+  - `deploy/docker/nginx.conf`
+  - `scripts/docker-compose-auto-subnet.py`
+  - `src/urban_violation_backend/service.py`
+  - `src/urban_violation_backend/db/settings.py`
+  - `src/urban_violation_backend/db/migrations.py`
+  - `alembic.ini`
+  - `alembic/`
+- Identified the immediate backend rollout risk: backend image lacks `alembic.ini` and `alembic/`, so database-mode startup migration cannot work in the container until the image copies those files.
+- Updated `.agent/task_plan.md` and `.agent/findings.md` with Phase 7 scope, branch plan, exit gate, and initial risks.
+- Created Phase 7 worktrees:
+  - `/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-019-backend-docker-rollout`
+  - `/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-019-qa-docker-rollout-smoke`
+  - `/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-019-frontend-docker-production-build`
+  - `/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-019-docs-docker-rollout-runbook`
+- Created assignment commits:
+  - Backend Docker rollout: `3ce7eca`
+  - QA Docker smoke: `bdb9ebd`
+  - Frontend production build: `5ae8eeb`
+  - Docs Docker rollout runbook: `4111456`
+- Spawned Phase 7 subagents:
+  - Backend Ohm: `019e4da1-3df5-73d3-806b-83fd96fc1c44`
+  - QA Poincare: `019e4da1-66f1-7661-b413-5d3f17f80088`
+  - Frontend Maxwell: `019e4da1-94de-7b33-a250-cd0b7a540ba3`
+  - Docs Mill: `019e4da1-bca9-7f62-b9ff-95b7ef673527`
+- Ran main-worktree baseline checks:
+  - `uv run python scripts/docker-compose-auto-subnet.py config` rendered current two-service file-backed Compose.
+  - `docker version --format '{{.Server.Version}}'` returned `29.1.2`.
+  - `docker compose version` returned `Docker Compose version v2.40.3`.
+- Existing unrelated `.gitignore` user modification remains unstaged.
+
+## 2026-05-22 Phase 7 Backend Agent Execution (docker-rollout)
+
+- Backend Ohm completed `agent/TASK-019/backend/docker-rollout` at `77b9a08`.
+- Implemented Phase 7 Compose defaults:
+  - added `postgres` service with `postgres_data` volume and health check;
+  - added `redis` service with health check;
+  - set backend to database/Redis mode by default with env overrides;
+  - added backend health-gated dependencies on `postgres` and `redis`;
+  - copied `alembic.ini` and `alembic/` into the backend image.
+- Backend branch verification passed:
+  - `uv run python scripts/docker-compose-auto-subnet.py config`
+  - `scripts/docker-compose-auto-subnet.py build backend`
+  - `git diff --check`
+- Lead integration preserved the root `.agent` records and summarized backend handoff details instead of replacing integration planning files with the backend agent's local `.agent` files.
+
+## 2026-05-22 Phase 7 Frontend Agent Execution (docker-production-build)
+
+- Frontend Maxwell completed `agent/TASK-019/frontend/docker-production-build` at `8385997`.
+- Added focused coverage in `frontend/src/test/apiClient.test.ts` for same-origin Docker API base `/api/`.
+- Frontend branch verification passed:
+  - `cd frontend && npm ci`
+  - `cd frontend && npm run test`
+  - `cd frontend && VITE_API_BASE_URL=/api npm run build`
+  - `git diff --check`
+- Notes from frontend handoff:
+  - no dependency files changed;
+  - `npm ci` reported 6 existing audit vulnerabilities;
+  - existing Vue Router no-match warnings remain unchanged.
+- Lead integration preserved the root `.agent` records and summarized frontend handoff details instead of replacing integration planning files with the frontend agent's local `.agent` files.
+
+## 2026-05-22 Phase 7 Docs Agent Execution (docker-rollout-runbook)
+
+- Docs Mill completed `agent/TASK-019/docs/docker-rollout-runbook` at `5ff8f40`.
+- Updated:
+  - `docs/architecture/deployment.md`
+  - `docs/architecture/postgres-redis-migration-runbook.md`
+  - `docs/architecture/state-persistence-boundaries.md`
+- Docs branch verification passed:
+  - `git diff --check`
+  - manual link/structure review
+- Lead integration reconciled the docs with actual backend Compose details:
+  - no `redis_data` volume in default Compose;
+  - `POSTGRES_USER=platform`;
+  - `PLATFORM_DB_AUTO_MIGRATE=1`;
+  - default full-stack startup can use `scripts/docker-compose-auto-subnet.py up -d`.
+- Lead integration preserved the root `.agent` records and summarized docs handoff details instead of replacing integration planning files with the docs agent's local `.agent` files.
+
+## 2026-05-22 Phase 7 QA Agent Execution (docker-rollout-smoke)
+
+- QA Poincare completed `agent/TASK-019/qa/docker-rollout-smoke` at `93410a0` after syncing with backend rollout merge `416ff39`.
+- Added `tests/test_docker_rollout_phase7.py` with:
+  - strict four-service Compose assertions;
+  - backend database/Redis default checks;
+  - Postgres/Redis health/dependency checks;
+  - Alembic Docker packaging checks;
+  - file-backed rollback override render check;
+  - gated live Docker smoke.
+- QA branch verification passed:
+  - `uv run pytest tests/test_docker_rollout_phase7.py -q`
+  - `uv run pytest -k "docker_rollout or postgres_live or redis_runtime" -q`
+  - `git diff --check`
+  - 5x selector rerun with 0 failures.
+- Lead integration preserved the root `.agent` records and summarized QA handoff details instead of replacing integration planning files with the QA agent's local `.agent` files.
+
+## 2026-05-22 Phase 7 Lead Final Verification
+
+- Verified no leftover `task019qa_*` containers, volumes, or networks before rerunning live smoke. Existing unrelated exited `data_platform-*` containers were not removed.
+- First gated live Docker smoke attempt reached `docker compose up -d` and timed out after 300 seconds while pulling `postgres:16`; this was an external Docker Hub/image availability issue, not an application health failure.
+- After `postgres:16` was available locally, gated live Docker smoke passed:
+  - `QA_RUN_DOCKER_ROLLOUT_SMOKE=1 QA_DOCKER_SMOKE_CONFIRM_ISOLATED=1 uv run pytest tests/test_docker_rollout_phase7.py::test_docker_rollout_live_smoke_env_gated -q`
+- Integration verification passed:
+  - `uv run python scripts/docker-compose-auto-subnet.py config`
+  - `uv run pytest tests/test_migrate_state_import_tool.py tests/test_db_foundation_backend.py -q`
+  - `cd frontend && npm run test`
+  - `uv run pytest tests/test_docker_rollout_phase7.py -q`
+  - `uv run pytest -k "docker_rollout or postgres_live or redis_runtime" -q`
+  - `git diff --check`
+  - `uv run pytest -q`
+  - `cd frontend && VITE_API_BASE_URL=/api npm run build`
+  - `scripts/docker-compose-auto-subnet.py build backend frontend`
+- Existing unrelated `.gitignore` user modification remains unstaged.

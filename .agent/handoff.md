@@ -1,99 +1,59 @@
-# TASK-019 Phase 6 Integration Handoff
+# TASK-019 Phase 7 Integration Handoff
 
 ## Lead Scope
 
 Integration branch: `integration/TASK-019`
 
-Phase 6 delivers the explicit file-state-to-database import path needed before enabling database-backed runtime state in production-like deployments.
+Phase 7 switches the Docker rollout target to PostgreSQL + Redis defaults, verifies production build/runtime behavior, and preserves a documented file-backed rollback path.
 
-## Agent Branches Integrated
+## Planned Agent Branches
 
-- `agent/TASK-019/backend/import-tool`
-  - Implemented `urban_violation_backend.migrate_state import-file-state`.
-  - Added conflict-safe import behavior, JSON reporting, filesystem reference reporting, and focused backend tests.
-- `agent/TASK-019/qa/import-tool-tests`
-  - Added migration/import QA coverage expectations.
-  - During integration, the QA scenarios were reconciled into the executable backend test file now that the real importer module exists.
-- `agent/TASK-019/docs/import-tool-runbook`
-  - Updated migration, deployment, and persistence-boundary docs for the Phase 6 import workflow.
-  - During integration, command wording was reconciled from expected/pending to confirmed.
+- `agent/TASK-019/backend/docker-rollout`
+- `agent/TASK-019/qa/docker-rollout-smoke`
+- `agent/TASK-019/frontend/docker-production-build`
+- `agent/TASK-019/docs/docker-rollout-runbook`
 
-## Command Surface
+## Integration Status
 
-```bash
-uv run python -m urban_violation_backend.migrate_state import-file-state \
-  --platform-state-root ... \
-  --label-config-store-root ... \
-  --dataset-root ... \
-  [--database-url ...] \
-  [--dry-run] \
-  [--report ...] \
-  [--run-migrations]
-```
+Backend Docker rollout, frontend production-build, docs rollout, and QA rollout smoke branches have been merged into `integration/TASK-019`.
 
-`DATABASE_URL` is supported when `--database-url` is omitted. The state roots are required CLI flags.
+## Agent Branches Merged
 
-## Imported Domains
+- Merged commit: `agent/TASK-019/backend/docker-rollout` at `77b9a08`
+  - Adds `postgres` and `redis` services.
+  - Switches backend Compose defaults to database + Redis mode.
+  - Copies Alembic assets into backend image.
+- Merged commit: `agent/TASK-019/frontend/docker-production-build` at `8385997`
+  - Adds same-origin `/api/` HttpClient test coverage.
+  - Verifies frontend tests and production build with `VITE_API_BASE_URL=/api`.
+- Merged commit: `agent/TASK-019/docs/docker-rollout-runbook` at `5ff8f40`
+  - Updates deployment, migration, and state-boundary docs for Phase 7.
+  - Lead reconciliation aligns docs to actual Compose defaults.
+- Merged commit: `agent/TASK-019/qa/docker-rollout-smoke` at `93410a0`
+  - Adds strict Phase 7 Docker config tests.
+  - Adds gated live Docker smoke workflow.
 
-- users, role bindings, sessions, audit events
-- dataset type registry and registered batches/import jobs
-- label config versions and active pointers
-- QC assignments, tasks, leases, per-sample drafts, batch drafts, submissions
-- annotation snapshots and modification events
-- sample pool items, export jobs, evaluations
+## Verification
 
-## Conflict And Safety Behavior
+- `uv run python scripts/docker-compose-auto-subnet.py config`: passed.
+- `uv run pytest tests/test_migrate_state_import_tool.py tests/test_db_foundation_backend.py -q`: passed.
+- `cd frontend && npm run test`: passed.
+- `uv run pytest tests/test_docker_rollout_phase7.py -q`: passed.
+- `uv run pytest -k "docker_rollout or postgres_live or redis_runtime" -q`: passed.
+- `git diff --check`: passed.
+- `uv run pytest -q`: passed.
+- `cd frontend && VITE_API_BASE_URL=/api npm run build`: passed.
+- `scripts/docker-compose-auto-subnet.py build backend frontend`: passed.
+- `QA_RUN_DOCKER_ROLLOUT_SMOKE=1 QA_DOCKER_SMOKE_CONFIRM_ISOLATED=1 uv run pytest tests/test_docker_rollout_phase7.py::test_docker_rollout_live_smoke_env_gated -q`: passed after `postgres:16` was available locally.
 
-- Same ID and same content is reported as `matched`.
-- Same ID and different content is reported as `conflict`.
-- Conflicting database rows are skipped and are not overwritten.
-- The command exits with code `3` when conflicts are detected.
-- File-backed roots and `DATASET` files are treated as read-only import inputs.
+## Risks
 
-## Files Changed
+- Docker image pulling can still fail in restricted networks; operators should pre-pull or mirror `postgres:16`, `redis:7-alpine`, Python, Node, Nginx, and `ghcr.io/astral-sh/uv` base images before rollout in constrained server environments.
+- File-backed rollback env overrides remain documented and renderable, but Compose still includes `postgres` and `redis` services by default.
+- Large filesystem artifacts remain on mounted volumes; only metadata and durable mutable state move to PostgreSQL.
+- Existing unrelated `.gitignore` user modification is not part of TASK-019 Phase 7.
 
-- `src/urban_violation_backend/migrate_state.py`
-- `src/urban_violation_backend/db/foundation.py`
-- `tests/test_migrate_state_import_tool.py`
-- `docs/architecture/postgres-redis-migration-runbook.md`
-- `docs/architecture/deployment.md`
-- `docs/architecture/state-persistence-boundaries.md`
-- `.agent/task_plan.md`
-- `.agent/findings.md`
-- `.agent/progress.md`
-- `.agent/handoff.md`
+## Rollback Plan
 
-## Verification Status
-
-Backend branch verification before integration:
-
-```bash
-uv run pytest tests/test_migrate_state_import_tool.py -q
-uv run pytest tests/test_db_foundation_backend.py -q
-git diff --check
-```
-
-QA merge verification after integration:
-
-```bash
-uv run pytest tests/test_migrate_state_import_tool.py -q
-```
-
-Final integration verification:
-
-```bash
-uv run pytest tests/test_migrate_state_import_tool.py tests/test_db_foundation_backend.py -q
-uv run pytest -k "migrate_state or db_foundation or db_qc_state or state_store_contract" -q
-uv run pytest -q
-uv run python scripts/docker-compose-auto-subnet.py config
-git diff --check
-```
-
-All commands passed. Selector and full test runs included expected live-test skips.
-
-## Remaining Risks
-
-- The importer preserves database rows on conflict but does not provide an automated merge/repair mode. Operators must inspect the JSON report and resolve conflicts manually.
-- Batch draft user-id recovery still depends on `_batch.<user_id>.json` file naming from the file store.
-- Filesystem artifacts such as raw datasets, uploaded archives, extracted sources, media files, and export blobs remain filesystem-managed and are reported as references rather than imported into the database.
-- Docker defaults intentionally remain file-backed until Phase 7.
+- Use the documented rollback env path with `PLATFORM_STATE_BACKEND=file` and `PLATFORM_REDIS_ENABLED=0` against the preserved mounted runtime roots.
+- If database-mode writes have already occurred, choose PostgreSQL or the pre-cutover file backup as the authoritative state source; reverse export from PostgreSQL to file-backed JSON roots is not implemented.

@@ -17,7 +17,7 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 6. File-state import tool.
    - Status: complete. Backend, QA, and Docs branches are merged into integration; final verification passed.
 7. Docker rollout and full acceptance.
-   - Status: pending.
+   - Status: complete. Backend, QA, Frontend, and Docs branches are merged into integration; final verification and gated Docker live smoke passed.
 
 ## Phase 5 Agent Branches
 
@@ -84,3 +84,47 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 - `uv run pytest -q` passed with expected live-test skips.
 - `uv run python scripts/docker-compose-auto-subnet.py config` passed.
 - `git diff --check` passed.
+
+## Phase 7 Agent Branches
+
+- Merged into integration: `agent/TASK-019/backend/docker-rollout` at `77b9a08`
+- Merged into integration: `agent/TASK-019/frontend/docker-production-build` at `8385997`
+- Merged into integration: `agent/TASK-019/docs/docker-rollout-runbook` at `5ff8f40`
+- Merged into integration: `agent/TASK-019/qa/docker-rollout-smoke` at `93410a0`
+
+## Phase 7 Scope
+
+- Change Docker Compose production defaults from file-backed two-container deployment to PostgreSQL + Redis rollout.
+- Add `postgres` and `redis` services, persistent PostgreSQL volume, Redis health check, backend dependency gates, and backend env defaults:
+  - `PLATFORM_STATE_BACKEND=database`
+  - `PLATFORM_REDIS_ENABLED=1`
+  - `DATABASE_URL` points to the Compose `postgres` service.
+  - `REDIS_URL` points to the Compose `redis` service.
+  - `PLATFORM_DB_AUTO_MIGRATE=1` or an explicitly documented equivalent startup migration path.
+- Ensure backend Docker image contains Alembic config and migration files if startup migration remains enabled.
+- Preserve readonly `DATASET/` mount and writable filesystem roots for source files, uploads, media, label-config import roots, and export artifacts.
+- Keep an explicit file-backed rollback profile/path documented and testable.
+- Verify frontend production build remains same-origin through `/api`.
+
+## Phase 7 Exit Gate
+
+- Docker config renders with PostgreSQL, Redis, backend, and frontend services on the auto-selected 172.x subnet.
+- Backend image builds with Alembic files available.
+- Compose startup reaches healthy backend and frontend with database/Redis defaults.
+- `/health`, `/login`, admin login, dataset/label-config read, import/upload path, review draft/save path, audit, and restart persistence are smoke-tested or blocked with exact environment reason.
+- Redis restart does not lose durable PostgreSQL state; only active locks/live progress/cache may disappear.
+- File-backed rollback path remains documented.
+- Backend tests, frontend tests/build, Docker config/build/smoke checks, and `git diff --check` pass or have documented external blockers.
+
+## Phase 7 Verification Results
+
+- `uv run python scripts/docker-compose-auto-subnet.py config` passed.
+- `uv run pytest tests/test_migrate_state_import_tool.py tests/test_db_foundation_backend.py -q` passed.
+- `cd frontend && npm run test` passed.
+- `uv run pytest tests/test_docker_rollout_phase7.py -q` passed.
+- `uv run pytest -k "docker_rollout or postgres_live or redis_runtime" -q` passed.
+- `git diff --check` passed.
+- `uv run pytest -q` passed.
+- `cd frontend && VITE_API_BASE_URL=/api npm run build` passed.
+- `scripts/docker-compose-auto-subnet.py build backend frontend` passed.
+- `QA_RUN_DOCKER_ROLLOUT_SMOKE=1 QA_DOCKER_SMOKE_CONFIRM_ISOLATED=1 uv run pytest tests/test_docker_rollout_phase7.py::test_docker_rollout_live_smoke_env_gated -q` passed after `postgres:16` was present locally.
