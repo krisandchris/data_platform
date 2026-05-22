@@ -253,3 +253,34 @@
   - Result: total frontend line coverage is 81.36%.
 - `package.json`, `package-lock.json`, `pyproject.toml`, and `uv.lock` remained unchanged.
 - Conclusion: Phase 7 functional smoke/regression testing is complete, but the requested 95% coverage quality gate is not complete.
+
+## 2026-05-22 TASK-020 Frontend Import Validation UI
+
+- User requested import validation UI improvements:
+  - blocking error and non-blocking warning cards must show concrete backend detail instead of only generic labels like `Backend warning`;
+  - scan validation and import preview cards must paginate lists with 10 entries per page.
+- Created integration branch `integration/TASK-020`.
+- Created frontend worktree `/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-020-frontend-import-validation-ui` on branch `agent/TASK-020/frontend/import-validation-ui`.
+- Existing unrelated `.gitignore` user modification remains unstaged in the main workspace.
+- Inspected `ImportJobPage.vue`, `urbanViolationApi.ts`, `contract.ts`, backend `ImportJobStatusResponse`, and route/API tests.
+- Found root cause: backend import warnings are `list[str]`, but frontend `normalizeWarnings()` only read object fields and converted string warnings into `Backend warning` with an empty message.
+- Updated frontend API normalization:
+  - string warnings become concrete warning messages;
+  - `validation_errors` are included as blocking errors even when non-blocking warnings exist;
+  - object warnings may carry details such as code, sample, path, field, count, and nested context.
+- Updated import validation UI:
+  - generic `Backend warning` / `Validation error` titles are replaced by concrete backend messages when available;
+  - issue cards show message/details/created time/ID;
+  - scan validation / import preview table paginates 10 rows per page with previous/next controls.
+- Added regression coverage in `apiClient.test.ts` and `routesAndPages.test.ts`.
+- Verification passed:
+  - `cd frontend && npm ci`
+  - `cd frontend && npm run test -- src/test/apiClient.test.ts src/test/routesAndPages.test.ts`
+  - `cd frontend && npm run test`
+  - `cd frontend && npm run build`
+  - `git diff --check`
+- Merged `agent/TASK-020/frontend/import-validation-ui` into `integration/TASK-020` at merge commit `4bda913`.
+- Integration verification passed:
+  - `cd frontend && npm run test`
+  - `cd frontend && npm run build`
+  - `git diff --check`

@@ -166,3 +166,15 @@
 - Frontend coverage gaps are concentrated in large UI surfaces and service modules: review workbench shell/page, dataset batch panels, users page, fixture/API service paths, and shared overlay edge paths.
 - The repo currently has no committed backend coverage dependency/configuration and no committed frontend coverage provider/script/threshold, so 95% is not enforced by CI or local default commands.
 - Reaching 95% should be treated as a new testing-hardening phase rather than a Phase 7 Docker rollout completion criterion.
+## TASK-020 Import Validation UI Findings
+
+## Initial Notes
+
+- The task is frontend-owned unless backend inspection shows detailed warning/error payloads are not exposed.
+- Main workspace is for planning, integration, and verification only; implementation will happen in the frontend worktree.
+- Existing unrelated `.gitignore` user modification remains outside this task.
+- Backend `ImportJobStatusResponse.warnings` is currently `list[str]`; this is a valid backend contract and should be supported by frontend normalization.
+- Existing frontend `normalizeWarnings()` caused the user-visible defect by treating non-object warning items as empty objects.
+- `ImportJobStatusResponse.validation_errors` can coexist with `warnings`; before this fix, validation errors were only converted into blocking items when there were no warnings.
+- No dependency or backend API change is required.
+- Existing Vue Router no-match warnings in route tests are unchanged.

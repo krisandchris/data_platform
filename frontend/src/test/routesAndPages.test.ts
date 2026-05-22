@@ -3175,6 +3175,77 @@ describe('import and review routes', () => {
     expect(wrapper.text()).toContain('Missing stage2 response');
   });
 
+  it('shows detailed backend import issues and paginates validation preview rows', async () => {
+    const validationRows = Array.from({ length: 12 }, (_, index) => {
+      const rowNumber = String(index + 1).padStart(2, '0');
+      return {
+        sampleId: `row-${rowNumber}`,
+        imagePath: `images/row-${rowNumber}.jpg`,
+        stage1Path: `stage1/row-${rowNumber}.json`,
+        stage2Path: `stage2/row-${rowNumber}.json`,
+        status: 'ready' as const,
+      };
+    });
+    mockApiClient.getDatasetBatchImportJob.mockResolvedValue({
+      ...importJob,
+      validationRows,
+      validationReport: {
+        datasetId: importJob.datasetId,
+        jobId: importJob.id,
+        valid: false,
+        totals: importJob.totals,
+        coverage: importJob.coverage,
+        blockingErrors: [
+          {
+            id: 'backend-error-1',
+            severity: 'blocking',
+            title: 'Validation error',
+            message: 'sample-011 is missing a readable image file.',
+            details: ['Path: images/sample-011.jpg'],
+          },
+        ],
+        warnings: [
+          {
+            id: 'backend-warning-1',
+            severity: 'warning',
+            title: 'Backend warning',
+            message: 'Detected 3 STEP2 failure artifacts; preserved as import diagnostics.',
+            details: ['Count: 3'],
+          },
+        ],
+        rows: validationRows,
+      },
+    });
+
+    const wrapper = mount(ImportJobPage, {
+      props: {
+        id: 'ds-live',
+        jobId: 'job-1',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('sample-011 is missing a readable image file.');
+    expect(wrapper.text()).toContain('Path: images/sample-011.jpg');
+    expect(wrapper.text()).toContain('Detected 3 STEP2 failure artifacts; preserved as import diagnostics.');
+    expect(wrapper.text()).toContain('Count: 3');
+    expect(wrapper.text()).toContain('显示 1-10 / 12，每页 10 条');
+    expect(wrapper.text()).toContain('row-10');
+    expect(wrapper.text()).not.toContain('row-11');
+
+    await wrapper.find('button[aria-label="下一页"]').trigger('click');
+
+    expect(wrapper.text()).toContain('显示 11-12 / 12，每页 10 条');
+    expect(wrapper.text()).toContain('row-11');
+    expect(wrapper.text()).toContain('row-12');
+    expect(wrapper.text()).not.toContain('row-01');
+  });
+
   it('validates without saving, saves a batch draft, and submits only through the batch modal', async () => {
     mockApiClient.getReviewSample.mockResolvedValue(reviewDetail);
     mockApiClient.listQcQueue.mockResolvedValue(qcQueue);

@@ -1,3 +1,61 @@
+# TASK-020 Import Validation UI Detail And Pagination Plan
+
+Objective: improve the import validation page so blocking errors and non-blocking warnings show actionable backend detail instead of generic labels, and paginate scan validation / import preview lists at 10 rows per page.
+
+## Current Task Status
+
+1. Inspect frontend import validation data flow and tests.
+   - Status: complete.
+2. Implement UI/detail rendering in frontend worktree.
+   - Status: complete.
+3. Add/update frontend tests for detailed errors/warnings and pagination.
+   - Status: complete.
+4. Run frontend tests/build in worktree.
+   - Status: complete.
+5. Merge verified frontend branch into integration and then main.
+   - Status: complete.
+
+## Frontend Worktree
+
+- Branch: `agent/TASK-020/frontend/import-validation-ui`
+- Worktree: `/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-020-frontend-import-validation-ui`
+- Scope: `frontend/**` import validation page/components/tests only.
+- Out of scope: backend API contract changes unless inspection proves details are not sent by the backend.
+
+## Acceptance Criteria
+
+- Blocking errors card lists concrete validation messages and useful context for each backend issue.
+- Non-blocking warnings card lists concrete validation messages and useful context for each backend issue.
+- Generic labels such as `Backend warning` are not the only visible user-facing content when backend details are available.
+- Scan validation list is paginated at 10 entries per page.
+- Import preview list is paginated at 10 entries per page.
+- Pagination controls show current range/page and allow previous/next navigation without layout churn.
+- Existing import workflow behavior and API calls remain unchanged.
+
+## Changed Files
+
+- `frontend/src/features/import/ImportJobPage.vue`
+- `frontend/src/services/urbanViolationApi.ts`
+- `frontend/src/shared/types/contract.ts`
+- `frontend/src/test/apiClient.test.ts`
+- `frontend/src/test/routesAndPages.test.ts`
+
+## Frontend Verification
+
+- `cd frontend && npm ci`: passed.
+- `cd frontend && npm run test -- src/test/apiClient.test.ts src/test/routesAndPages.test.ts`: passed.
+- `cd frontend && npm run test`: passed.
+- `cd frontend && npm run build`: passed.
+- `git diff --check`: passed.
+
+## Integration Verification
+
+- `cd frontend && npm run test`: passed.
+- `cd frontend && npm run build`: passed.
+- `git diff --check`: passed.
+
+---
+
 # TASK-019 PostgreSQL + Redis State Migration Plan
 
 Objective: migrate mutable platform state from file-backed JSON/JSONL stores to PostgreSQL, use Redis for active leases/locks/progress, preserve current frontend API behavior, and provide a safe import path from existing runtime state.
