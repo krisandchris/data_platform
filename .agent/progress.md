@@ -38,6 +38,11 @@
   - Preserved PostgreSQL durable authority and Phase 7 Docker production switch boundary.
   - `git diff --check` and manual docs review passed.
   - Remaining docs reconciliation needed after backend finalizes TTL env names and test selectors.
+- Frontend Archimedes completed at `151131c`:
+  - Added optional `ImportProcessingProgress` frontend types and tolerant import job normalization.
+  - Import job and dataset batch views show backend processing progress when present and stable fallback when missing/expired.
+  - Review workbench treats past-expiry leases as readonly and avoids heartbeat/release for expired or other-user leases.
+  - Frontend tests passed: 6 files, 118 tests; production build passed.
 
 ## 2026-05-22 Phase 4 Dispatch
 
