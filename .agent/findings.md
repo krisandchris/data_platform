@@ -149,3 +149,11 @@
   - `QA_DOCKER_SMOKE_CONFIRM_ISOLATED=1`
 - QA selector flakiness rerun passed 5/5 with 0% observed failure rate.
 - Remaining QA risk: default rollback env render still includes postgres/redis services; this is documented as an operational boundary rather than a test failure.
+
+## Phase 7 Final Findings
+
+- Gated live Docker smoke exercises health, admin login, `/api/me`, dataset listing, label-config listing, backend restart persistence, and Redis restart durability boundary through the Nginx frontend port.
+- The only live-smoke interruption encountered during integration was Docker Hub image pulling for `postgres:16`. Once the image was present locally, the smoke test passed.
+- Test cleanup removed the isolated `task019qa_*` Compose project; no task-owned containers, volumes, or networks were left behind.
+- Existing unrelated exited `data_platform-backend-1` and `data_platform-frontend-1` containers predate this final smoke and were left untouched.
+- Existing unrelated `.gitignore` user modification remains outside TASK-019.
