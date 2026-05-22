@@ -149,4 +149,9 @@
   - QA Docker smoke: `bdb9ebd`
   - Frontend production build: `5ae8eeb`
   - Docs Docker rollout runbook: `4111456`
+- Spawned Phase 7 subagents:
+  - Backend Ohm: `019e4da1-3df5-73d3-806b-83fd96fc1c44`
+  - QA Poincare: `019e4da1-66f1-7661-b413-5d3f17f80088`
+  - Frontend Maxwell: `019e4da1-94de-7b33-a250-cd0b7a540ba3`
+  - Docs Mill: `019e4da1-bca9-7f62-b9ff-95b7ef673527`
 - Existing unrelated `.gitignore` user modification remains unstaged.
