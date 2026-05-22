@@ -8,7 +8,7 @@ Task ID: `TASK-019`
 
 This runbook is the operator draft for migrating an existing file-backed deployment to PostgreSQL + Redis.
 
-Current TASK-019 status: Phase 3 introduces PostgreSQL foundation. Phase 4 is the QC/review state database migration checkpoint. It still does not switch Docker defaults to database mode, does not implement Redis, and does not provide the file-state import tool. Treat Phase 3 and Phase 4 as implementation verification checkpoints, not as a production database rollout.
+Current TASK-019 status: Phase 3 introduces PostgreSQL foundation. Phase 4 is the QC/review state database migration checkpoint. Phase 5 adds optional Redis runtime coordination for database-mode verification. These phases do not switch Docker defaults to database mode and do not provide the file-state import tool. Treat Phase 3, Phase 4, and Phase 5 as implementation verification checkpoints, not as a production database rollout.
 
 It intentionally separates:
 
@@ -18,7 +18,7 @@ It intentionally separates:
 
 Phase 3 backend foundation has landed with direct Alembic commands, `alembic/` migration files, and database foundation test selectors documented below.
 
-Phase 4 backend, QA, frontend compatibility, and docs branches have been merged into `integration/TASK-019`. The Phase 4 Alembic head revision is `20260522_0002` on top of the Phase 3 foundation revision `20260522_0001`.
+Phase 4 backend, QA, frontend compatibility, and docs branches have been merged into `main`. The Phase 4 Alembic head revision is `20260522_0002` on top of the Phase 3 foundation revision `20260522_0001`.
 
 ## Phase 3 Foundation Scope
 
@@ -65,6 +65,28 @@ Phase 4 also does not implement Redis. Active lease coordination may be represen
 
 Docker Compose defaults must remain file-backed during Phase 4. Operators may start a database-mode backend explicitly for verification, but repository Docker defaults must not switch to `PLATFORM_STATE_BACKEND=database` until the Docker rollout phase.
 
+## Phase 5 Redis Runtime Scope
+
+Phase 5 enables Redis as an optional runtime coordinator in database mode. Redis may coordinate active locks and live progress, but PostgreSQL remains authoritative for durable workflow state.
+
+Phase 5 may use Redis for:
+
+- active sample lease locks with owner and TTL;
+- owner-checked lease heartbeat and release coordination;
+- short-lived distributed locks for QC queue generation and import job execution;
+- live upload, extraction, scan, validation, and import progress hints;
+- optional read-through caches, such as session lookup caches backed by PostgreSQL.
+
+Phase 5 must not use Redis as the only copy of:
+
+- drafts, batch drafts, submissions, snapshots, modification events, or audit;
+- users, roles, durable sessions, dataset type metadata, batch metadata, label config versions, or active label config pointers;
+- import job final state, QC task state, sample pool items, export metadata, or evaluation metadata.
+
+Redis loss, TTL expiry, or a Redis restart may invalidate only active locks, live progress hints, and optional caches. After Redis loss, operators should expect users to reacquire leases or see stable "processing" states until PostgreSQL-backed final status is available. Durable PostgreSQL rows and filesystem artifacts must remain intact.
+
+Docker Compose production defaults still do not switch in Phase 5. The production Compose switch to PostgreSQL + Redis remains Phase 7 unless backend and QA explicitly land, verify, and hand off a different behavior.
+
 ## Expected Phase 3 Environment Variables
 
 | Variable | Expected values | Required when | Notes |
@@ -86,6 +108,33 @@ Backend-confirmation-dependent: Phase 4 should use the same database selection s
 | `PLATFORM_DB_AUTO_MIGRATE` | `0` or `1` | Backend startup | Keep `0` for operator verification unless the backend branch documents tested startup migration behavior. |
 
 Do not require `REDIS_URL` or `PLATFORM_REDIS_ENABLED` for Phase 4. Redis is Phase 5.
+
+## Expected Phase 5 Redis Environment Variables
+
+Backend-confirmation-dependent: this section uses the env names from the Phase 5 plan. Reconcile exact TTL knobs and test selectors with backend and QA handoffs after their Redis branches land.
+
+| Variable | Expected values | Required when | Notes |
+| --- | --- | --- | --- |
+| `PLATFORM_STATE_BACKEND` | `file` or `database` | Selecting state backend | Use `database` for Redis runtime verification. Docker defaults remain `file` until Phase 7. |
+| `DATABASE_URL` | SQLAlchemy database URL, for PostgreSQL use `postgresql+psycopg://user:password@host:5432/dbname` | Running database-backed mode, Alembic, or Redis runtime smoke | PostgreSQL remains the durable authority. |
+| `PLATFORM_REDIS_ENABLED` | `0` or `1` | Selecting Redis runtime coordination | `0` keeps Redis optional/disabled. `1` enables Redis-backed runtime coordination when `REDIS_URL` is configured. |
+| `REDIS_URL` | Redis connection URL, for example `redis://localhost:6379/15` or a secured site URL | Redis-enabled backend runtime | Use a dedicated database/index for smoke validation. Redact credentials in logs and backups. |
+| `TEST_DATABASE_URL` | PostgreSQL test database URL | Real PostgreSQL integration tests | Tests may use SQLite fallback when this is unset, but PostgreSQL-only checks require this URL. |
+| `TEST_REDIS_URL` | Redis test URL | Real Redis integration tests | Use an isolated Redis DB because TTL, restart, and `FLUSHDB` checks can remove active locks/progress. |
+
+TTL behavior:
+
+- Active lock, distributed lock, progress, and cache keys must have TTLs. No Redis key should be required for durable recovery after the TTL expires.
+- TTL expiry must be treated like Redis loss: active locks, live progress hints, and optional caches may disappear; PostgreSQL-backed state must remain readable.
+- If backend adds TTL env vars, document their exact names and default values in the backend handoff before operators tune them.
+
+Security cautions:
+
+- Do not commit `DATABASE_URL`, `REDIS_URL`, passwords, tokens, or managed-service endpoints.
+- Bind local Redis only to trusted loopback or private networks. Do not expose unauthenticated Redis on a LAN or public interface.
+- Use Redis ACL/password and TLS when required by the deployment environment or managed service.
+- Do not run `FLUSHDB`, restart, or TTL-loss checks against a shared production Redis database. Use an isolated smoke database/index.
+- Redact `DATABASE_URL` and `REDIS_URL` in support bundles, logs, CI output, and deployment records.
 
 ## Phase 3 Foundation Verification
 
@@ -219,6 +268,87 @@ Backend-confirmation-dependent: run this section only after the backend `qc-stat
     - No Redis dependency, Redis service, or Redis runtime behavior is required.
     - Backend-confirmation-dependent test names, table names, and migration revision IDs are reconciled from backend/QA handoffs before production planning.
 
+## Phase 5 Redis Runtime Verification
+
+Backend/QA-confirmation-dependent: run this section only after the backend Redis runtime and QA Redis integration branches have landed on the branch being verified. Until then, treat test selectors below as the intended command shape, not guaranteed current test names.
+
+1. Confirm file-backed behavior still passes without Redis:
+
+   ```bash
+   PLATFORM_STATE_BACKEND=file \
+   PLATFORM_REDIS_ENABLED=0 \
+   uv run pytest
+   ```
+
+2. Prepare isolated PostgreSQL and Redis services for smoke validation. Use a throwaway PostgreSQL database and a dedicated Redis DB/index. Do not point `TEST_REDIS_URL` at a shared production Redis database.
+
+   ```bash
+   export TEST_DATABASE_URL='postgresql+psycopg://urban_platform:change-me@localhost:5432/urban_platform_test'
+   export TEST_REDIS_URL='redis://localhost:6379/15'
+   export DATABASE_URL="$TEST_DATABASE_URL"
+   export REDIS_URL="$TEST_REDIS_URL"
+   ```
+
+3. Run Alembic on the smoke database:
+
+   ```bash
+   DATABASE_URL="$TEST_DATABASE_URL" uv run alembic upgrade head
+   DATABASE_URL="$TEST_DATABASE_URL" uv run alembic current
+   ```
+
+4. Run Redis-enabled database-mode tests after backend/QA handoff confirms the exact selectors:
+
+   ```bash
+   TEST_DATABASE_URL="$TEST_DATABASE_URL" \
+   TEST_REDIS_URL="$TEST_REDIS_URL" \
+   PLATFORM_STATE_BACKEND=database \
+   PLATFORM_REDIS_ENABLED=1 \
+   uv run pytest -k "redis_runtime or redis_lease or import_progress or qc_queue_lock" -q
+   ```
+
+5. Validate lease coordination:
+
+   - Acquire a sample lease with user A and verify concurrent acquire by user B is rejected while the Redis lock is active.
+   - Heartbeat and release as the lease owner.
+   - Verify heartbeat and release by a non-owner are rejected.
+   - Let the active lock TTL expire or restart the isolated Redis service, then verify the user can reacquire according to backend rules.
+   - Confirm PostgreSQL still records durable lease history and audit outcomes.
+
+6. Validate distributed locks:
+
+   - Start duplicate QC queue generation attempts for the same batch and verify only one generator wins.
+   - Start duplicate import execution attempts for the same import job and verify only one executor owns the short-lived lock.
+   - Confirm final task/import job state is persisted in PostgreSQL, not Redis.
+
+7. Validate live progress:
+
+   - Start an upload/import flow that reports backend processing progress.
+   - Confirm progress is visible while Redis values exist.
+   - Delete or let progress keys expire in the isolated smoke Redis DB and verify the API/frontend falls back to stable job state such as "processing" or final PostgreSQL status.
+
+8. Redis loss acceptance:
+
+   ```bash
+   redis-cli -u "$TEST_REDIS_URL" FLUSHDB
+   ```
+
+   After Redis loss:
+
+   - durable users, roles, sessions, label configs, batch metadata, QC assignments, drafts, submissions, snapshots, audit, sample pool, exports, and evaluations remain readable from PostgreSQL;
+   - active locks, live progress hints, and optional caches may be missing;
+   - users can reacquire locks according to backend lease rules;
+   - final import job and task status remain PostgreSQL-backed;
+   - Docker Compose defaults are still not changed to PostgreSQL + Redis.
+
+9. Phase 5 acceptance checks:
+
+   - File-backed mode remains green with `PLATFORM_REDIS_ENABLED=0`.
+   - Database mode remains green with PostgreSQL as durable authority.
+   - Redis-backed active locks are cross-process safe.
+   - Redis loss affects only active locks, live progress hints, and optional cache entries.
+   - Missing Redis progress does not break import/job UI fallback behavior.
+   - Docker production switch remains blocked until Phase 7.
+
 ## Non-Goals
 
 The migration must not move these into PostgreSQL:
@@ -247,7 +377,7 @@ Before starting a production migration after all TASK-019 phases:
   - `LABEL_CONFIG_HOST_ROOT`
   - export artifact root if it is separated later
 
-These production prerequisites are not met by Phase 3 or Phase 4 alone.
+These production prerequisites are not met by Phase 3, Phase 4, or Phase 5 alone.
 
 ## 1. Freeze Writes
 
@@ -311,7 +441,7 @@ sha256sum "$BACKUP_ROOT"/*.tgz > "$BACKUP_ROOT/SHA256SUMS"
 
 ## 3. Prepare PostgreSQL And Redis
 
-Future production rollout step. For Phase 3 or Phase 4, prepare only a temporary PostgreSQL database for migration verification and do not require Redis.
+Future production rollout step. For Phase 3 or Phase 4, prepare only a temporary PostgreSQL database for migration verification and do not require Redis. For Phase 5 smoke verification, prepare both temporary PostgreSQL and isolated Redis, but do not change Docker production defaults.
 
 For Phase 3 or Phase 4 verification, export only the PostgreSQL URL:
 
@@ -320,6 +450,17 @@ export DATABASE_URL='postgresql+psycopg://urban_platform:change-me@localhost:543
 ```
 
 The exact driver prefix and host value must match the backend branch and local verification database.
+
+For Phase 5 smoke verification, export both service URLs and keep Redis opt-in:
+
+```bash
+export DATABASE_URL='postgresql+psycopg://urban_platform:change-me@localhost:5432/urban_platform_test'
+export REDIS_URL='redis://localhost:6379/15'
+export PLATFORM_STATE_BACKEND=database
+export PLATFORM_REDIS_ENABLED=1
+```
+
+The Redis DB/index must be isolated because smoke checks may expire keys or run `FLUSHDB`.
 
 For final production rollout after Redis and import phases, start PostgreSQL and Redis with empty or explicitly selected volumes:
 
@@ -335,7 +476,7 @@ export DATABASE_URL='postgresql+psycopg://urban_platform:change-me@postgres:5432
 export REDIS_URL='redis://redis:6379/0'
 ```
 
-Use the actual secret and host values from deployment configuration. Do not commit credentials.
+Use the actual secret and host values from deployment configuration. Do not commit credentials, and redact both URLs in support artifacts.
 
 ## 4. Run Alembic Migrations
 
@@ -425,7 +566,7 @@ Acceptance:
 
 ## 7. Database-Mode Verification Before Traffic
 
-Future production rollout step after the Redis runtime and import-tool phases. For Phase 3, use the smaller foundation verification checklist near the top of this runbook. For Phase 4, use the QC/review verification checklist. Do not require Redis or production traffic switching during Phase 4.
+Future production rollout step after the Redis runtime and import-tool phases. For Phase 3, use the smaller foundation verification checklist near the top of this runbook. For Phase 4, use the QC/review verification checklist. For Phase 5, use the Redis runtime verification checklist without switching production traffic. Do not require Redis or production traffic switching during Phase 4.
 
 Start the backend in database mode against the migrated database:
 
@@ -464,7 +605,7 @@ After Redis restart:
 
 ## 8. Docker Rollout
 
-Future production rollout step. Phase 3 and Phase 4 must not change Docker defaults to database mode and must not add Redis as a required runtime service.
+Future production rollout step. Phase 3, Phase 4, and Phase 5 must not change Docker defaults to database mode and must not add Redis as a required runtime service.
 
 Switch Compose to the migrated target defaults only after the import and verification steps pass:
 

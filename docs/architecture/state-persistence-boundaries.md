@@ -53,7 +53,7 @@ During this transition, a database-backed foundation store may coexist with file
 
 ## Phase 4 Transitional Boundary
 
-Phase 4 is the QC/review state database migration checkpoint. Backend-confirmation-dependent: this section is the expected boundary for the backend `qc-state` branch after it lands and passes integration checks. In this docs worktree, the current database models still show the Phase 3 foundation scope only.
+Phase 4 is the QC/review state database migration checkpoint. The Phase 4 QC/review database branch has been merged into `main`, but production Docker defaults still remain file-backed until the later rollout phase.
 
 Phase 4 may database-back these additional durable domains:
 
@@ -74,6 +74,28 @@ Phase 4 does not change these boundaries:
 - The file-state import command is still a later rollout prerequisite. Phase 4 database-mode verification can create fresh database state for tests, but it is not a production migration from existing file-backed state.
 
 Operators should treat Phase 4 as a backend verification checkpoint. A production cutover still requires the Redis runtime phase, file-state import tooling, Docker rollout changes, and integration acceptance.
+
+## Phase 5 Redis Runtime Boundary
+
+Phase 5 adds optional Redis-backed runtime coordination for database-mode verification. It does not change the durable authority model: PostgreSQL remains the source of truth for mutable platform records, and filesystem roots remain the source of truth for large/source artifacts.
+
+Expected Phase 5 Redis-backed state:
+
+- active sample lease lock keys with owner and TTL;
+- owner-checked heartbeat and release markers needed to safely update the active lock;
+- short-lived distributed locks for QC queue generation and import job execution;
+- live upload, extraction, scan, validation, and import progress hints;
+- optional session lookup or other read-through caches that can be reconstructed from PostgreSQL.
+
+Expected Phase 5 durable state that must stay in PostgreSQL:
+
+- lease history rows, terminal lease status, and audit records;
+- QC assignments, task records, drafts, batch drafts, submissions, snapshots, and modification events;
+- users, roles, durable sessions, dataset type/batch metadata, label configs, import job final state, sample pool items, export metadata, and evaluation metadata.
+
+Redis is enabled explicitly with `PLATFORM_REDIS_ENABLED=1` and `REDIS_URL`. When `PLATFORM_REDIS_ENABLED=0` or Redis is not configured, the backend must keep file-backed or PostgreSQL-backed behavior available according to the selected phase and backend handoff. Phase 5 verification may run Redis-enabled database mode, but Docker production defaults still remain a Phase 7 rollout decision.
+
+Redis key TTLs are safety limits, not durability guarantees. If a TTL expires or Redis restarts, the only acceptable losses are active locks, live progress hints, and optional cache entries. The backend and UI must recover from missing Redis values by reading PostgreSQL state and showing stable fallback states such as "processing" when a live progress hint has expired.
 
 ## Target PostgreSQL Responsibilities
 
@@ -115,7 +137,7 @@ Redis is not an authority for:
 - import job final state;
 - snapshots, modification events, sample pool items, export job metadata, or evaluation metadata.
 
-After a Redis restart, the platform may lose only active locks and live progress hints. PostgreSQL remains the source for durable workflow state, and the UI must fall back to stable states such as "processing" when live progress has expired.
+After a Redis restart, TTL expiry, or Redis database flush in an isolated smoke environment, the platform may lose only active locks, live progress hints, and optional cache entries. PostgreSQL remains the source for durable workflow state, and the UI must fall back to stable states such as "processing" when live progress has expired.
 
 ## Filesystem Responsibilities After Migration
 
@@ -156,7 +178,8 @@ At service startup, cache miss, or source refresh, backend code may hydrate a ru
 - The import tool must not mutate `DATASET/`, uploaded archives, extracted source files, media files, or export artifacts.
 - Same-ID same-content rows are idempotent.
 - Same-ID different-content rows are conflicts and require operator action.
-- Docker must not default to database mode in Phase 4; the switch is blocked until PostgreSQL migrations, Redis behavior, file-state import, Docker rollout, and rollback have all been tested.
+- Docker must not default to database mode in Phase 4 or Phase 5; the switch is blocked until PostgreSQL migrations, Redis behavior, file-state import, Docker rollout, and rollback have all been tested.
+- Phase 5 Redis mode is opt-in. It must not make Redis the only copy of durable state and must not switch Docker production defaults before Phase 7.
 - Frontend API contracts stay compatible. The frontend should not need to know whether the backend state backend is `file` or `database`.
 
 ## Related Documents

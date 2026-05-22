@@ -33,11 +33,11 @@ Docs Agent
 
 ## Planned Steps
 
-1. Inspect existing Phase 5 docs.
-2. Document Redis env vars, responsibilities, TTL/loss behavior, and security cautions.
-3. Document real PostgreSQL/Redis smoke validation with `TEST_DATABASE_URL` and `TEST_REDIS_URL`.
-4. Keep docs explicit that Redis is not durable authority and Docker production rollout remains Phase 7.
-5. Update `.agent/progress.md` and complete `.agent/handoff.md`; commit changes.
+1. Inspect existing Phase 5 docs. Status: complete.
+2. Document Redis env vars, responsibilities, TTL/loss behavior, and security cautions. Status: complete.
+3. Document real PostgreSQL/Redis smoke validation with `TEST_DATABASE_URL` and `TEST_REDIS_URL`. Status: complete.
+4. Keep docs explicit that Redis is not durable authority and Docker production rollout remains Phase 7. Status: complete.
+5. Update `.agent/progress.md` and complete `.agent/handoff.md`; commit changes. Status: complete.
 
 ## Acceptance Criteria
 
@@ -50,4 +50,3 @@ Docs Agent
 
 - `git diff --check`
 - Manual link/structure review
-
