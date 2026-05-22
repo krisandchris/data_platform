@@ -11,34 +11,44 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 3. PostgreSQL foundation for identity, registry, label config, import jobs, and audit.
    - Status: complete.
 4. PostgreSQL migration for QC, drafts, submissions, sample pool, exports, and evaluations.
-   - Status: complete. Backend, QA, Frontend, and Docs branches are merged into `integration/TASK-019`; local integration verification passed with SQLite database fallback.
+   - Status: complete.
 5. Redis runtime state for active leases, locks, session cache, and import progress.
-   - Status: pending.
+   - Status: complete. Backend, QA, Frontend, and Docs branches are merged into integration; final verification passed.
 6. File-state import tool.
    - Status: pending.
 7. Docker rollout and full acceptance.
    - Status: pending.
 
-## Phase 4 Agent Branches
+## Phase 5 Agent Branches
 
-- Merged into integration: `agent/TASK-019/backend/qc-state` at `254e9f0`
-- Merged into integration: `agent/TASK-019/qa/qc-state-tests` at `a3c16e9`
-- Merged into integration: `agent/TASK-019/frontend/qc-db-compat` at `011df88`
-- Merged into integration: `agent/TASK-019/docs/qc-state-runbooks` at `b4f1042`
+- Merged into integration: `agent/TASK-019/backend/redis-runtime` at `28f70c6`
+- Merged into integration: `agent/TASK-019/qa/redis-runtime-tests` at `3529101`
+- Merged into integration: `agent/TASK-019/frontend/progress-and-lease` at `151131c`
+- Merged into integration: `agent/TASK-019/docs/redis-runtime-runbooks` at `3ff44e3`
 
-## Phase 4 Scope
+## Phase 5 Scope
 
-- Move authoritative QC assignments, task records, lease history, drafts, batch drafts, submissions, annotation snapshots, modification events, sample pool items, export job metadata, and evaluation run metadata to PostgreSQL in database mode.
-- Preserve file-backed mode and existing frontend API response contracts.
-- Keep raw dataset files, uploaded archives, extracted source trees, media files, and export artifacts on the filesystem.
-- Do not introduce Redis or switch Docker defaults in this phase.
+- Add Redis runtime coordination for active sample leases, owner-checked heartbeat/release, QC queue locks, import job locks, optional session lookup cache, and live import progress.
+- Preserve PostgreSQL as the durable authority for users, roles, sessions, dataset metadata, import final state, label configs, audit, drafts, submissions, snapshots, sample pool, exports, and evaluations.
+- Resolve the remaining live-service validation risk by adding and running PostgreSQL/Redis smoke checks where Docker services are available.
+- Do not switch Docker production defaults in this phase.
 
-## Phase 4 Exit Gate
+## Phase 5 Exit Gate
 
-- Database mode supports the full review workflow through confirmation and persistence across service recreation.
-- File-backed test suite remains green.
+- Redis disabled mode remains green.
+- Redis enabled mode passes focused lease/lock/progress tests.
+- Redis loss does not lose durable platform state.
+- Real PostgreSQL/Redis smoke passes locally if disposable Docker services can be started.
 - Frontend tests/build remain green.
-- QA database-mode tests pass with SQLite fallback and optionally with `TEST_DATABASE_URL`.
-- Docs and runbooks are reconciled with the implemented Phase 4 behavior.
+- Docs and runbooks are reconciled with implemented env names and test selectors.
 
-Exit gate status: complete for local integration. PostgreSQL-specific live validation still requires `TEST_DATABASE_URL`.
+## Phase 5 Verification Results
+
+- `uv run pytest tests/test_redis_runtime_backend.py tests/test_redis_runtime_api.py tests/test_postgres_redis_smoke.py tests/test_db_qc_state_api.py::test_db_qc_state_api_restart_persistence_and_full_workflow tests/test_db_qc_state_api.py::test_db_qc_state_api_autosave_then_submit_batch_is_consistent -q` passed.
+- `uv run pytest -k "redis_runtime or postgres_live or db_qc_state or db_foundation or state_store_contract" -q` passed.
+- Disposable Docker PostgreSQL/Redis smoke passed with `tests/test_postgres_redis_smoke.py` and `tests/test_redis_runtime_backend.py::test_real_redis_smoke_if_available`.
+- `uv run pytest -q` passed.
+- `cd frontend && npm run test` passed.
+- `cd frontend && VITE_API_BASE_URL=/api npm run build` passed.
+- `uv run python scripts/docker-compose-auto-subnet.py config` passed.
+- `git diff --check` passed.

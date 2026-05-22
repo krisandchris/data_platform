@@ -1,46 +1,46 @@
 # TASK-019 Migration Progress
 
-## 2026-05-22 Phase 3 Summary
+## 2026-05-22 Phase 5 Dispatch
 
-- Merged and verified Phase 3 database foundation.
-- Final Phase 3 verification:
-  - `uv sync` -> passed.
-  - `uv run pytest -k 'state_store_contract or label_config_repository_contract or db_foundation' -q` -> 14 passed, 1 skipped.
-  - `uv run pytest tests/test_db_foundation_contract.py tests/test_db_foundation_api.py tests/test_db_foundation_backend.py -q` -> 10 passed, 1 skipped.
-  - SQLite Alembic upgrade/current smoke -> passed, current revision `20260522_0001`.
-  - `uv run pytest` -> 103 passed, 1 skipped.
-  - `npm run test` in `frontend/` with Node 20 -> 6 files passed, 114 tests passed.
-  - `VITE_API_BASE_URL=/api npm run build` in `frontend/` with Node 20 -> passed.
-  - `uv run python scripts/docker-compose-auto-subnet.py config` -> passed.
-  - `git diff --check` -> passed.
-
-## 2026-05-22 Phase 4 Dispatch
-
-- Recreated `integration/TASK-019` from local `main` for Phase 4.
+- Created `integration/TASK-019` from local `main` at `d9a9a93`.
+- Created Phase 5 worktrees for Backend, QA, Frontend, and Docs.
+- Spawned Phase 5 subagents:
+  - Backend Chandrasekhar: `019e4d4d-bb7e-7063-9187-57e7d5921627`
+  - QA Kierkegaard: `019e4d4d-bbbc-7d42-8dda-ce0d24546dc5`
+  - Frontend Archimedes: `019e4d4d-bc01-76d2-b0ad-6a0044c4384b`
+  - Docs Hypatia: `019e4d4d-bc3d-7641-a947-1989e3188f46`
 - Agent results:
-  - Backend Bacon completed at `254e9f0`.
-  - QA Boyle completed at `a3c16e9`.
-  - Frontend Sagan completed at `011df88`.
-  - Docs Feynman completed at `b4f1042`.
+  - QA completed at `3529101`.
+  - Docs completed at `3ff44e3`.
+  - Frontend completed at `151131c`.
+  - Backend completed at `28f70c6`.
 
-## 2026-05-22 Phase 4 Lead Integration
+## 2026-05-22 Phase 5 Lead Integration
 
-- Merged `agent/TASK-019/backend/qc-state` into `integration/TASK-019` at merge commit `6f9f648`.
-- Merged `agent/TASK-019/qa/qc-state-tests` into `integration/TASK-019` at merge commit `4dd56fe`.
-- Merged `agent/TASK-019/frontend/qc-db-compat` into `integration/TASK-019` at merge commit `73c889e`.
-- Merged `agent/TASK-019/docs/qc-state-runbooks` into `integration/TASK-019`.
-- Backend, QA, frontend, and docs product/test/doc files merged without content conflicts.
-- Root `.agent` files conflicted with Lead Agent integration records during each branch merge and were rewritten as integration records preserving agent findings.
-- Reconciled docs to remove backend-confirmation-dependent placeholders after backend/QA integration.
-- Fixed QA integration test semantics:
-  - `tests/test_db_qc_state_contract.py` now verifies database mode does not fall back to old QC JSON files and can read tasks/leases from PostgreSQL-backed store.
-- Final Phase 4 integration verification:
-  - `uv sync` -> passed.
-  - `uv run pytest tests/test_db_qc_state_backend.py tests/test_db_qc_state_contract.py tests/test_db_qc_state_api.py -q` -> 8 passed, 1 skipped.
-  - `uv run pytest -k "state_store_contract or label_config_repository_contract or db_foundation or db_qc_state" -q` -> 22 passed, 2 skipped.
-  - `DATABASE_URL=sqlite+pysqlite:////tmp/... uv run alembic upgrade head && DATABASE_URL=... uv run alembic current` -> passed, current revision `20260522_0002`.
-  - `uv run pytest -q` -> passed.
-  - `cd frontend && npm run test` -> 6 files passed, 115 tests passed.
-  - `cd frontend && VITE_API_BASE_URL=/api npm run build` -> passed.
-  - `uv run python scripts/docker-compose-auto-subnet.py config` -> passed.
-  - `git diff --check` -> passed.
+- Merged `agent/TASK-019/backend/redis-runtime` into `integration/TASK-019` at merge commit `f9f2314`.
+- Merged `agent/TASK-019/qa/redis-runtime-tests` into `integration/TASK-019` at merge commit `c9275a2`.
+- Merged `agent/TASK-019/frontend/progress-and-lease` into `integration/TASK-019` at merge commit `50eec19`.
+- Merged `agent/TASK-019/docs/redis-runtime-runbooks` into `integration/TASK-019`.
+- Backend, QA, frontend, and docs files merged without product/doc/test content conflicts.
+- Lead integration patched frontend import job normalization to read backend `live_progress`.
+- Lead integration reconciled docs test selectors to `redis_runtime or postgres_live or db_qc_state`.
+- Root `.agent` files conflicted with Lead Agent integration records and were rewritten as integration records preserving agent findings.
+- Untracked `prompts_complete.md` exists in the main worktree and was left untouched.
+
+## 2026-05-22 Phase 5 Verification
+
+- Fixed focused selector failures by aligning test label-edit payloads with the active label config codes and current fixture label config version.
+- Fixed `tests/test_redis_runtime_api.py` enabled/disabled path to reuse the disabled-path setup instead of recreating duplicate users in the same DB.
+- Fixed live smoke health checks from `/healthz` to `/health`.
+- Split docs commands into deterministic regression selector plus explicit live PostgreSQL/Redis smoke files.
+- Fixed frontend `live_progress` normalization by deriving percentage from `current` / `total`, using `updatedAt` for backend `updated_at`, and declaring `BackendImportJob.live_progress`.
+- Verification passed:
+  - `uv run pytest tests/test_redis_runtime_backend.py tests/test_redis_runtime_api.py tests/test_postgres_redis_smoke.py tests/test_db_qc_state_api.py::test_db_qc_state_api_restart_persistence_and_full_workflow tests/test_db_qc_state_api.py::test_db_qc_state_api_autosave_then_submit_batch_is_consistent -q`
+  - `uv run pytest -k "redis_runtime or postgres_live or db_qc_state or db_foundation or state_store_contract" -q`
+  - Disposable Docker PostgreSQL/Redis smoke with `tests/test_postgres_redis_smoke.py tests/test_redis_runtime_backend.py::test_real_redis_smoke_if_available -q`
+  - `uv run pytest -q`
+  - `cd frontend && npm run test`
+  - `cd frontend && VITE_API_BASE_URL=/api npm run build`
+  - `uv run python scripts/docker-compose-auto-subnet.py config`
+  - `git diff --check`
+- Disposable containers `task019-phase5-pg` and `task019-phase5-redis` were removed after smoke validation.

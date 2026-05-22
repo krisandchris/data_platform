@@ -430,6 +430,14 @@ describe('HTTP API adapter', () => {
       imported_assets: 797,
       stage2_success_count: 780,
       failure_count: 19,
+      live_progress: {
+        stage: 'import',
+        current: 320,
+        total: 797,
+        state: 'processing',
+        message: 'Writing imported assets',
+        updated_at: '2026-05-22T00:20:00Z',
+      },
       warnings: [{ id: 'w-stage2', severity: 'warning', title: 'STEP2 failures', message: '19 failures preserved.' }],
     };
     const fetcher = vi
@@ -460,10 +468,22 @@ describe('HTTP API adapter', () => {
     const confirmed = await api.confirmImportJob('urban_violation__0508_fixture', 'job-0508');
     const retried = await api.retryImportJob('urban_violation__0508_fixture', 'job-0508');
 
-    expect(jobs[0]).toMatchObject({ id: 'job-0508', state: 'PreviewReady', warningCount: 1 });
+    expect(jobs[0]).toMatchObject({
+      id: 'job-0508',
+      state: 'PreviewReady',
+      warningCount: 1,
+      processingProgress: {
+        phase: 'import',
+        processedItems: 320,
+        totalItems: 797,
+        percent: 40,
+        message: 'Writing imported assets',
+      },
+    });
     expect(created.state).toBe('Draft');
     expect(scanned.state).toBe('Scanning');
     expect(validated.validationReport?.warnings[0].message).toContain('19 failures');
+    expect(validated.processingProgress?.updatedAt).toBe('2026-05-22T00:20:00Z');
     expect(confirmed.state).toBe('QCQueueGenerated');
     expect(retried.state).toBe('Scanning');
     expect(fetcher.mock.calls.map((call) => String(call[0]))).toEqual([

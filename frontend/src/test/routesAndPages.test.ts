@@ -748,7 +748,7 @@ reviewDetail.sampleLease = {
   userId: 'annotator_a',
   userDisplayName: '标注员 A',
   status: 'active',
-  expiresAt: '2026-05-18T01:00:00Z',
+  expiresAt: '2099-01-01T00:00:00Z',
 };
 
 const labelConfig: LabelConfig = {
@@ -2718,6 +2718,81 @@ describe('route rendering and live route states', () => {
     expect(wrapper.text()).not.toContain('urban_violation__batch_a-sample');
   });
 
+  it('shows optional backend import processing progress when present', async () => {
+    mockApiClient.getDatasetBatchImportJob.mockResolvedValue({
+      ...makeImportJob('urban_violation__batch_a', 'job-a', 20),
+      state: 'Importing',
+      activeStep: 5,
+      processingProgress: {
+        phase: 'import',
+        processedItems: 8,
+        totalItems: 20,
+        percent: 40,
+        message: 'Writing imported assets',
+      },
+    });
+
+    const wrapper = mount(ImportJobPage, {
+      props: {
+        id: 'urban_violation__batch_a',
+        jobId: 'job-a',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('Writing imported assets');
+    expect(wrapper.text()).toContain('8 / 20');
+    expect(wrapper.text()).toContain('40%');
+  });
+
+  it('falls back to stable processing text when backend import progress is absent or expired', async () => {
+    mockApiClient.getDatasetBatchImportJob.mockResolvedValueOnce({
+      ...makeImportJob('urban_violation__batch_a', 'job-a', 20),
+      state: 'Importing',
+      activeStep: 5,
+      processingProgress: {
+        phase: 'import',
+        percent: 81,
+        message: 'Stale import progress',
+        expired: true,
+      },
+    });
+
+    const wrapper = mount(ImportJobPage, {
+      props: {
+        id: 'urban_violation__batch_a',
+        jobId: 'job-a',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('后端正在处理导入任务');
+    expect(wrapper.text()).toContain('实时进度暂不可用，当前任务仍处于处理中。');
+    expect(wrapper.text()).not.toContain('Stale import progress');
+    expect(wrapper.text()).not.toContain('81%');
+
+    mockApiClient.getDatasetBatchImportJob.mockResolvedValueOnce({
+      ...makeImportJob('urban_violation__batch_b', 'job-b', 20),
+      state: 'Importing',
+      activeStep: 5,
+      processingProgress: undefined,
+    });
+    await wrapper.setProps({ id: 'urban_violation__batch_b', jobId: 'job-b' });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('实时进度暂不可用，当前任务仍处于处理中。');
+  });
+
   it('uses assignable-users for qc lead batch assignment instead of the admin user directory', async () => {
     const leadUser = {
       userId: 'qc_lead_a',
@@ -4101,6 +4176,76 @@ describe('import and review routes', () => {
         ]),
       }),
     );
+  });
+
+  it('keeps review workbench readonly stable when Redis lease state is missing, expired, or owned by another user', async () => {
+    const scenarios: Array<{
+      name: string;
+      sampleLease: ReviewSampleDetail['sampleLease'];
+      leaseText: string;
+    }> = [
+      {
+        name: 'missing',
+        sampleLease: undefined,
+        leaseText: 'no lease',
+      },
+      {
+        name: 'expired',
+        sampleLease: {
+          ...reviewDetail.sampleLease!,
+          status: 'active',
+          expiresAt: '2000-01-01T00:00:00Z',
+        },
+        leaseText: 'expired · 标注员 A',
+      },
+      {
+        name: 'owned-by-other-user',
+        sampleLease: {
+          ...reviewDetail.sampleLease!,
+          leaseId: 'lease-other-user',
+          userId: 'annotator_b',
+          userDisplayName: '标注员 B',
+          status: 'active',
+          expiresAt: '2099-01-01T00:00:00Z',
+        },
+        leaseText: 'active · 标注员 B',
+      },
+    ];
+
+    for (const scenario of scenarios) {
+      mockApiClient.getReviewSample.mockResolvedValueOnce({
+        ...reviewDetail,
+        sampleLease: scenario.sampleLease,
+      });
+      mockApiClient.acquireSampleLease.mockRejectedValueOnce(
+        new ApiClientError(409, `${scenario.name} lease conflict`, {
+          code: 'lease_owned_by_other_user',
+          message: 'Active lease is not editable.',
+        }),
+      );
+      mockApiClient.listQcQueue.mockResolvedValueOnce(qcQueue);
+
+      const wrapper = mount(ReviewWorkbenchPage, {
+        props: {
+          id: 'ds-live',
+          sampleId: 'sample-1',
+        },
+        global: {
+          stubs: {
+            RouterLink: true,
+          },
+        },
+      });
+      await flushPromises();
+
+      expect(wrapper.text()).toContain(scenario.leaseText);
+      expect(wrapper.text()).toContain('未持有有效 sample lease，当前样本只读');
+      expect(wrapper.findAll('.gate-warning--readonly')).toHaveLength(1);
+      expect(wrapper.findAll('button').find((button) => button.text().includes('保存草稿'))?.attributes('disabled')).toBeDefined();
+      expect(wrapper.findAll('button').find((button) => button.text().includes('校验修改'))?.attributes('disabled')).toBeDefined();
+      wrapper.unmount();
+      expect(mockApiClient.releaseSampleLease).not.toHaveBeenCalled();
+    }
   });
 
   it('keeps the current review visible while switching samples', async () => {

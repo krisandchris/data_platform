@@ -949,6 +949,18 @@ class ImportJobStatusResponse(StrictModel):
     validation_errors: list[str] = Field(default_factory=list)
     validation_rows: list["ImportValidationRow"] = Field(default_factory=list)
     mapping_steps: list["ImportMappingStep"] = Field(default_factory=list)
+    live_progress: "ImportLiveProgressResponse | None" = None
+
+
+class ImportLiveProgressResponse(StrictModel):
+    """Optional live import progress from Redis runtime coordination."""
+
+    stage: str = Field(min_length=1, max_length=80)
+    state: str = Field(min_length=1, max_length=80)
+    current: int = Field(default=0, ge=0)
+    total: int = Field(default=0, ge=0)
+    message: str = Field(default="", max_length=500)
+    updated_at: datetime | None = None
 
 
 class ImportJobCreateRequest(StrictModel):

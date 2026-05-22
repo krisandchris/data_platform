@@ -1,4 +1,4 @@
-# TASK-019 Phase 4 Integration Handoff
+# TASK-019 Phase 5 Integration Handoff
 
 ## Agent Role
 
@@ -10,51 +10,43 @@ Lead Agent
 
 ## Scope Completed
 
-- Phase 4 subagents dispatched and completed.
+- Phase 5 subagents dispatched and completed.
 - Backend, QA, Frontend, and Docs branches merged into integration.
-- Final Phase 4 integration verification passed locally.
+- Lead Agent resolved final integration issues and completed Phase 5 verification.
 
 ## Changed Files
 
-- `alembic/versions/20260522_0002_task019_phase4_qc_state.py`
-- `src/urban_violation_backend/db/foundation.py`
-- `src/urban_violation_backend/db/models.py`
-- `tests/test_db_qc_state_backend.py`
-- `tests/test_db_qc_state_api.py`
-- `tests/test_db_qc_state_contract.py`
-- `frontend/src/test/apiClient.test.ts`
-- `docs/architecture/postgres-redis-migration-runbook.md`
-- `docs/architecture/state-persistence-boundaries.md`
-- `docs/architecture/state_migration_agent_sequence.md`
-- `docs/backend/modules/assets-media-review.md`
-- `docs/backend/modules/runtime-and-validation.md`
-- `.agent/*`
+- Backend/runtime: `src/urban_violation_backend/runtime_coordination.py`, `src/urban_violation_backend/db/settings.py`, `src/urban_violation_backend/service.py`, `src/urban_violation_backend/auth.py`, `src/urban_violation_backend/api_schemas.py`, `pyproject.toml`, `uv.lock`.
+- Backend/QA tests: `tests/test_redis_runtime_backend.py`, `tests/test_redis_runtime_api.py`, `tests/test_postgres_redis_smoke.py`, `tests/test_api.py`, plus Phase 5 database/QC regression tests from the agent branches.
+- Frontend: `frontend/src/services/urbanViolationApi.ts`, `frontend/src/shared/types/contract.ts`, `frontend/src/test/apiClient.test.ts`, and frontend lease/progress UI files from the agent branch.
+- Docs: `docs/architecture/deployment.md`, `docs/architecture/postgres-redis-migration-runbook.md`, `docs/backend/modules/runtime-and-validation.md`, and Phase 5 state-migration docs from the docs branch.
+- Coordination: `.agent/task_plan.md`, `.agent/findings.md`, `.agent/progress.md`, `.agent/handoff.md`.
 
 ## Shared Contracts Changed
 
-Yes. Phase 4 adds database schema/migration contracts for QC/review durable state.
+Yes. Backend adds optional `live_progress` to import job responses and adds Redis runtime env settings.
 
 ## Dependencies Changed
 
-No new Phase 4 dependencies.
+Yes. Backend adds approved Python dependency `redis` through `uv add`.
 
 ## Verification
 
-- `uv sync` -> passed.
-- `uv run pytest tests/test_db_qc_state_backend.py tests/test_db_qc_state_contract.py tests/test_db_qc_state_api.py -q` -> 8 passed, 1 skipped.
-- `uv run pytest -k "state_store_contract or label_config_repository_contract or db_foundation or db_qc_state" -q` -> 22 passed, 2 skipped.
-- `DATABASE_URL=sqlite+pysqlite:////tmp/... uv run alembic upgrade head && DATABASE_URL=... uv run alembic current` -> passed, current revision `20260522_0002`.
-- `uv run pytest -q` -> passed.
-- `cd frontend && npm run test` -> 6 files passed, 115 tests passed.
-- `cd frontend && VITE_API_BASE_URL=/api npm run build` -> passed.
-- `uv run python scripts/docker-compose-auto-subnet.py config` -> passed.
-- `git diff --check` -> passed.
+- `uv run pytest tests/test_redis_runtime_backend.py tests/test_redis_runtime_api.py tests/test_postgres_redis_smoke.py tests/test_db_qc_state_api.py::test_db_qc_state_api_restart_persistence_and_full_workflow tests/test_db_qc_state_api.py::test_db_qc_state_api_autosave_then_submit_batch_is_consistent -q` passed.
+- `uv run pytest -k "redis_runtime or postgres_live or db_qc_state or db_foundation or state_store_contract" -q` passed.
+- Disposable Docker PostgreSQL/Redis smoke passed with `tests/test_postgres_redis_smoke.py` and `tests/test_redis_runtime_backend.py::test_real_redis_smoke_if_available`.
+- `uv run pytest -q` passed.
+- `cd frontend && npm run test` passed.
+- `cd frontend && VITE_API_BASE_URL=/api npm run build` passed.
+- `uv run python scripts/docker-compose-auto-subnet.py config` passed.
+- `git diff --check` passed.
 
 ## Known Risks
 
-- PostgreSQL live-service verification requires `TEST_DATABASE_URL`; current local verification is expected to use SQLite fallback unless a PostgreSQL URL is provided.
-- Redis remains pending for Phase 5.
+- Rollback after database-mode writes remains a policy decision until a reverse export tool exists.
+- File-state import remains Phase 6.
+- `prompts_complete.md` is an unrelated untracked file in the main worktree and is intentionally untouched.
 
 ## Next Agent Notes
 
-- Merge `integration/TASK-019` back to `main` after review, then clean completed Phase 4 worktrees.
+- Proceed to Phase 6 file-state import planning/implementation after this integration branch is merged to `main`.

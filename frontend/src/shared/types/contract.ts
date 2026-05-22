@@ -668,6 +668,7 @@ export interface ImportJobSummary {
   blockingIssueCount: number;
   warningCount: number;
   totals?: DatasetSummary['totals'];
+  processingProgress?: ImportProcessingProgress;
 }
 
 export interface DatasetSummary {
@@ -784,6 +785,18 @@ export interface ImportMappingStep {
   entity: 'RawAsset' | 'PreAnnotationStep1' | 'PreAnnotationStep2' | 'PreAnnotationFailure' | 'AuditArtifact';
 }
 
+export interface ImportProcessingProgress {
+  phase?: string;
+  status?: string;
+  message?: string;
+  processedItems?: number;
+  totalItems?: number;
+  percent?: number;
+  updatedAt?: string;
+  expiresAt?: string;
+  expired?: boolean;
+}
+
 export interface ImportJobDetail {
   id: ImportJobId;
   datasetId: DatasetId;
@@ -802,6 +815,7 @@ export interface ImportJobDetail {
   warnings: ImportWarning[];
   validationRows: ImportValidationRow[];
   mappingSteps: ImportMappingStep[];
+  processingProgress?: ImportProcessingProgress;
   validationReport?: ImportValidationReport;
 }
 
@@ -1294,6 +1308,10 @@ export interface BackendImportJob {
   failure_count: number;
   requested_sample_ids?: SampleId[];
   validation_errors?: string[];
+  live_progress?: unknown;
+  processing_progress?: unknown;
+  import_progress?: unknown;
+  progress?: unknown;
 }
 
 export interface BackendRawAsset {
