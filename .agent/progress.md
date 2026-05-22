@@ -26,3 +26,21 @@
 - Lead integration reconciled docs test selectors to `redis_runtime or postgres_live or db_qc_state`.
 - Root `.agent` files conflicted with Lead Agent integration records and were rewritten as integration records preserving agent findings.
 - Untracked `prompts_complete.md` exists in the main worktree and was left untouched.
+
+## 2026-05-22 Phase 5 Verification
+
+- Fixed focused selector failures by aligning test label-edit payloads with the active label config codes and current fixture label config version.
+- Fixed `tests/test_redis_runtime_api.py` enabled/disabled path to reuse the disabled-path setup instead of recreating duplicate users in the same DB.
+- Fixed live smoke health checks from `/healthz` to `/health`.
+- Split docs commands into deterministic regression selector plus explicit live PostgreSQL/Redis smoke files.
+- Fixed frontend `live_progress` normalization by deriving percentage from `current` / `total`, using `updatedAt` for backend `updated_at`, and declaring `BackendImportJob.live_progress`.
+- Verification passed:
+  - `uv run pytest tests/test_redis_runtime_backend.py tests/test_redis_runtime_api.py tests/test_postgres_redis_smoke.py tests/test_db_qc_state_api.py::test_db_qc_state_api_restart_persistence_and_full_workflow tests/test_db_qc_state_api.py::test_db_qc_state_api_autosave_then_submit_batch_is_consistent -q`
+  - `uv run pytest -k "redis_runtime or postgres_live or db_qc_state or db_foundation or state_store_contract" -q`
+  - Disposable Docker PostgreSQL/Redis smoke with `tests/test_postgres_redis_smoke.py tests/test_redis_runtime_backend.py::test_real_redis_smoke_if_available -q`
+  - `uv run pytest -q`
+  - `cd frontend && npm run test`
+  - `cd frontend && VITE_API_BASE_URL=/api npm run build`
+  - `uv run python scripts/docker-compose-auto-subnet.py config`
+  - `git diff --check`
+- Disposable containers `task019-phase5-pg` and `task019-phase5-redis` were removed after smoke validation.

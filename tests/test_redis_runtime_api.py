@@ -98,7 +98,6 @@ def test_redis_runtime_enabled_disabled_paths_are_gated(db_env: tuple[Path, Path
 
     monkeypatch.setenv("PLATFORM_REDIS_ENABLED", "1")
     with _client(label_root, state_root) as enabled_client:
-        _prepare_batch(enabled_client)
         lease_id = _acquire_lease(
             enabled_client,
             "annotator_owner",

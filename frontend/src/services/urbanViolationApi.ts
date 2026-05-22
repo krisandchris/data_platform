@@ -3348,7 +3348,7 @@ const normalizeImportProcessingProgress = (payload: unknown, fallbackRecord?: Re
     return undefined;
   }
   const ratio = maybeNumber(record.ratio ?? record.fraction ?? record.progress_ratio ?? record.progressRatio);
-  const percent = maybeNumber(
+  const explicitPercent = maybeNumber(
     record.percent ??
       record.percentage ??
       record.progress_percent ??
@@ -3372,6 +3372,10 @@ const normalizeImportProcessingProgress = (payload: unknown, fallbackRecord?: Re
       record.expected_items ??
       record.expected,
   );
+  const percent = explicitPercent ??
+    (processedItems !== undefined && totalItems !== undefined && totalItems > 0
+      ? Math.max(0, Math.min(100, Math.round((processedItems / totalItems) * 100)))
+      : undefined);
   const progress: ImportProcessingProgress = {
     phase: optionalString(record.phase ?? record.stage ?? record.step ?? record.progress_phase ?? record.progressPhase),
     status: optionalString(record.status ?? record.state),

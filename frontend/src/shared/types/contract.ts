@@ -1308,6 +1308,7 @@ export interface BackendImportJob {
   failure_count: number;
   requested_sample_ids?: SampleId[];
   validation_errors?: string[];
+  live_progress?: unknown;
   processing_progress?: unknown;
   import_progress?: unknown;
   progress?: unknown;

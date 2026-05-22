@@ -172,6 +172,8 @@ Expected behavior:
 Phase 5 PostgreSQL/Redis smoke checks are opt-in and should be run outside the current file-backed Compose defaults unless the Lead Agent is explicitly reviewing the Redis branches:
 
 ```bash
+uv run pytest -k "redis_runtime or db_qc_state" -q
+
 export TEST_DATABASE_URL='postgresql+psycopg://urban_platform:change-me@localhost:5432/urban_platform_test'
 export TEST_REDIS_URL='redis://localhost:6379/15'
 DATABASE_URL="$TEST_DATABASE_URL" uv run alembic upgrade head
@@ -179,7 +181,7 @@ TEST_DATABASE_URL="$TEST_DATABASE_URL" \
 TEST_REDIS_URL="$TEST_REDIS_URL" \
 PLATFORM_STATE_BACKEND=database \
 PLATFORM_REDIS_ENABLED=1 \
-uv run pytest -k "redis_runtime or postgres_live or db_qc_state" -q
+uv run pytest tests/test_postgres_redis_smoke.py tests/test_redis_runtime_backend.py::test_real_redis_smoke_if_available -q
 ```
 
 After Redis restart, TTL expiry, or isolated smoke `FLUSHDB`, durable PostgreSQL-backed records must still be visible. Only active lease locks, live progress hints, and optional caches may be missing.

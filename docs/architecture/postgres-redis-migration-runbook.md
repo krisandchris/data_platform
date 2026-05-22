@@ -296,14 +296,16 @@ Backend/QA-confirmation-dependent: run this section only after the backend Redis
    DATABASE_URL="$TEST_DATABASE_URL" uv run alembic current
    ```
 
-4. Run Redis-enabled database-mode tests after backend/QA handoff confirms the exact selectors:
+4. Run deterministic Phase 5 regressions without live service URLs, then run the live smoke tests against the isolated services:
 
    ```bash
+   uv run pytest -k "redis_runtime or db_qc_state" -q
+
    TEST_DATABASE_URL="$TEST_DATABASE_URL" \
    TEST_REDIS_URL="$TEST_REDIS_URL" \
    PLATFORM_STATE_BACKEND=database \
    PLATFORM_REDIS_ENABLED=1 \
-   uv run pytest -k "redis_runtime or postgres_live or db_qc_state" -q
+   uv run pytest tests/test_postgres_redis_smoke.py tests/test_redis_runtime_backend.py::test_real_redis_smoke_if_available -q
    ```
 
 5. Validate lease coordination:

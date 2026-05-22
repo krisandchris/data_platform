@@ -483,7 +483,7 @@ describe('HTTP API adapter', () => {
     expect(created.state).toBe('Draft');
     expect(scanned.state).toBe('Scanning');
     expect(validated.validationReport?.warnings[0].message).toContain('19 failures');
-    expect(validated.processingProgress?.expiresAt).toBe('2026-05-22T00:20:00Z');
+    expect(validated.processingProgress?.updatedAt).toBe('2026-05-22T00:20:00Z');
     expect(confirmed.state).toBe('QCQueueGenerated');
     expect(retried.state).toBe('Scanning');
     expect(fetcher.mock.calls.map((call) => String(call[0]))).toEqual([

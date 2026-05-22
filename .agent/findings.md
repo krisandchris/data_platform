@@ -26,16 +26,23 @@
 - Frontend Phase 5 branch completed at `151131c` and is merged into integration.
 - Frontend accepts optional import progress variants and keeps upload progress behavior.
 - Lead integration aligned frontend normalization with backend `live_progress`.
+- Lead integration added frontend percent derivation from backend `current` / `total` progress values and declared `BackendImportJob.live_progress` in the shared TypeScript contract.
 - Frontend treats expired leases as readonly and avoids heartbeat/release for expired or other-user leases.
 
 ## Phase 5 Docs Findings
 
 - Docs Phase 5 branch completed at `3ff44e3` and is merged into integration.
 - Lead integration changed docs test selectors to the actual QA selector: `redis_runtime or postgres_live or db_qc_state`.
+- Lead integration split deterministic Phase 5 regressions from live PostgreSQL/Redis smoke commands so shared `TEST_DATABASE_URL` does not pollute isolated unit/API tests.
+
+## Phase 5 Integration Findings
+
+- Current fixture label config is `urban_violation_labels_v2`; test helpers now derive label config version and the next-version case from the fixture instead of hard-coding v1/v2.
+- Live smoke tests use the implemented `/health` endpoint.
+- Focused Redis/API tests, selector tests, live Docker PostgreSQL/Redis smoke, full backend tests, frontend tests/build, Docker config rendering, and diff whitespace checks passed.
 
 ## Known Risks
 
-- Real Redis cross-process validation still needs a reachable Redis service in final integration.
 - Rollback after database-mode writes remains a policy decision unless a tested reverse export tool is implemented.
 - File-state import remains Phase 6.
 - Untracked `prompts_complete.md` exists in the main worktree and is unrelated to TASK-019 Phase 5.

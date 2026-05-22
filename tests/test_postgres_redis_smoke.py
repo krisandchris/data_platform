@@ -43,7 +43,7 @@ def test_postgres_live_smoke_qc_state_roundtrip(tmp_path: Path) -> None:
     database_url = _require_postgres_url()
 
     with _postgres_client(tmp_path, database_url) as client:
-        health = client.get("/healthz")
+        health = client.get("/health")
         assert health.status_code == 200
 
         _activate_label_config(client)
@@ -65,7 +65,7 @@ def test_redis_live_smoke_runtime_gated(tmp_path: Path, monkeypatch: pytest.Monk
     monkeypatch.setenv("PLATFORM_REDIS_ENABLED", "1")
 
     with _postgres_client(tmp_path, database_url) as client:
-        health = client.get("/healthz")
+        health = client.get("/health")
         assert health.status_code == 200
 
         jobs = client.get(f"/api/datasets/{BATCH_DATASET_ID}/import-jobs")

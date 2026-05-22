@@ -13,7 +13,7 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 4. PostgreSQL migration for QC, drafts, submissions, sample pool, exports, and evaluations.
    - Status: complete.
 5. Redis runtime state for active leases, locks, session cache, and import progress.
-   - Status: verifying. Backend, QA, Frontend, and Docs branches are merged into integration; final verification is pending.
+   - Status: complete. Backend, QA, Frontend, and Docs branches are merged into integration; final verification passed.
 6. File-state import tool.
    - Status: pending.
 7. Docker rollout and full acceptance.
@@ -41,3 +41,14 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 - Real PostgreSQL/Redis smoke passes locally if disposable Docker services can be started.
 - Frontend tests/build remain green.
 - Docs and runbooks are reconciled with implemented env names and test selectors.
+
+## Phase 5 Verification Results
+
+- `uv run pytest tests/test_redis_runtime_backend.py tests/test_redis_runtime_api.py tests/test_postgres_redis_smoke.py tests/test_db_qc_state_api.py::test_db_qc_state_api_restart_persistence_and_full_workflow tests/test_db_qc_state_api.py::test_db_qc_state_api_autosave_then_submit_batch_is_consistent -q` passed.
+- `uv run pytest -k "redis_runtime or postgres_live or db_qc_state or db_foundation or state_store_contract" -q` passed.
+- Disposable Docker PostgreSQL/Redis smoke passed with `tests/test_postgres_redis_smoke.py` and `tests/test_redis_runtime_backend.py::test_real_redis_smoke_if_available`.
+- `uv run pytest -q` passed.
+- `cd frontend && npm run test` passed.
+- `cd frontend && VITE_API_BASE_URL=/api npm run build` passed.
+- `uv run python scripts/docker-compose-auto-subnet.py config` passed.
+- `git diff --check` passed.

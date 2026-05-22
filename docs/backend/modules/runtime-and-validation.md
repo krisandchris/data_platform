@@ -107,6 +107,8 @@ Phase 4 operator smoke should cover:
 Phase 5 Redis-enabled database-mode validation after backend/QA Redis branches land:
 
 ```bash
+uv run pytest -k "redis_runtime or db_qc_state" -q
+
 export TEST_DATABASE_URL='postgresql+psycopg://urban_platform:change-me@localhost:5432/urban_platform_test'
 export TEST_REDIS_URL='redis://localhost:6379/15'
 DATABASE_URL="$TEST_DATABASE_URL" uv run alembic upgrade head
@@ -114,7 +116,7 @@ TEST_DATABASE_URL="$TEST_DATABASE_URL" \
 TEST_REDIS_URL="$TEST_REDIS_URL" \
 PLATFORM_STATE_BACKEND=database \
 PLATFORM_REDIS_ENABLED=1 \
-uv run pytest -k "redis_runtime or postgres_live or db_qc_state" -q
+uv run pytest tests/test_postgres_redis_smoke.py tests/test_redis_runtime_backend.py::test_real_redis_smoke_if_available -q
 ```
 
 Phase 5 operator smoke should cover:
