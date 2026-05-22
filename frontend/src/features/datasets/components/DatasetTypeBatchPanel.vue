@@ -108,7 +108,7 @@
         </div>
         <div class="batch-row__status">
           <StatusChip :value="batch.lifecycleStatus ?? batch.status" :label="lifecycleLabel(batch.lifecycleStatus ?? batch.status)" />
-          <small>最近导入：{{ importStateText(batch.latestImportJob?.state ?? batch.activeImportJobId) }}</small>
+          <small>最近导入：{{ importJobStatusText(batch.latestImportJob, batch.activeImportJobId) }}</small>
         </div>
         <dl class="batch-row__metrics">
           <div>
@@ -192,6 +192,8 @@ import type {
   Dataset,
   DatasetType,
   ImportArchiveUploadProgress,
+  ImportJobState,
+  ImportJobSummary,
   ImportSourceStructure,
 } from '../../../shared/types/contract';
 
@@ -295,6 +297,52 @@ const qcProgressText = (batch: Dataset) => {
   }
   const total = batch.qcProgress.total ?? batch.qcProgress.pending + batch.qcProgress.submitted;
   return `${batch.qcProgress.submitted}/${total}`;
+};
+
+const processingImportStates = new Set<ImportJobState>(['Uploading', 'Uploaded', 'Scanning', 'Validating', 'Importing']);
+
+const isProgressExpired = (job: ImportJobSummary) => {
+  const progress = job.processingProgress;
+  if (!progress) {
+    return false;
+  }
+  if (progress.expired) {
+    return true;
+  }
+  if (!progress.expiresAt) {
+    return false;
+  }
+  const expiresAt = new Date(progress.expiresAt).getTime();
+  return Number.isFinite(expiresAt) && expiresAt <= Date.now();
+};
+
+const progressPercent = (job: ImportJobSummary) => {
+  const progress = job.processingProgress;
+  if (!progress || isProgressExpired(job)) {
+    return undefined;
+  }
+  if (typeof progress.percent === 'number' && Number.isFinite(progress.percent)) {
+    return Math.min(100, Math.max(0, Math.round(progress.percent)));
+  }
+  if (progress.totalItems && progress.totalItems > 0 && typeof progress.processedItems === 'number') {
+    return Math.min(100, Math.max(0, Math.round((progress.processedItems / progress.totalItems) * 100)));
+  }
+  return undefined;
+};
+
+const importJobStatusText = (job?: ImportJobSummary, fallback?: string) => {
+  if (!job) {
+    return importStateText(fallback);
+  }
+  const base = importStateText(job.state);
+  if (!processingImportStates.has(job.state)) {
+    return base;
+  }
+  const percent = progressPercent(job);
+  if (percent !== undefined) {
+    return `${base} ${percent}%`;
+  }
+  return `${base}，处理中`;
 };
 
 const canGenerateBatchQcQueue = (batch: Dataset) => (

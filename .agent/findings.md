@@ -17,14 +17,15 @@
 
 ## Phase 5 QA Findings
 
-- QA Phase 5 branch completed at `3529101` and is being merged into integration.
+- QA Phase 5 branch completed at `3529101` and is merged into integration.
 - QA added deterministic Redis runtime/API tests and env-gated live PostgreSQL/Redis smoke tests.
 - Live smoke tests require `TEST_DATABASE_URL` and `TEST_REDIS_URL`.
 
 ## Phase 5 Frontend Findings
 
-- Frontend Phase 5 branch completed at `151131c`.
+- Frontend Phase 5 branch completed at `151131c` and is being merged into integration.
 - Frontend accepts optional import progress variants and keeps upload progress behavior.
+- Lead integration aligned frontend normalization with backend `live_progress`.
 - Frontend treats expired leases as readonly and avoids heartbeat/release for expired or other-user leases.
 
 ## Phase 5 Docs Findings

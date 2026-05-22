@@ -33,6 +33,28 @@
       <ImportStepper :active-step="job.activeStep" />
       <p v-if="actionMessage" class="action-message">{{ actionMessage }}</p>
 
+      <section v-if="processingProgressVisible" class="panel import-processing-panel">
+        <div class="panel__header">
+          <h2 class="panel__title">{{ processingProgressTitle }}</h2>
+          <StatusChip :value="job.state" />
+        </div>
+        <div
+          class="processing-progress"
+          role="progressbar"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          :aria-valuenow="processingProgressPercent ?? undefined"
+        >
+          <div class="processing-progress__header">
+            <span>{{ processingProgressDetail }}</span>
+            <strong v-if="processingProgressPercent !== undefined">{{ processingProgressPercent }}%</strong>
+          </div>
+          <div class="processing-progress__track" aria-hidden="true">
+            <span :style="{ width: `${processingProgressPercent ?? 0}%` }"></span>
+          </div>
+        </div>
+      </section>
+
       <section class="grid grid--metrics import-metrics">
         <MetricCard label="Raw Images" :value="job.totals.rawAssets" detail="total" tone="blue">
           <template #icon><Image :size="23" /></template>
@@ -143,7 +165,7 @@ import { apiClient } from '../../services/urbanViolationApi';
 import MetricCard from '../../shared/components/MetricCard.vue';
 import StatusChip from '../../shared/components/StatusChip.vue';
 import { useAsyncState } from '../../shared/composables/useAsyncState';
-import type { ImportJobDetail } from '../../shared/types/contract';
+import type { ImportJobDetail, ImportJobState, ImportProcessingProgress } from '../../shared/types/contract';
 import ImportStepper from './components/ImportStepper.vue';
 
 const props = defineProps<{
@@ -163,6 +185,45 @@ const actionMessage = ref('');
 const blockingIssues = computed(() => job.value?.validationReport?.blockingErrors ?? job.value?.warnings.filter((warning) => warning.severity === 'blocking') ?? []);
 const nonBlockingWarnings = computed(() => job.value?.validationReport?.warnings ?? job.value?.warnings.filter((warning) => warning.severity !== 'blocking') ?? []);
 const hasBlockingIssues = computed(() => blockingIssues.value.length > 0);
+const processingImportStates = new Set<ImportJobState>(['Uploading', 'Uploaded', 'Scanning', 'Validating', 'Importing']);
+const processingProgress = computed(() => {
+  const progress = job.value?.processingProgress;
+  if (!progress || progressExpired(progress)) {
+    return undefined;
+  }
+  return progress;
+});
+const processingProgressPercent = computed(() => {
+  const progress = processingProgress.value;
+  if (!progress) {
+    return undefined;
+  }
+  if (typeof progress.percent === 'number' && Number.isFinite(progress.percent)) {
+    return clampPercent(progress.percent);
+  }
+  if (progress.totalItems && progress.totalItems > 0 && typeof progress.processedItems === 'number') {
+    return clampPercent((progress.processedItems / progress.totalItems) * 100);
+  }
+  return undefined;
+});
+const processingProgressVisible = computed(() => Boolean(
+  job.value && (processingProgress.value || processingImportStates.has(job.value.state)),
+));
+const processingProgressTitle = computed(() => (
+  processingProgress.value?.message ||
+  phaseText(processingProgress.value?.phase) ||
+  '后端正在处理导入任务'
+));
+const processingProgressDetail = computed(() => {
+  const progress = processingProgress.value;
+  if (!progress) {
+    return '实时进度暂不可用，当前任务仍处于处理中。';
+  }
+  if (progress.processedItems !== undefined && progress.totalItems !== undefined) {
+    return `${progress.processedItems} / ${progress.totalItems}`;
+  }
+  return phaseText(progress.phase) || progress.status || '处理中';
+});
 
 const runAction = async (action: 'scan' | 'validate' | 'confirm' | 'retry') => {
   actionLoading.value = true;
@@ -182,6 +243,32 @@ const runAction = async (action: 'scan' | 'validate' | 'confirm' | 'retry') => {
     actionLoading.value = false;
   }
 };
+
+function clampPercent(value: number) {
+  return Math.min(100, Math.max(0, Math.round(value)));
+}
+
+function progressExpired(progress: ImportProcessingProgress) {
+  if (progress.expired) {
+    return true;
+  }
+  if (!progress.expiresAt) {
+    return false;
+  }
+  const expiresAt = new Date(progress.expiresAt).getTime();
+  return Number.isFinite(expiresAt) && expiresAt <= Date.now();
+}
+
+function phaseText(phase?: string) {
+  const labels: Record<string, string> = {
+    upload: '上传处理中',
+    extract: '正在解压批次包',
+    scan: '正在扫描批次文件',
+    validate: '正在校验导入内容',
+    import: '正在写入导入结果',
+  };
+  return phase ? labels[phase] ?? phase : '';
+}
 </script>
 
 <style scoped>
@@ -282,6 +369,45 @@ const runAction = async (action: 'scan' | 'validate' | 'confirm' | 'retry') => {
   margin: 10px 0 0;
   color: var(--muted);
   font-weight: 700;
+}
+
+.import-processing-panel {
+  margin-top: 18px;
+}
+
+.processing-progress {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+}
+
+.processing-progress__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.processing-progress__header strong {
+  color: var(--text);
+}
+
+.processing-progress__track {
+  height: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--line);
+}
+
+.processing-progress__track span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--blue);
+  transition: width 0.2s ease;
 }
 
 .next-actions {

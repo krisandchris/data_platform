@@ -89,7 +89,7 @@ const readonlyReason = computed(() => {
   if (assignment.assigneeUserId !== currentUser.userId) {
     return `该批次已分配给 ${assignment.assigneeDisplayName || assignment.assigneeUserId}`;
   }
-  if (!lease || lease.status !== 'active' || lease.userId !== currentUser.userId) {
+  if (!hasEditableLease(lease, currentUser.userId)) {
     return '未持有有效 sample lease，当前样本只读';
   }
   return '';
@@ -205,7 +205,7 @@ async function hydrateEditableContext(
     currentUser &&
     assignment?.assigneeUserId === currentUser.userId &&
     assignment.status !== 'revoked' &&
-    (!existingLease || existingLease.status !== 'active' || existingLease.userId !== currentUser.userId)
+    !hasEditableLease(existingLease, currentUser.userId)
   ) {
     try {
       nextDetail.sampleLease = await apiClient.acquireSampleLease(props.id, props.sampleId);
@@ -233,7 +233,7 @@ function withLeaseContext<T extends LabelEditPatchPayload>(payload: T): T {
 
 function startHeartbeat(lease: SampleLease | undefined) {
   stopHeartbeat();
-  if (!lease || lease.status !== 'active') {
+  if (!lease || lease.status !== 'active' || leaseExpired(lease)) {
     return;
   }
   heartbeatTimer = window.setInterval(async () => {
@@ -248,6 +248,18 @@ function startHeartbeat(lease: SampleLease | undefined) {
   }, 60_000);
 }
 
+function hasEditableLease(lease: SampleLease | undefined, userId: string) {
+  return Boolean(lease && lease.status === 'active' && lease.userId === userId && !leaseExpired(lease));
+}
+
+function leaseExpired(lease: SampleLease) {
+  if (!lease.expiresAt) {
+    return false;
+  }
+  const expiresAt = new Date(lease.expiresAt).getTime();
+  return Number.isFinite(expiresAt) && expiresAt <= Date.now();
+}
+
 function stopHeartbeat() {
   if (heartbeatTimer !== undefined) {
     window.clearInterval(heartbeatTimer);
@@ -258,7 +270,7 @@ function stopHeartbeat() {
 async function releaseCurrentLease(options: ReleaseSampleLeaseOptions = {}) {
   const currentDetail = detail.value;
   const lease = currentDetail?.sampleLease;
-  if (!lease || lease.status !== 'active') {
+  if (!lease || lease.status !== 'active' || leaseExpired(lease) || lease.userId !== currentDetail?.currentUser?.userId) {
     return;
   }
   stopHeartbeat();

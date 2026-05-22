@@ -12,7 +12,8 @@ Lead Agent
 
 - Phase 5 subagents dispatched and completed.
 - Backend branch merged.
-- QA branch merge is in progress.
+- QA branch merged.
+- Frontend branch merge is in progress.
 
 ## Changed Files
 
@@ -37,6 +38,6 @@ Pending final integration verification.
 
 ## Next Agent Notes
 
-- Finish merging QA, Frontend, and Docs.
+- Finish merging Frontend and Docs.
 - Reconcile docs with actual backend env names/test selectors.
 - Run focused Redis tests, live Docker PostgreSQL/Redis smoke, full backend suite, frontend tests/build, docker config, and diff checks.
