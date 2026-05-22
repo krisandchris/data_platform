@@ -1,99 +1,25 @@
-# TASK-019 Phase 6 Integration Handoff
+# TASK-019 Phase 7 Integration Handoff
 
 ## Lead Scope
 
 Integration branch: `integration/TASK-019`
 
-Phase 6 delivers the explicit file-state-to-database import path needed before enabling database-backed runtime state in production-like deployments.
+Phase 7 switches the Docker rollout target to PostgreSQL + Redis defaults, verifies production build/runtime behavior, and preserves a documented file-backed rollback path.
 
-## Agent Branches Integrated
+## Planned Agent Branches
 
-- `agent/TASK-019/backend/import-tool`
-  - Implemented `urban_violation_backend.migrate_state import-file-state`.
-  - Added conflict-safe import behavior, JSON reporting, filesystem reference reporting, and focused backend tests.
-- `agent/TASK-019/qa/import-tool-tests`
-  - Added migration/import QA coverage expectations.
-  - During integration, the QA scenarios were reconciled into the executable backend test file now that the real importer module exists.
-- `agent/TASK-019/docs/import-tool-runbook`
-  - Updated migration, deployment, and persistence-boundary docs for the Phase 6 import workflow.
-  - During integration, command wording was reconciled from expected/pending to confirmed.
+- `agent/TASK-019/backend/docker-rollout`
+- `agent/TASK-019/qa/docker-rollout-smoke`
+- `agent/TASK-019/frontend/docker-production-build`
+- `agent/TASK-019/docs/docker-rollout-runbook`
 
-## Command Surface
+## Integration Status
 
-```bash
-uv run python -m urban_violation_backend.migrate_state import-file-state \
-  --platform-state-root ... \
-  --label-config-store-root ... \
-  --dataset-root ... \
-  [--database-url ...] \
-  [--dry-run] \
-  [--report ...] \
-  [--run-migrations]
-```
+Dispatch is in progress. No Phase 7 agent branches have been merged yet.
 
-`DATABASE_URL` is supported when `--database-url` is omitted. The state roots are required CLI flags.
+## Initial Risks
 
-## Imported Domains
-
-- users, role bindings, sessions, audit events
-- dataset type registry and registered batches/import jobs
-- label config versions and active pointers
-- QC assignments, tasks, leases, per-sample drafts, batch drafts, submissions
-- annotation snapshots and modification events
-- sample pool items, export jobs, evaluations
-
-## Conflict And Safety Behavior
-
-- Same ID and same content is reported as `matched`.
-- Same ID and different content is reported as `conflict`.
-- Conflicting database rows are skipped and are not overwritten.
-- The command exits with code `3` when conflicts are detected.
-- File-backed roots and `DATASET` files are treated as read-only import inputs.
-
-## Files Changed
-
-- `src/urban_violation_backend/migrate_state.py`
-- `src/urban_violation_backend/db/foundation.py`
-- `tests/test_migrate_state_import_tool.py`
-- `docs/architecture/postgres-redis-migration-runbook.md`
-- `docs/architecture/deployment.md`
-- `docs/architecture/state-persistence-boundaries.md`
-- `.agent/task_plan.md`
-- `.agent/findings.md`
-- `.agent/progress.md`
-- `.agent/handoff.md`
-
-## Verification Status
-
-Backend branch verification before integration:
-
-```bash
-uv run pytest tests/test_migrate_state_import_tool.py -q
-uv run pytest tests/test_db_foundation_backend.py -q
-git diff --check
-```
-
-QA merge verification after integration:
-
-```bash
-uv run pytest tests/test_migrate_state_import_tool.py -q
-```
-
-Final integration verification:
-
-```bash
-uv run pytest tests/test_migrate_state_import_tool.py tests/test_db_foundation_backend.py -q
-uv run pytest -k "migrate_state or db_foundation or db_qc_state or state_store_contract" -q
-uv run pytest -q
-uv run python scripts/docker-compose-auto-subnet.py config
-git diff --check
-```
-
-All commands passed. Selector and full test runs included expected live-test skips.
-
-## Remaining Risks
-
-- The importer preserves database rows on conflict but does not provide an automated merge/repair mode. Operators must inspect the JSON report and resolve conflicts manually.
-- Batch draft user-id recovery still depends on `_batch.<user_id>.json` file naming from the file store.
-- Filesystem artifacts such as raw datasets, uploaded archives, extracted sources, media files, and export blobs remain filesystem-managed and are reported as references rather than imported into the database.
-- Docker defaults intentionally remain file-backed until Phase 7.
+- Backend image currently lacks Alembic files; database startup migration will fail until Dockerfile packaging is fixed or startup migration is disabled with an explicit operator migration path.
+- Docker defaults must now change to PostgreSQL + Redis, but file-backed rollback must stay documented and testable.
+- Large filesystem artifacts remain on mounted volumes; only metadata and durable mutable state move to PostgreSQL.
+- Existing unrelated `.gitignore` user modification is not part of TASK-019 Phase 7.

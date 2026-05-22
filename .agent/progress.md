@@ -118,3 +118,25 @@
   - `uv run python scripts/docker-compose-auto-subnet.py config`
   - `git diff --check`
 - Existing unrelated `.gitignore` user modification remained unstaged.
+
+## 2026-05-22 Phase 7 Dispatch
+
+- Started `integration/TASK-019` for Phase 7 from local `main` at `8559528`.
+- Read Phase 7 requirements from:
+  - `docs/architecture/state_migration_agent_sequence.md`
+  - `docs/architecture/postgres-redis-migration-runbook.md`
+  - `docs/architecture/deployment.md`
+- Inspected current Docker and runtime wiring:
+  - `docker-compose.yml`
+  - `deploy/docker/backend.Dockerfile`
+  - `deploy/docker/frontend.Dockerfile`
+  - `deploy/docker/nginx.conf`
+  - `scripts/docker-compose-auto-subnet.py`
+  - `src/urban_violation_backend/service.py`
+  - `src/urban_violation_backend/db/settings.py`
+  - `src/urban_violation_backend/db/migrations.py`
+  - `alembic.ini`
+  - `alembic/`
+- Identified the immediate backend rollout risk: backend image lacks `alembic.ini` and `alembic/`, so database-mode startup migration cannot work in the container until the image copies those files.
+- Updated `.agent/task_plan.md` and `.agent/findings.md` with Phase 7 scope, branch plan, exit gate, and initial risks.
+- Existing unrelated `.gitignore` user modification remains unstaged.

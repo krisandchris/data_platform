@@ -88,3 +88,14 @@
 - Required state roots are CLI flags; only `DATABASE_URL` may be supplied from the environment when `--database-url` is omitted.
 - The JSON report exposes top-level `status`, `dry_run`, redacted `database_url`, `summary`, per-domain counters, `unsupported_domains`, `filesystem_only_domains`, `filesystem_references`, and operator notes.
 - Docs were reconciled from expected/pending command language to confirmed Phase 6 command language after merging backend, QA, and docs branches.
+
+## Phase 7 Initial Findings
+
+- `docker-compose.yml` currently has only `backend` and `frontend`; no `postgres` or `redis` services are present yet.
+- Current backend Compose defaults are still file-backed and omit `DATABASE_URL`, `PLATFORM_STATE_BACKEND=database`, `PLATFORM_REDIS_ENABLED=1`, and `REDIS_URL`.
+- Current backend Dockerfile copies `pyproject.toml`, `uv.lock`, `docs`, and `src`, but does not copy `alembic.ini` or `alembic/`. This blocks `PLATFORM_DB_AUTO_MIGRATE=1` in a database-mode container because `run_migrations_to_head()` resolves `alembic.ini` from the app root.
+- `DatabaseRuntimeSettings.from_env()` already supports `PLATFORM_STATE_BACKEND`, `DATABASE_URL`, `PLATFORM_DB_AUTO_MIGRATE`, `PLATFORM_REDIS_ENABLED`, `REDIS_URL`, and Redis TTL environment variables.
+- `build_fixture_service()` already runs Alembic migrations when database mode and `PLATFORM_DB_AUTO_MIGRATE=1` are enabled.
+- `scripts/docker-compose-auto-subnet.py` already wraps all `docker compose` commands with an auto-selected 172.x subnet and should remain the supported operator entrypoint.
+- Phase 7 should not move raw dataset files, uploaded archives, extracted sources, media, or export blobs into PostgreSQL; PostgreSQL stores durable metadata/state only.
+- Existing `.gitignore` has an unrelated user modification in the main workspace; it should remain unstaged unless explicitly requested.
