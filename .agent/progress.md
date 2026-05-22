@@ -43,6 +43,11 @@
   - Import job and dataset batch views show backend processing progress when present and stable fallback when missing/expired.
   - Review workbench treats past-expiry leases as readonly and avoids heartbeat/release for expired or other-user leases.
   - Frontend tests passed: 6 files, 118 tests; production build passed.
+- Backend Chandrasekhar completed at `28f70c6`:
+  - Added `redis` through `uv add` and updated `uv.lock`.
+  - Added Redis runtime coordinator, Redis settings, opt-in service wiring, active lease locks, QC/import locks, live import progress, and optional session cache.
+  - Added optional import progress response fields and focused backend Redis runtime tests.
+  - Focused Redis/backend selectors passed; full suite in backend worktree failed only on known missing `DATASET/urban` fixture path.
 
 ## 2026-05-22 Phase 4 Dispatch
 
