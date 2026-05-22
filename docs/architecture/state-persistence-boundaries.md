@@ -97,6 +97,31 @@ Redis is enabled explicitly with `PLATFORM_REDIS_ENABLED=1` and `REDIS_URL`. Whe
 
 Redis key TTLs are safety limits, not durability guarantees. If a TTL expires or Redis restarts, the only acceptable losses are active locks, live progress hints, and optional cache entries. The backend and UI must recover from missing Redis values by reading PostgreSQL state and showing stable fallback states such as "processing" when a live progress hint has expired.
 
+## Phase 6 File-State Import Boundary
+
+Phase 6 adds an explicit file-state import command for moving existing file-backed runtime records into PostgreSQL. It does not change Docker defaults and does not make database mode an automatic production cutover.
+
+Expected command surface, pending final backend implementation handoff:
+
+```bash
+uv run python -m urban_violation_backend.migrate_state import-file-state
+```
+
+The import reads from:
+
+- `PLATFORM_STATE_ROOT` or `--platform-state-root` for file-backed platform state;
+- `LABEL_CONFIG_STORE_ROOT` or `--label-config-store-root` for label configs and dataset registries;
+- `DATASET_ROOT` or `--dataset-root` for readonly source dataset references.
+
+The import writes to:
+
+- the target database selected by `DATABASE_URL`;
+- the operator-selected report path passed by `--report`.
+
+The import must support dry-run planning, apply, idempotent re-run, and same-ID different-content conflict reporting. Same-ID same-content records are idempotent matches. Same-ID different-content records are conflicts and must not be silently overwritten.
+
+The import must not mutate `DATASET/`, uploaded archives, extracted source files, media files, generated export artifacts, `PLATFORM_STATE_ROOT`, or `LABEL_CONFIG_STORE_ROOT`. New database-mode writes after cutover do not flow back to the old file-backed roots because reverse export is not implemented in Phase 6.
+
 ## Target PostgreSQL Responsibilities
 
 The final PostgreSQL target is the authoritative store for durable mutable platform records:
@@ -178,7 +203,7 @@ At service startup, cache miss, or source refresh, backend code may hydrate a ru
 - The import tool must not mutate `DATASET/`, uploaded archives, extracted source files, media files, or export artifacts.
 - Same-ID same-content rows are idempotent.
 - Same-ID different-content rows are conflicts and require operator action.
-- Docker must not default to database mode in Phase 4 or Phase 5; the switch is blocked until PostgreSQL migrations, Redis behavior, file-state import, Docker rollout, and rollback have all been tested.
+- Docker must not default to database mode in Phase 4, Phase 5, or Phase 6; the switch is blocked until PostgreSQL migrations, Redis behavior, file-state import, Docker rollout, and rollback have all been tested.
 - Phase 5 Redis mode is opt-in. It must not make Redis the only copy of durable state and must not switch Docker production defaults before Phase 7.
 - Frontend API contracts stay compatible. The frontend should not need to know whether the backend state backend is `file` or `database`.
 

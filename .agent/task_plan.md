@@ -57,7 +57,7 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 
 - Planned: `agent/TASK-019/backend/import-tool`
 - Planned: `agent/TASK-019/qa/import-tool-tests`
-- Planned: `agent/TASK-019/docs/import-tool-runbook`
+- Docs updated and diff-check passed, pending commit: `agent/TASK-019/docs/import-tool-runbook`
 
 ## Phase 6 Scope
 

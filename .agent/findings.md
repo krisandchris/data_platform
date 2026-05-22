@@ -55,3 +55,10 @@
 - Database targets are already represented by `DatabaseFoundationRegistryRepository`, `DatabaseLabelConfigRepository`, and `DatabaseBackedPlatformStateStore`.
 - The import should prefer existing store APIs where possible, but conflict reporting requires explicit same-ID same-content vs same-ID different-content checks.
 - Existing `.gitignore` has an unrelated user modification in the main workspace; it should stay unstaged unless the user explicitly wants it committed.
+
+## Phase 6 Docs Findings
+
+- Backend Phase 6 worktree currently contains the assignment handoff but no final import implementation handoff. The documented command remains backend-confirmation-dependent: `uv run python -m urban_violation_backend.migrate_state import-file-state`.
+- QA Phase 6 handoff also expects `urban_violation_backend.migrate_state import-file-state` and asks to confirm final command names before finalizing tests.
+- Runbook updates must continue to state that Docker defaults remain file-backed until Phase 7.
+- Reverse export from PostgreSQL back to file-backed roots is not implemented in Phase 6, so rollback after database-mode writes must explicitly choose PostgreSQL or the pre-cutover file backup as authoritative.

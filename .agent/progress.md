@@ -56,3 +56,15 @@
   - `src/urban_violation_backend/cli.py`
 - Updated `.agent/task_plan.md` and `.agent/findings.md` with Phase 6 scope and exit gates.
 - Observed unrelated `.gitignore` user modification and left it unstaged.
+
+## 2026-05-22 Phase 6 Docs Agent
+
+- Confirmed docs worktree branch: `agent/TASK-019/docs/import-tool-runbook`.
+- Read `AGENTS.md`, `.agent/task_plan.md`, `.agent/findings.md`, `.agent/progress.md`, and `.agent/handoff.md`.
+- Read current runbook/deployment/runtime docs:
+  - `docs/architecture/postgres-redis-migration-runbook.md`
+  - `docs/architecture/deployment.md`
+  - `docs/architecture/state-persistence-boundaries.md`
+- Checked backend and QA Phase 6 handoffs. Backend implementation handoff is not final yet; both backend and QA handoffs currently expect `uv run python -m urban_violation_backend.migrate_state import-file-state`.
+- Updated docs for Phase 6 import command expectations, dry-run/apply/idempotency/conflict workflow, required env vars and roots, non-mutation guarantees, rollback notes, and post-import verification.
+- Ran `git diff --check`; passed.
