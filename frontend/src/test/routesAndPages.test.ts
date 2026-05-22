@@ -3939,7 +3939,7 @@ describe('import and review routes', () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain('sample-1');
-    expect(wrapper.text()).toContain('R1 · goods blocks sidewalk');
+    expect(wrapper.text()).toContain('R1 · 货物 阻挡 人行道');
     expect(wrapper.text()).toContain('请先上传并激活标签配置');
     const submitButton = wrapper.findAll('button').find((button) => button.text().includes('提交批次修改'));
     const saveButton = wrapper.findAll('button').find((button) => button.text().includes('保存草稿'));
@@ -3969,8 +3969,16 @@ describe('import and review routes', () => {
 
     expect(wrapper.find('.relation-index-track').text()).toBe('R1');
     expect(wrapper.find('.candidate-index-track').text().replace(/\s+/g, '')).toBe('C1+');
-    expect(wrapper.find('[aria-label="模型可见性参考"]').text()).toContain('subject_visible');
-    expect(wrapper.find('[aria-label="模型可见性参考"]').text()).toContain('true');
+    expect(wrapper.find('[aria-label="模型可见性参考"]').text()).toContain('主体可见');
+    expect(wrapper.find('[aria-label="模型可见性参考"]').text()).toContain('是');
+    expect(wrapper.text()).toContain('正样本');
+    expect(wrapper.text()).toContain('清晰');
+    expect(wrapper.text()).toContain('支持');
+    expect(wrapper.text()).toContain('货物');
+    expect(wrapper.text()).toContain('人行道');
+    expect(wrapper.text()).toContain('goods_blocking_road');
+    expect(wrapper.text()).not.toContain('sample_category');
+    expect(wrapper.text()).not.toContain('Evidence Relations');
     expect(wrapper.find('[aria-label="标注修改底栏"]').text()).toContain('校验修改');
     expect(wrapper.find('[aria-label="标注修改底栏"]').text()).toContain('保存草稿');
     expect(wrapper.find('[aria-label="标注修改底栏"]').text()).toContain('提交批次修改');
@@ -4317,7 +4325,7 @@ describe('import and review routes', () => {
       {
         name: 'missing',
         sampleLease: undefined,
-        leaseText: 'no lease',
+        leaseText: '无样本锁',
       },
       {
         name: 'expired',
@@ -4326,7 +4334,7 @@ describe('import and review routes', () => {
           status: 'active',
           expiresAt: '2000-01-01T00:00:00Z',
         },
-        leaseText: 'expired · 标注员 A',
+        leaseText: '已过期 · 标注员 A',
       },
       {
         name: 'owned-by-other-user',
@@ -4338,7 +4346,7 @@ describe('import and review routes', () => {
           status: 'active',
           expiresAt: '2099-01-01T00:00:00Z',
         },
-        leaseText: 'active · 标注员 B',
+        leaseText: '有效 · 标注员 B',
       },
     ];
 
@@ -4369,7 +4377,7 @@ describe('import and review routes', () => {
       await flushPromises();
 
       expect(wrapper.text()).toContain(scenario.leaseText);
-      expect(wrapper.text()).toContain('未持有有效 sample lease，当前样本只读');
+      expect(wrapper.text()).toContain('未持有有效样本锁，当前样本只读');
       expect(wrapper.findAll('.gate-warning--readonly')).toHaveLength(1);
       expect(wrapper.findAll('button').find((button) => button.text().includes('保存草稿'))?.attributes('disabled')).toBeDefined();
       expect(wrapper.findAll('button').find((button) => button.text().includes('校验修改'))?.attributes('disabled')).toBeDefined();
@@ -4409,15 +4417,15 @@ describe('import and review routes', () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain('sample-1');
-    expect(wrapper.text()).not.toContain('Loading review sample...');
+    expect(wrapper.text()).not.toContain('正在加载质检样本...');
 
-    await wrapper.findAll('button').find((button) => button.text().includes('Next'))?.trigger('click');
+    await wrapper.findAll('button').find((button) => button.text().includes('下一个'))?.trigger('click');
     await flushPromises();
 
     expect(mockApiClient.releaseSampleLease).toHaveBeenCalledWith('ds-live', 'sample-1', 'lease-sample-1');
     expect(routerPush).toHaveBeenCalledWith('/datasets/ds-live/samples/sample-2/review');
     expect(wrapper.text()).toContain('sample-1');
-    expect(wrapper.text()).not.toContain('未持有有效 sample lease');
+    expect(wrapper.text()).not.toContain('未持有有效样本锁');
     expect(wrapper.text()).not.toContain('当前样本只读');
     expect(wrapper.find('.gate-warning--readonly').exists()).toBe(false);
 
@@ -4425,11 +4433,11 @@ describe('import and review routes', () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain('sample-1');
-    expect(wrapper.text()).not.toContain('Loading review sample...');
+    expect(wrapper.text()).not.toContain('正在加载质检样本...');
     expect(wrapper.find('.sample-detail-workbench').attributes('aria-busy')).toBe('true');
     expect(wrapper.find('[data-testid="sample-switch-status"]').exists()).toBe(false);
     expect(wrapper.text()).not.toContain('正在切换到 sample-2');
-    expect(wrapper.text()).not.toContain('未持有有效 sample lease');
+    expect(wrapper.text()).not.toContain('未持有有效样本锁');
     expect(wrapper.text()).not.toContain('当前样本只读');
     expect(wrapper.find('.gate-warning--readonly').exists()).toBe(false);
 

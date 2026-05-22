@@ -11,39 +11,42 @@ let activeReviewShortcutOwner: symbol | undefined;
     <header class="qc-topbar">
       <div class="sample-meta">
         <div class="meta-block meta-block--sample">
-          <span>Sample</span>
+          <span>样本</span>
           <strong>{{ baseSample.asset.sampleId }}</strong>
         </div>
         <div class="meta-block">
-          <span>Progress</span>
+          <span>进度</span>
           <strong>{{ progressText }}</strong>
           <div class="progress-meter" aria-hidden="true">
             <i :style="{ width: `${progressPercent}%` }"></i>
           </div>
         </div>
         <div class="meta-block">
-          <span>Stage Judge</span>
+          <span>阶段判断</span>
           <div class="chip-row">
-            <StatusChip :value="baseSample.asset.judgeDecision" :label="`Stage1 ${baseSample.asset.judgeDecision}`" />
-            <StatusChip :value="baseSample.stage2Failure ? 'stage2_failed' : baseSample.asset.stage2Status" />
+            <StatusChip :value="baseSample.asset.judgeDecision" :label="`阶段1 ${statusDisplayLabel(baseSample.asset.judgeDecision)}`" />
+            <StatusChip
+              :value="baseSample.stage2Failure ? 'stage2_failed' : baseSample.asset.stage2Status"
+              :label="statusDisplayLabel(baseSample.stage2Failure ? 'stage2_failed' : baseSample.asset.stage2Status)"
+            />
           </div>
         </div>
         <div class="meta-block">
-          <span>Draft State</span>
+          <span>草稿状态</span>
           <strong :class="['draft-state', patchSaved ? 'draft-state--saved' : 'draft-state--dirty']">
             {{ draftStateText }}
           </strong>
         </div>
         <div class="meta-block">
-          <span>Active Config</span>
+          <span>当前配置</span>
           <strong>{{ configVersionText }}</strong>
         </div>
         <div class="meta-block">
-          <span>Assignee</span>
+          <span>分配人</span>
           <strong>{{ assignmentText }}</strong>
         </div>
         <div class="meta-block">
-          <span>Lease</span>
+          <span>样本锁</span>
           <strong>{{ leaseText }}</strong>
         </div>
       </div>
@@ -58,11 +61,11 @@ let activeReviewShortcutOwner: symbol | undefined;
           @click="goToPreviousQueueItem"
         >
           <ChevronLeft :size="16" />
-          Prev
+          上一个
         </button>
         <button v-else class="toolbar-button" type="button" disabled aria-keyshortcuts="ArrowLeft A">
           <ChevronLeft :size="16" />
-          Prev
+          上一个
         </button>
         <button
           v-if="nextQueueItem"
@@ -72,16 +75,16 @@ let activeReviewShortcutOwner: symbol | undefined;
           aria-keyshortcuts="ArrowRight D"
           @click="goToNextQueueItem"
         >
-          Next
+          下一个
           <ChevronRight :size="16" />
         </button>
         <button v-else class="toolbar-button" type="button" disabled aria-keyshortcuts="ArrowRight D">
-          Next
+          下一个
           <ChevronRight :size="16" />
         </button>
         <RouterLink class="toolbar-button" :to="`/datasets/${baseSample.asset.datasetId}/qc`">
           <ListChecks :size="16" />
-          List
+          返回列表
         </RouterLink>
       </div>
     </header>
@@ -103,25 +106,25 @@ let activeReviewShortcutOwner: symbol | undefined;
       <section class="work-panel evidence-panel">
         <div class="panel-head">
           <strong>图像证据区</strong>
-          <span class="pill pill--blue">0-1000 bbox</span>
+          <span class="pill pill--blue">0-1000 坐标框</span>
         </div>
 
         <div class="panel-body evidence-body">
-          <div class="layer-toggles" aria-label="bbox layers">
+          <div class="layer-toggles" aria-label="标注框图层">
             <label :class="{ active: showStage1 }">
               <input v-model="showStage1" type="checkbox" />
               <span class="dot dot--blue"></span>
-              STEP1
+              阶段1
             </label>
             <label :class="{ active: showStage2 }">
               <input v-model="showStage2" type="checkbox" />
               <span class="dot dot--green"></span>
-              STEP2
+              阶段2
             </label>
             <label :class="{ active: showCandidates }">
               <input v-model="showCandidates" type="checkbox" />
               <span class="dot dot--purple"></span>
-              Candidate
+              候选
             </label>
           </div>
 
@@ -139,20 +142,20 @@ let activeReviewShortcutOwner: symbol | undefined;
 
           <div class="scene-strip">
             <div class="fact-block">
-              <span class="field-label">environment_analysis</span>
+              <span class="field-label">环境分析</span>
               <p>{{ baseSample.stage1.environmentAnalysis || '无环境分析' }}</p>
             </div>
             <div class="fact-block">
-              <span class="field-label">scene_elements / key_anchors</span>
+              <span class="field-label">场景元素 / 关键锚点</span>
               <div class="tag-row">
                 <span v-for="element in baseSample.stage1.sceneElements" :key="element" class="tag">
-                  {{ element }}
+                  {{ optionDisplayLabel('scene_elements', element) }}
                 </span>
                 <span v-for="anchor in baseSample.stage1.keyAnchors" :key="anchor.anchor" class="tag tag--green">
-                  {{ anchor.anchor }}
+                  {{ displayLooseValue(anchor.anchor) }}
                 </span>
                 <em v-if="!baseSample.stage1.sceneElements.length && !baseSample.stage1.keyAnchors.length">
-                  empty
+                  暂无
                 </em>
               </div>
             </div>
@@ -163,12 +166,12 @@ let activeReviewShortcutOwner: symbol | undefined;
       <aside class="review-side-stack">
         <section class="work-panel relation-panel">
           <div class="panel-head">
-            <strong>Relation 复核区</strong>
-            <span class="pill pill--blue">{{ relationViews.length }} relations</span>
+            <strong>事实关系复核区</strong>
+            <span class="pill pill--blue">{{ relationViews.length }} 条关系</span>
           </div>
 
           <div class="panel-body relation-body">
-            <div class="index-track relation-index-track" aria-label="Relation 索引轨">
+            <div class="index-track relation-index-track" aria-label="事实关系索引轨">
               <button
                 v-for="item in relationViews"
                 :key="item.badge"
@@ -185,18 +188,18 @@ let activeReviewShortcutOwner: symbol | undefined;
             <div v-if="activeRelationView && activeRelationDraft" class="relation-editor">
               <div class="status-row">
                 <span class="pill" :class="activeRelationView.orphan ? 'pill--amber' : 'pill--green'">
-                  {{ activeRelationView.orphan ? '未被 Candidate 引用' : '已引用' }}
+                  {{ activeRelationView.orphan ? '未被候选引用' : '已引用' }}
                 </span>
                 <span v-if="activeRelationView.dirty" class="pill pill--amber">已修改</span>
                 <span v-if="!activeRelationView.verification" class="pill pill--amber">
-                  {{ baseSample.stage2Failure ? 'STEP2 failed' : 'STEP2 缺失' }}
+                  {{ baseSample.stage2Failure ? '阶段2失败' : '阶段2缺失' }}
                 </span>
-                <span class="pill">bbox 由图像区拖拽修改</span>
+                <span class="pill">坐标框可在图像区拖拽修改</span>
               </div>
 
               <div class="editor-grid">
                 <label class="field">
-                  <span class="mini-label">subject</span>
+                  <span class="mini-label">主体</span>
                   <input
                     :value="activeRelationDraft.subject"
                     :disabled="!canEditLabels"
@@ -204,19 +207,19 @@ let activeReviewShortcutOwner: symbol | undefined;
                   />
                 </label>
                 <label class="field">
-                  <span class="mini-label">relation</span>
+                  <span class="mini-label">关系</span>
                   <select
                     :value="activeRelationDraft.relation"
                     :disabled="!canEditLabels || !hasClosedField('relation')"
                     @change="setRelationField('relation', inputValue($event))"
                   >
                     <option v-for="option in selectOptions('relation', activeRelationDraft.relation)" :key="option" :value="option">
-                      {{ option }}
+                      {{ optionDisplayLabel('relation', option) }}
                     </option>
                   </select>
                 </label>
                 <label class="field">
-                  <span class="mini-label">object</span>
+                  <span class="mini-label">客体</span>
                   <input
                     :value="activeRelationDraft.object"
                     :disabled="!canEditLabels"
@@ -226,7 +229,7 @@ let activeReviewShortcutOwner: symbol | undefined;
               </div>
 
               <label class="field">
-                <span class="mini-label">description</span>
+                <span class="mini-label">描述</span>
                 <textarea
                   :value="activeRelationDraft.description"
                   :disabled="!canEditLabels"
@@ -237,7 +240,7 @@ let activeReviewShortcutOwner: symbol | undefined;
 
               <div class="verification-grid">
                 <label class="field">
-                  <span class="mini-label">visibility</span>
+                  <span class="mini-label">可见性</span>
                   <select
                     :value="activeRelationDraft.visibilityLevel"
                     :disabled="!canEditLabels || !hasClosedField('visibility_level')"
@@ -248,12 +251,12 @@ let activeReviewShortcutOwner: symbol | undefined;
                       :key="option"
                       :value="option"
                     >
-                      {{ option }}
+                      {{ optionDisplayLabel('visibility_level', option) }}
                     </option>
                   </select>
                 </label>
                 <label class="field">
-                  <span class="mini-label">loss type</span>
+                  <span class="mini-label">信息损失</span>
                   <select
                     :value="activeRelationDraft.informationLossType"
                     :disabled="!canEditLabels || !hasClosedField('information_loss_type')"
@@ -264,12 +267,12 @@ let activeReviewShortcutOwner: symbol | undefined;
                       :key="option"
                       :value="option"
                     >
-                      {{ option }}
+                      {{ optionDisplayLabel('information_loss_type', option) }}
                     </option>
                   </select>
                 </label>
                 <label class="field">
-                  <span class="mini-label">result</span>
+                  <span class="mini-label">核验结果</span>
                   <select
                     :value="activeRelationDraft.verificationResult"
                     :disabled="!canEditLabels || !hasClosedField('verification_result')"
@@ -280,12 +283,12 @@ let activeReviewShortcutOwner: symbol | undefined;
                       :key="option"
                       :value="option"
                     >
-                      {{ option }}
+                      {{ optionDisplayLabel('verification_result', option) }}
                     </option>
                   </select>
                 </label>
                 <label class="field">
-                  <span class="mini-label">confidence</span>
+                  <span class="mini-label">置信度</span>
                   <input
                     :value="activeRelationDraft.verificationConfidence"
                     :disabled="!canEditLabels"
@@ -299,7 +302,7 @@ let activeReviewShortcutOwner: symbol | undefined;
               </div>
 
               <label class="field field--observation">
-                <span class="mini-label">bbox_observation</span>
+                <span class="mini-label">坐标框观察</span>
                 <textarea
                   :value="activeRelationDraft.bboxObservation"
                   :disabled="!canEditLabels"
@@ -309,7 +312,7 @@ let activeReviewShortcutOwner: symbol | undefined;
               </label>
 
               <label class="field field--observation">
-                <span class="mini-label">global_context_observation</span>
+                <span class="mini-label">全局上下文观察</span>
                 <textarea
                   :value="activeRelationDraft.globalContextObservation"
                   :disabled="!canEditLabels"
@@ -322,11 +325,11 @@ let activeReviewShortcutOwner: symbol | undefined;
                 <span class="field-label">模型可见性参考</span>
                 <div class="reference-grid">
                   <div class="reference-item">
-                    <span class="mini-label">subject_visible</span>
+                    <span class="mini-label">主体可见</span>
                     <strong>{{ referenceBoolean(activeRelationView.verification?.subjectVisible) }}</strong>
                   </div>
                   <div class="reference-item">
-                    <span class="mini-label">subject_match</span>
+                    <span class="mini-label">主体匹配</span>
                     <strong>{{ referenceBoolean(activeRelationView.verification?.subjectMatch) }}</strong>
                   </div>
                 </div>
@@ -336,25 +339,25 @@ let activeReviewShortcutOwner: symbol | undefined;
                     :key="attribute"
                     class="tag"
                   >
-                    {{ attribute }}
+                    {{ displayLooseValue(attribute) }}
                   </span>
-                  <em v-if="!(activeRelationView.verification?.keyAttributesVisible.length)">empty</em>
+                  <em v-if="!(activeRelationView.verification?.keyAttributesVisible.length)">暂无</em>
                 </div>
               </div>
             </div>
 
-            <div v-else class="empty-callout">没有 Relation 可复核。</div>
+            <div v-else class="empty-callout">没有事实关系可复核。</div>
           </div>
         </section>
 
         <section class="work-panel candidate-panel">
           <div class="panel-head">
-            <strong>Candidate 与质检裁决</strong>
-            <span class="pill pill--amber">{{ reviewDraft.candidateDrafts.length }} candidates</span>
+            <strong>候选结论与质检裁决</strong>
+            <span class="pill pill--amber">{{ reviewDraft.candidateDrafts.length }} 个候选</span>
           </div>
 
           <div class="panel-body candidate-body">
-            <div class="index-track candidate-index-track" aria-label="Candidate 索引轨">
+            <div class="index-track candidate-index-track" aria-label="候选索引轨">
               <button
                 v-for="candidate in reviewDraft.candidateDrafts"
                 :key="candidate.id"
@@ -378,9 +381,9 @@ let activeReviewShortcutOwner: symbol | undefined;
                     {{ activeCandidateDraft.id }} · {{ activeCandidateDraft.violationCategory || '未选择类别' }}
                   </span>
                   <span class="pill" :class="canEditLabels ? 'pill--green' : 'pill--amber'">
-                    {{ canEditLabels ? 'active config ready' : 'read only' }}
+                    {{ canEditLabels ? '标签配置可编辑' : '只读' }}
                   </span>
-                  <span class="pill pill--amber">{{ activeCandidateDraft.evidenceRelationIds.length }} evidence relations</span>
+                  <span class="pill pill--amber">{{ activeCandidateDraft.evidenceRelationIds.length }} 条证据关系</span>
                 </div>
                 <button
                   class="candidate-delete-button"
@@ -412,7 +415,7 @@ let activeReviewShortcutOwner: symbol | undefined;
                     </select>
                   </label>
                   <label class="field">
-                    <span class="mini-label">sample_category</span>
+                    <span class="mini-label">样本类别</span>
                     <select
                       :value="activeCandidateDraft.sampleCategory"
                       :disabled="!canEditLabels || !hasClosedField('sample_category')"
@@ -423,14 +426,14 @@ let activeReviewShortcutOwner: symbol | undefined;
                         :key="option"
                         :value="option"
                       >
-                        {{ option }}
+                        {{ optionDisplayLabel('sample_category', option) }}
                       </option>
                     </select>
                   </label>
                 </div>
 
                 <label class="field">
-                  <span class="mini-label">confidence</span>
+                  <span class="mini-label">置信度</span>
                   <input
                     :value="activeCandidateDraft.confidence"
                     :disabled="!canEditLabels"
@@ -453,13 +456,13 @@ let activeReviewShortcutOwner: symbol | undefined;
                 </label>
 
                 <div class="field field--tags">
-                  <span class="mini-label">segmentation_targets</span>
+                  <span class="mini-label">分割目标</span>
                   <div class="tag-edit-list">
                     <span v-for="tag in activeCandidateDraft.segmentationTargets" :key="tag" class="tag">
-                      {{ tag }}
+                      {{ optionDisplayLabel('segmentation_targets', tag) }}
                       <button type="button" :disabled="!canEditLabels" @click="removeCandidateTag(tag)">×</button>
                     </span>
-                    <em v-if="!activeCandidateDraft.segmentationTargets.length">empty</em>
+                    <em v-if="!activeCandidateDraft.segmentationTargets.length">暂无</em>
                   </div>
                   <div class="tag-input-row">
                     <input
@@ -471,14 +474,19 @@ let activeReviewShortcutOwner: symbol | undefined;
                       @keydown.enter.prevent="addCandidateTag"
                     />
                     <datalist :id="tagListId('segmentation_targets')">
-                      <option v-for="suggestion in tagSuggestions('segmentation_targets')" :key="suggestion" :value="suggestion" />
+                      <option
+                        v-for="suggestion in tagSuggestions('segmentation_targets')"
+                        :key="suggestion"
+                        :value="suggestion"
+                        :label="optionDisplayLabel('segmentation_targets', suggestion)"
+                      />
                     </datalist>
                     <button type="button" :disabled="!canEditLabels" @click="addCandidateTag">添加</button>
                   </div>
                 </div>
 
                 <label class="field">
-                  <span class="mini-label">evidence_reasoning</span>
+                  <span class="mini-label">证据推理</span>
                   <textarea
                     :value="activeCandidateDraft.evidenceReasoning"
                     :disabled="!canEditLabels"
@@ -488,7 +496,7 @@ let activeReviewShortcutOwner: symbol | undefined;
                 </label>
 
                 <label class="field">
-                  <span class="mini-label">relation_hint</span>
+                  <span class="mini-label">关系提示</span>
                   <input
                     :value="activeCandidateDraft.relationHint"
                     :disabled="!canEditLabels"
@@ -498,7 +506,7 @@ let activeReviewShortcutOwner: symbol | undefined;
               </div>
 
               <div class="evidence-table">
-                <span class="field-label">Evidence Relations</span>
+                <span class="field-label">证据关系</span>
                 <label v-for="relation in relationViews" :key="relation.badge" class="evidence-check">
                   <input
                     type="checkbox"
@@ -507,11 +515,15 @@ let activeReviewShortcutOwner: symbol | undefined;
                     @change="toggleCandidateRelation(relation.badge, checkedValue($event))"
                   />
                   <span>
-                    <strong>{{ relation.badge }} · {{ relation.draft.subject }} {{ relation.draft.relation }} {{ relation.draft.object }}</strong>
-                    <em>{{ relation.draft.description || '无 relation 描述' }}</em>
+                    <strong>
+                      {{ relation.badge }} · {{ displayLooseValue(relation.draft.subject) }}
+                      {{ optionDisplayLabel('relation', relation.draft.relation) }}
+                      {{ displayLooseValue(relation.draft.object) }}
+                    </strong>
+                    <em>{{ relation.draft.description || '无关系描述' }}</em>
                   </span>
                   <span class="status-token" :class="relation.orphan ? 'status-token--amber' : 'status-token--green'">
-                    {{ relation.orphan ? 'unlinked' : 'linked' }}
+                    {{ relation.orphan ? '未关联' : '已关联' }}
                   </span>
                 </label>
               </div>
@@ -520,8 +532,8 @@ let activeReviewShortcutOwner: symbol | undefined;
             <div v-else class="candidate-empty">
               <TriangleAlert :size="18" />
               <div>
-                <strong>{{ baseSample.stage2Failure ? 'STEP2 未产出候选结论' : '无候选结论' }}</strong>
-                <p>{{ baseSample.stage2Failure?.message ?? '需要人工基于 STEP1 relation 和图像证据补判。' }}</p>
+                <strong>{{ baseSample.stage2Failure ? '阶段2未产出候选结论' : '无候选结论' }}</strong>
+                <p>{{ baseSample.stage2Failure?.message ?? '需要人工基于阶段1关系和图像证据补判。' }}</p>
               </div>
             </div>
           </div>
@@ -596,7 +608,7 @@ let activeReviewShortcutOwner: symbol | undefined;
       >
         <header class="batch-submit-header">
           <div>
-            <span class="mini-label">Batch</span>
+            <span class="mini-label">批次</span>
             <h2 id="batch-submit-title">提交批次修改</h2>
           </div>
           <strong>{{ baseSample.asset.datasetId }}</strong>
@@ -762,6 +774,102 @@ const AUTOSAVE_INTERVAL_OPTIONS = [
   { label: '3分钟', value: 180_000 },
   { label: '5分钟', value: 300_000 },
 ] as const;
+const FIELD_VALUE_LABELS: Record<string, Record<string, string>> = {
+  relation: {
+    blocks: '阻挡',
+    near: '靠近',
+    occupies: '占据',
+    adjacent_to: '相邻',
+    overlaps: '重叠',
+  },
+  visibility_level: {
+    clear: '清晰',
+    partial: '部分可见',
+    tiny: '目标极小',
+    blurry: '模糊',
+    occluded: '遮挡',
+  },
+  information_loss_type: {
+    none: '无',
+    occlusion: '遮挡',
+    blur: '模糊',
+    truncation: '截断',
+    low_resolution: '低分辨率',
+    unknown: '未知',
+  },
+  verification_result: {
+    supported: '支持',
+    weakly_supported: '弱支持',
+    unsupported: '不支持',
+    unclear: '不确定',
+  },
+  sample_category: {
+    'positive samples': '正样本',
+    'negative samples': '负样本',
+    'hard boundary samples': '困难边界样本',
+  },
+  scene_elements: {
+    sidewalk: '人行道',
+    tactile_paving: '盲道',
+    'nonmotor vehicle': '非机动车',
+    nonmotor_vehicle: '非机动车',
+    electric_vehicle: '电动车',
+    pedestrian: '行人',
+    curb: '路缘',
+    shared_bicycle: '共享单车',
+    storefront: '店面',
+    carton: '纸箱',
+    temporary_vendor_stall: '临时摊位',
+    outdoor_table_chair: '户外桌椅',
+    'motor vehicle': '机动车',
+    traffic_signal: '交通信号灯',
+    'traffic signal': '交通信号灯',
+    'roadside vendor': '路边摊贩',
+    'roadside goods': '路边货物',
+  },
+  segmentation_targets: {
+    electric_vehicle: '电动车',
+    nonmotor_vehicle: '非机动车',
+    'nonmotor vehicle': '非机动车',
+    shared_bicycle: '共享单车',
+    bicycle: '自行车',
+    goods: '货物',
+    carton: '纸箱',
+    person: '人员',
+    pedestrian: '行人',
+    vendor_stall: '摊位',
+    table_chair: '桌椅',
+    umbrella: '雨伞',
+    'no parking sign': '禁停标志',
+  },
+  key_attributes: {
+    wheel: '车轮',
+    body_outline: '车身轮廓',
+    'visible goods': '可见货物',
+    sign_panel: '标志牌',
+    edge: '边缘',
+  },
+};
+const STATUS_LABELS: Record<string, string> = {
+  active: '有效',
+  assigned: '已分配',
+  blocked: '已阻塞',
+  clean: '无修改',
+  completed: '已完成',
+  expired: '已过期',
+  failed: '失败',
+  in_progress: '进行中',
+  manual_review: '人工复核',
+  needs_changes: '需修改',
+  passed: '已通过',
+  pending: '待处理',
+  ready: '就绪',
+  rejected: '已拒绝',
+  released: '已释放',
+  revoked: '已撤销',
+  stage2_failed: '阶段2失败',
+  success: '成功',
+};
 
 const instance = getCurrentInstance();
 const router = instance?.appContext.config.globalProperties.$router as
@@ -819,16 +927,17 @@ const assignmentText = computed(() => {
   if (!assignment || assignment.status === 'revoked') {
     return '未分配';
   }
-  return `${assignment.assigneeDisplayName || assignment.assigneeUserId} · ${assignment.status}`;
+  return `${assignment.assigneeDisplayName || assignment.assigneeUserId} · ${statusDisplayLabel(assignment.status)}`;
 });
 const leaseText = computed(() => {
   const lease = props.sampleLease;
   if (!lease) {
-    return 'no lease';
+    return '无样本锁';
   }
-  const suffix = lease.expiresAt ? ` · ${timeLeft(lease.expiresAt)}` : '';
-  const status = lease.status === 'active' && leaseExpired(lease.expiresAt) ? 'expired' : lease.status;
-  return `${status} · ${lease.userDisplayName || lease.userId}${suffix}`;
+  const isExpired = lease.status === 'active' && leaseExpired(lease.expiresAt);
+  const suffix = lease.expiresAt && !isExpired ? ` · ${timeLeft(lease.expiresAt)}` : '';
+  const status = isExpired ? 'expired' : lease.status;
+  return `${statusDisplayLabel(status)} · ${lease.userDisplayName || lease.userId}${suffix}`;
 });
 const currentQueueIndex = computed(() =>
   props.queueItems.findIndex((item) => item.sampleId === baseSample.value.asset.sampleId),
@@ -846,7 +955,7 @@ const reviewedCount = computed(
 );
 const progressText = computed(() => {
   if (currentQueueIndex.value < 0 || props.queueItems.length === 0) {
-    return `${reviewedCount.value} reviewed`;
+    return `已复核 ${reviewedCount.value}`;
   }
   return `${currentQueueIndex.value + 1} / ${props.queueItems.length}`;
 });
@@ -856,7 +965,7 @@ const progressPercent = computed(() => {
   }
   return Math.round(((currentQueueIndex.value + 1) / props.queueItems.length) * 100);
 });
-const configVersionText = computed(() => props.labelConfig?.version ?? '无 active config');
+const configVersionText = computed(() => props.labelConfig?.version ?? '无激活配置');
 
 const relationViews = computed<RelationView[]>(() => {
   const evidenceKeys = new Set<string>();
@@ -1001,18 +1110,18 @@ const autosavePillClass = computed(() => {
   }
   return 'pill--blue';
 });
-const draftStateText = computed(() => (operationCount.value > 0 ? `${operationCount.value} dirty fields` : 'clean'));
+const draftStateText = computed(() => (operationCount.value > 0 ? `${operationCount.value} 项未保存` : '无修改'));
 const batchSubmitBlockReasons = computed(() => {
   const reasons: string[] = [];
   const assignment = props.batchAssignment;
   if (!assignment || assignment.status === 'revoked') {
-    reasons.push('当前批次没有有效 assignment');
+    reasons.push('当前批次没有有效分配');
   }
   if (props.readonlyReason) {
     reasons.push(props.readonlyReason);
   }
   if (!props.labelConfig || props.labelConfigMissing) {
-    reasons.push(props.labelConfigGateMessage || '缺少 active label config');
+    reasons.push(props.labelConfigGateMessage || '缺少激活标签配置');
   }
   if (savePending.value) {
     reasons.push('草稿保存或自动保存仍在进行');
@@ -1247,6 +1356,33 @@ function selectOptions(fieldName: string, current: string) {
   return Array.from(new Set([current, ...options].filter(Boolean)));
 }
 
+function optionDisplayLabel(fieldName: string, code: string) {
+  if (fieldName === 'violation_category') {
+    return code;
+  }
+  const option = props.labelConfig?.fields
+    .find((field) => field.field === fieldName)
+    ?.options.find((item) => item.code === code);
+  return option?.labelZh || option?.labelEn || FIELD_VALUE_LABELS[fieldName]?.[code] || displayLooseValue(code);
+}
+
+function displayLooseValue(value: string) {
+  const direct = Object.values(FIELD_VALUE_LABELS)
+    .map((labels) => labels[value])
+    .find(Boolean);
+  if (direct) {
+    return direct;
+  }
+  return value;
+}
+
+function statusDisplayLabel(value: string | undefined) {
+  if (!value) {
+    return '未知';
+  }
+  return STATUS_LABELS[value] ?? value;
+}
+
 function tagListId(field: string) {
   return `tag-suggestions-${field}`;
 }
@@ -1282,18 +1418,21 @@ function numberValue(event: Event) {
 }
 
 function referenceBoolean(value: boolean | undefined) {
-  return value === undefined ? '-' : String(value);
+  if (value === undefined) {
+    return '-';
+  }
+  return value ? '是' : '否';
 }
 
 function timeLeft(expiresAt: string) {
   const ms = new Date(expiresAt).getTime() - Date.now();
   if (!Number.isFinite(ms)) {
-    return 'unknown';
+    return '未知';
   }
   if (ms <= 0) {
-    return 'expired';
+    return '已过期';
   }
-  return `${Math.ceil(ms / 60000)}m left`;
+  return `剩余 ${Math.ceil(ms / 60000)} 分钟`;
 }
 
 function leaseExpired(expiresAt: string | undefined) {
