@@ -792,8 +792,8 @@ scripts/docker-compose-auto-subnet.py config
 scripts/docker-compose-auto-subnet.py build
 scripts/docker-compose-auto-subnet.py up -d
 scripts/docker-compose-auto-subnet.py ps
-curl http://127.0.0.1:8080/health
-curl -i http://127.0.0.1:8080/api/me
+curl http://127.0.0.1:10880/health
+curl -i http://127.0.0.1:10880/api/me
 ```
 
 Expected Compose services and health:
@@ -801,7 +801,7 @@ Expected Compose services and health:
 - `postgres` is healthy before backend starts.
 - `redis` is healthy before backend starts.
 - `backend` exposes `8000` internally and passes `/health`.
-- `frontend` exposes `${FRONTEND_HTTP_PORT:-8080}:80` and proxies `/health`,
+- `frontend` exposes `${FRONTEND_HTTP_PORT:-10880}:80` and proxies `/health`,
   `/api/`, and `/media/` to `backend`.
 
 Browser smoke:

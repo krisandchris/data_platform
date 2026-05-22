@@ -18,10 +18,10 @@ loss checks, Docker smoke checks, and rollback review pass. See
 [State Persistence Boundaries](./state-persistence-boundaries.md) and
 [PostgreSQL + Redis Migration Runbook](./postgres-redis-migration-runbook.md).
 
-The public LAN entrypoint is HTTP on port `8080` by default:
+The public LAN entrypoint is HTTP on port `10880` by default:
 
 ```bash
-http://<server-ip>:8080
+http://<server-ip>:10880
 ```
 
 ## Host Directories
@@ -94,7 +94,7 @@ Phase 7 service variables:
 | `DATASET_HOST_ROOT` | `/srv/urban-platform/DATASET` | Host parent directory mounted to `/data/datasets:ro`. Must contain `urban_violation/`. |
 | `PLATFORM_STATE_HOST_ROOT` | `/srv/urban-platform/runtime/platform_state` | Host file root mounted to `/data/platform_state`. |
 | `LABEL_CONFIG_HOST_ROOT` | `/srv/urban-platform/runtime/label_config_state` | Host file root mounted to `/data/label_config_state`. |
-| `FRONTEND_HTTP_PORT` | `8080` | LAN HTTP port exposed by the frontend container. |
+| `FRONTEND_HTTP_PORT` | `10880` | LAN HTTP port exposed by the frontend container. |
 | `PLATFORM_DOCKER_SUBNET` | selected by helper | Bridge network subnet injected by `scripts/docker-compose-auto-subnet.py`. |
 
 Redis must not be treated as durable platform storage. Redis loss may remove only active locks, live progress hints, and optional cache entries. Drafts, submissions, audit, label configs, users, roles, sessions, batch metadata, import job final state, sample pool, exports, and evaluations must remain PostgreSQL-backed in database mode.
@@ -142,7 +142,7 @@ DATASET_HOST_ROOT=/data/DATASET \
 PLATFORM_STATE_HOST_ROOT=/data/urban-runtime/platform_state \
 LABEL_CONFIG_HOST_ROOT=/data/urban-runtime/label_config_state \
 POSTGRES_PASSWORD='<replace-me>' \
-FRONTEND_HTTP_PORT=8080 \
+FRONTEND_HTTP_PORT=10880 \
 scripts/docker-compose-auto-subnet.py up -d
 ```
 
@@ -172,7 +172,7 @@ default:
 scripts/docker-compose-auto-subnet.py build
 scripts/docker-compose-auto-subnet.py up -d
 scripts/docker-compose-auto-subnet.py ps
-curl http://127.0.0.1:8080/health
+curl http://127.0.0.1:10880/health
 ```
 
 For operator-controlled migrations, override auto-migration and run Alembic
@@ -187,7 +187,7 @@ PLATFORM_DB_AUTO_MIGRATE=0 scripts/docker-compose-auto-subnet.py up -d backend f
 Open:
 
 ```bash
-http://127.0.0.1:8080/login
+http://127.0.0.1:10880/login
 ```
 
 The frontend build uses `VITE_API_BASE_URL=/api`, so browser API calls stay same-origin through Nginx.
@@ -239,8 +239,8 @@ Minimum checks after startup:
 
 ```bash
 docker compose ps
-curl http://127.0.0.1:8080/health
-curl -i http://127.0.0.1:8080/api/me
+curl http://127.0.0.1:10880/health
+curl -i http://127.0.0.1:10880/api/me
 ```
 
 Expected behavior:
@@ -286,7 +286,7 @@ uv run pytest
 cd frontend && npm run test && npm run build
 scripts/docker-compose-auto-subnet.py build
 scripts/docker-compose-auto-subnet.py up -d
-curl http://127.0.0.1:8080/health
+curl http://127.0.0.1:10880/health
 scripts/docker-compose-auto-subnet.py restart backend
 scripts/docker-compose-auto-subnet.py restart redis
 scripts/docker-compose-auto-subnet.py down

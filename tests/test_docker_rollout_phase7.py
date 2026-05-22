@@ -36,7 +36,7 @@ def _compose_fixture_env(tmp_path: Path) -> dict[str, str]:
             "PLATFORM_STATE_HOST_ROOT": str(platform_state_host),
             "LABEL_CONFIG_HOST_ROOT": str(label_config_host),
             "COMPOSE_PROJECT_NAME": env.get("COMPOSE_PROJECT_NAME", "task019qa_config"),
-            "FRONTEND_HTTP_PORT": env.get("FRONTEND_HTTP_PORT", "18080"),
+            "FRONTEND_HTTP_PORT": env.get("FRONTEND_HTTP_PORT", "10880"),
         }
     )
     return env
