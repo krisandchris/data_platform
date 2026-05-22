@@ -116,3 +116,12 @@
 - Backend image now copies `alembic.ini` and `alembic/`, resolving the startup migration packaging gap.
 - No dependency files changed.
 - Remaining rollout risk: file-backed env rollback still starts `postgres` and `redis` services unless operators use a narrower compose invocation/profile; docs/QA should make this explicit or improve ergonomics in a follow-up.
+
+## Phase 7 Frontend Findings (agent/TASK-019/frontend/docker-production-build)
+
+- Frontend branch completed at `8385997` and is being merged into integration.
+- Existing frontend Dockerfile already builds with `VITE_API_BASE_URL=/api`; Nginx proxies `/api/`, `/media/`, and `/health`.
+- Added focused `HttpClient` test coverage for same-origin relative `/api/` URL joining.
+- Frontend tests and production build pass with `VITE_API_BASE_URL=/api`.
+- No dependency files changed; `npm ci` used the existing lockfile and reported 6 existing audit vulnerabilities.
+- Existing Vue Router no-match warnings in `routesAndPages.test.ts` remain unchanged.

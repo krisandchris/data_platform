@@ -15,7 +15,7 @@ Phase 7 switches the Docker rollout target to PostgreSQL + Redis defaults, verif
 
 ## Integration Status
 
-Backend Docker rollout branch is being merged. QA, Frontend, and Docs branches remain in progress.
+Backend Docker rollout and frontend production-build branches are being merged. QA and Docs branches remain in progress.
 
 ## Agent Branches Merged
 
@@ -23,6 +23,9 @@ Backend Docker rollout branch is being merged. QA, Frontend, and Docs branches r
   - Adds `postgres` and `redis` services.
   - Switches backend Compose defaults to database + Redis mode.
   - Copies Alembic assets into backend image.
+- Pending commit: `agent/TASK-019/frontend/docker-production-build`
+  - Adds same-origin `/api/` HttpClient test coverage.
+  - Verifies frontend tests and production build with `VITE_API_BASE_URL=/api`.
 
 ## Initial Risks
 
