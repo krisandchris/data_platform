@@ -90,7 +90,7 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 - Merging: `agent/TASK-019/backend/docker-rollout` at `77b9a08`
 - Merging: `agent/TASK-019/frontend/docker-production-build` at `8385997`
 - Merging: `agent/TASK-019/docs/docker-rollout-runbook` at `5ff8f40`
-- Planned: `agent/TASK-019/qa/docker-rollout-smoke`
+- Merging: `agent/TASK-019/qa/docker-rollout-smoke` at `93410a0`
 
 ## Phase 7 Scope
 

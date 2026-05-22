@@ -137,3 +137,15 @@
   - default `DATABASE_URL=postgresql+psycopg://platform:<password>@postgres:5432/urban_platform`;
   - default `PLATFORM_DB_AUTO_MIGRATE=1`.
 - Docs retain the invariant that filesystem artifacts remain on mounted volumes and reverse export back to file-backed JSON roots is not implemented.
+
+## Phase 7 QA Findings (agent/TASK-019/qa/docker-rollout-smoke)
+
+- QA branch completed at `93410a0` after merging backend rollout into the QA worktree.
+- Added `tests/test_docker_rollout_phase7.py`.
+- Default config assertions now require Phase 7 four-service Compose (`backend`, `frontend`, `postgres`, `redis`) without any rollout gate env var.
+- QA asserts backend database/Redis defaults, Postgres/Redis health checks, backend `depends_on`, backend volume targets, Alembic Dockerfile packaging, and file-backed rollback override rendering.
+- Live Docker smoke remains opt-in only with both:
+  - `QA_RUN_DOCKER_ROLLOUT_SMOKE=1`
+  - `QA_DOCKER_SMOKE_CONFIRM_ISOLATED=1`
+- QA selector flakiness rerun passed 5/5 with 0% observed failure rate.
+- Remaining QA risk: default rollback env render still includes postgres/redis services; this is documented as an operational boundary rather than a test failure.

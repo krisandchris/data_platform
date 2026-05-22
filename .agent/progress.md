@@ -206,3 +206,20 @@
   - `PLATFORM_DB_AUTO_MIGRATE=1`;
   - default full-stack startup can use `scripts/docker-compose-auto-subnet.py up -d`.
 - Lead integration preserved the root `.agent` records and summarized docs handoff details instead of replacing integration planning files with the docs agent's local `.agent` files.
+
+## 2026-05-22 Phase 7 QA Agent Execution (docker-rollout-smoke)
+
+- QA Poincare completed `agent/TASK-019/qa/docker-rollout-smoke` at `93410a0` after syncing with backend rollout merge `416ff39`.
+- Added `tests/test_docker_rollout_phase7.py` with:
+  - strict four-service Compose assertions;
+  - backend database/Redis default checks;
+  - Postgres/Redis health/dependency checks;
+  - Alembic Docker packaging checks;
+  - file-backed rollback override render check;
+  - gated live Docker smoke.
+- QA branch verification passed:
+  - `uv run pytest tests/test_docker_rollout_phase7.py -q`
+  - `uv run pytest -k "docker_rollout or postgres_live or redis_runtime" -q`
+  - `git diff --check`
+  - 5x selector rerun with 0 failures.
+- Lead integration preserved the root `.agent` records and summarized QA handoff details instead of replacing integration planning files with the QA agent's local `.agent` files.
