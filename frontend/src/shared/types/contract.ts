@@ -713,6 +713,7 @@ export interface ImportWarning {
   severity: 'blocking' | 'warning' | 'info';
   title: string;
   message: string;
+  details?: string[];
   createdAt?: string;
 }
 

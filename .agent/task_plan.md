@@ -5,15 +5,15 @@ Objective: improve the import validation page so blocking errors and non-blockin
 ## Current Task Status
 
 1. Inspect frontend import validation data flow and tests.
-   - Status: in_progress.
+   - Status: complete.
 2. Implement UI/detail rendering in frontend worktree.
-   - Status: pending.
+   - Status: complete.
 3. Add/update frontend tests for detailed errors/warnings and pagination.
-   - Status: pending.
+   - Status: complete.
 4. Run frontend tests/build in worktree.
-   - Status: pending.
+   - Status: complete.
 5. Merge verified frontend branch into integration and then main.
-   - Status: pending.
+   - Status: in_progress.
 
 ## Frontend Worktree
 
@@ -31,6 +31,22 @@ Objective: improve the import validation page so blocking errors and non-blockin
 - Import preview list is paginated at 10 entries per page.
 - Pagination controls show current range/page and allow previous/next navigation without layout churn.
 - Existing import workflow behavior and API calls remain unchanged.
+
+## Changed Files
+
+- `frontend/src/features/import/ImportJobPage.vue`
+- `frontend/src/services/urbanViolationApi.ts`
+- `frontend/src/shared/types/contract.ts`
+- `frontend/src/test/apiClient.test.ts`
+- `frontend/src/test/routesAndPages.test.ts`
+
+## Frontend Verification
+
+- `cd frontend && npm ci`: passed.
+- `cd frontend && npm run test -- src/test/apiClient.test.ts src/test/routesAndPages.test.ts`: passed.
+- `cd frontend && npm run test`: passed.
+- `cd frontend && npm run build`: passed.
+- `git diff --check`: passed.
 
 ---
 
