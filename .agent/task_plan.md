@@ -15,7 +15,7 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 5. Redis runtime state for active leases, locks, session cache, and import progress.
    - Status: complete. Backend, QA, Frontend, and Docs branches are merged into integration; final verification passed.
 6. File-state import tool.
-   - Status: in_progress. Backend, QA, and Docs branches are merged into integration; final verification is running.
+   - Status: complete. Backend, QA, and Docs branches are merged into integration; final verification passed.
 7. Docker rollout and full acceptance.
    - Status: pending.
 
@@ -76,3 +76,11 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 - Same-ID different-content conflicts are reported without silent overwrite.
 - Post-import API reads and continued writes work in database mode.
 - Docs include confirmed command names, reports, rollback notes, and verification commands.
+
+## Phase 6 Verification Results
+
+- `uv run pytest tests/test_migrate_state_import_tool.py tests/test_db_foundation_backend.py -q` passed.
+- `uv run pytest -k "migrate_state or db_foundation or db_qc_state or state_store_contract" -q` passed with expected live-test skips.
+- `uv run pytest -q` passed with expected live-test skips.
+- `uv run python scripts/docker-compose-auto-subnet.py config` passed.
+- `git diff --check` passed.

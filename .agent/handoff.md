@@ -79,7 +79,17 @@ QA merge verification after integration:
 uv run pytest tests/test_migrate_state_import_tool.py -q
 ```
 
-Final integration verification is still in progress after resolving the docs merge.
+Final integration verification:
+
+```bash
+uv run pytest tests/test_migrate_state_import_tool.py tests/test_db_foundation_backend.py -q
+uv run pytest -k "migrate_state or db_foundation or db_qc_state or state_store_contract" -q
+uv run pytest -q
+uv run python scripts/docker-compose-auto-subnet.py config
+git diff --check
+```
+
+All commands passed. Selector and full test runs included expected live-test skips.
 
 ## Remaining Risks
 
