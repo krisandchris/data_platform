@@ -33,6 +33,11 @@
   - Added `tests/test_redis_runtime_api.py` and `tests/test_postgres_redis_smoke.py`.
   - Local deterministic checks passed with expected skips.
   - Live PostgreSQL/Redis smoke remains gated on `TEST_DATABASE_URL` and `TEST_REDIS_URL`.
+- Docs Hypatia completed at `3ff44e3`:
+  - Documented optional Redis mode, `PLATFORM_REDIS_ENABLED`, `REDIS_URL`, `TEST_DATABASE_URL`, and `TEST_REDIS_URL`.
+  - Preserved PostgreSQL durable authority and Phase 7 Docker production switch boundary.
+  - `git diff --check` and manual docs review passed.
+  - Remaining docs reconciliation needed after backend finalizes TTL env names and test selectors.
 
 ## 2026-05-22 Phase 4 Dispatch
 
