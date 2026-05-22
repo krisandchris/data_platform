@@ -284,3 +284,11 @@
   - `cd frontend && npm run test`
   - `cd frontend && npm run build`
   - `git diff --check`
+# 2026-05-22 TASK-021 Dispatch
+
+- User reported two UI issues:
+  - asset sample preview lacks pagination and long `sample_id` values push right-side fields out of view;
+  - QC workspace "我的批次" lacks pagination and uses card layout, but should use dense horizontal single-row display aligned with the asset sample table behavior.
+- Created integration branch `integration/TASK-021`.
+- Created frontend worktree `/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-021-frontend-sample-qc-pagination` on branch `agent/TASK-021/frontend/sample-qc-pagination`.
+- Existing unrelated `.gitignore` user modification remains unstaged in the main workspace.

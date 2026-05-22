@@ -1,3 +1,37 @@
+# TASK-021 Asset Sample And QC Queue Pagination Layout Plan
+
+Objective: add 10-row pagination and layout hardening for the asset sample preview and the QC workspace "我的批次" list. Long `sample_id` values must not push right-side fields off screen. QC "我的批次" must use dense horizontal row display instead of cards.
+
+## Current Task Status
+
+1. Inspect `AssetTable.vue`, `QcPage.vue`, and related tests.
+   - Status: in_progress.
+2. Implement frontend layout changes in worktree.
+   - Status: pending.
+3. Add/update frontend tests for pagination, long sample IDs, and horizontal QC row layout.
+   - Status: pending.
+4. Run frontend tests/build in worktree.
+   - Status: pending.
+5. Merge verified frontend branch into integration and then main.
+   - Status: pending.
+
+## Frontend Worktree
+
+- Branch: `agent/TASK-021/frontend/sample-qc-pagination`
+- Worktree: `/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-021-frontend-sample-qc-pagination`
+- Scope: `frontend/**` asset table, QC queue layout, and frontend tests only.
+
+## Acceptance Criteria
+
+- Asset sample preview has pagination at 10 rows per page.
+- Long `sample_id` values in asset sample preview wrap or truncate inside their column and do not hide right-side fields.
+- QC workspace "我的批次" has pagination at 10 rows per page.
+- QC workspace "我的批次" uses horizontal single-row/table-like entries, not cards.
+- QC row layout keeps key fields visible in one screen and uses stable width/truncation behavior for long IDs.
+- Existing filters, route links, assignment actions, and review navigation behavior remain unchanged.
+
+---
+
 # TASK-020 Import Validation UI Detail And Pagination Plan
 
 Objective: improve the import validation page so blocking errors and non-blocking warnings show actionable backend detail instead of generic labels, and paginate scan validation / import preview lists at 10 rows per page.

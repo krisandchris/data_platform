@@ -178,3 +178,10 @@
 - `ImportJobStatusResponse.validation_errors` can coexist with `warnings`; before this fix, validation errors were only converted into blocking items when there were no warnings.
 - No dependency or backend API change is required.
 - Existing Vue Router no-match warnings in route tests are unchanged.
+# TASK-021 Asset Sample And QC Queue Findings
+
+## Initial Notes
+
+- The task is frontend-owned: expected files are `AssetTable.vue`, `QcPage.vue`, and frontend tests.
+- Main workspace is for planning, integration, and verification only; implementation will happen in the frontend worktree.
+- Existing unrelated `.gitignore` user modification remains outside this task.

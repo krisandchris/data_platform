@@ -110,3 +110,21 @@ No.
 ## Known Risks
 
 - Existing route-test Vue Router no-match warnings remain unchanged.
+# TASK-021 Integration Handoff
+
+## Lead Scope
+
+Integration branch: `integration/TASK-021`
+
+Goal: merge a verified frontend fix for asset sample pagination and QC "我的批次" row-layout pagination.
+
+## Planned Branches
+
+- `agent/TASK-021/frontend/sample-qc-pagination`
+
+## Status
+
+- Frontend worktree created.
+- Implementation pending.
+
+---
