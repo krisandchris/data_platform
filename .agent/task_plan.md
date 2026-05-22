@@ -1,44 +1,57 @@
-# TASK-019 PostgreSQL + Redis State Migration Plan
+# TASK-019 Phase 5 Frontend Plan
 
-Objective: migrate mutable platform state from file-backed JSON/JSONL stores to PostgreSQL, use Redis for active leases/locks/progress, preserve current frontend API behavior, and provide a safe import path from existing runtime state.
+## Goal
 
-## Phases
+Extend frontend compatibility for optional Redis-backed import progress and keep lease conflict/readonly messaging stable when Redis runtime state is enabled or expires.
 
-1. Baseline and contract freeze.
-   - Status: complete.
-2. Store interface extraction.
-   - Status: complete.
-3. PostgreSQL foundation for identity, registry, label config, import jobs, and audit.
-   - Status: complete.
-4. PostgreSQL migration for QC, drafts, submissions, sample pool, exports, and evaluations.
-   - Status: complete. Backend, QA, Frontend, and Docs branches are merged into `integration/TASK-019`; local integration verification passed with SQLite database fallback.
-5. Redis runtime state for active leases, locks, session cache, and import progress.
-   - Status: pending.
-6. File-state import tool.
-   - Status: pending.
-7. Docker rollout and full acceptance.
-   - Status: pending.
+## Role
 
-## Phase 4 Agent Branches
+Frontend Agent
 
-- Merged into integration: `agent/TASK-019/backend/qc-state` at `254e9f0`
-- Merged into integration: `agent/TASK-019/qa/qc-state-tests` at `a3c16e9`
-- Merged into integration: `agent/TASK-019/frontend/qc-db-compat` at `011df88`
-- Merged into integration: `agent/TASK-019/docs/qc-state-runbooks` at `b4f1042`
+## Branch
 
-## Phase 4 Scope
+`agent/TASK-019/frontend/progress-and-lease`
 
-- Move authoritative QC assignments, task records, lease history, drafts, batch drafts, submissions, annotation snapshots, modification events, sample pool items, export job metadata, and evaluation run metadata to PostgreSQL in database mode.
-- Preserve file-backed mode and existing frontend API response contracts.
-- Keep raw dataset files, uploaded archives, extracted source trees, media files, and export artifacts on the filesystem.
-- Do not introduce Redis or switch Docker defaults in this phase.
+## Worktree
 
-## Phase 4 Exit Gate
+`/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-019-frontend-progress-lease`
 
-- Database mode supports the full review workflow through confirmation and persistence across service recreation.
-- File-backed test suite remains green.
-- Frontend tests/build remain green.
-- QA database-mode tests pass with SQLite fallback and optionally with `TEST_DATABASE_URL`.
-- Docs and runbooks are reconciled with the implemented Phase 4 behavior.
+## Assigned Scope
 
-Exit gate status: complete for local integration. PostgreSQL-specific live validation still requires `TEST_DATABASE_URL`.
+- `frontend/src/services/**`
+- `frontend/src/features/datasets/components/DatasetTypeBatchPanel.vue`
+- `frontend/src/features/import/**`
+- `frontend/src/features/review-workbench/**`, only for lease readonly/conflict compatibility tests or minimal UI stability changes
+- `frontend/src/test/**`
+- `.agent/**`
+
+## Out Of Scope
+
+- Backend product code
+- API contract changes not already introduced by backend
+- Dependency changes
+- Broad UI redesign
+
+## Planned Steps
+
+1. Inspect existing import job normalization and upload progress UI.
+2. Add optional backend processing progress fields to frontend API types/normalizers if backend exposes them.
+3. Preserve current browser upload progress behavior.
+4. Show backend processing progress when present and fall back to stable "processing" copy when absent/expired.
+5. Verify lease conflict and readonly messaging remains stable when Redis lease state is missing, expired, or owned by another user.
+6. Add focused frontend tests.
+7. Update `.agent/progress.md` and complete `.agent/handoff.md`; commit changes.
+
+## Acceptance Criteria
+
+- `npm run test` passes.
+- `VITE_API_BASE_URL=/api npm run build` passes.
+- Missing Redis progress does not break import pages.
+- Review workbench lease readonly indicators do not flicker or change layout due to optional Redis data.
+
+## Expected Checks
+
+- `source "$HOME/.nvm/nvm.sh" && nvm use "$(cat ../.nvmrc)"`
+- `cd frontend && npm run test`
+- `cd frontend && VITE_API_BASE_URL=/api npm run build`
+
