@@ -33,6 +33,15 @@ describe('HTTP API adapter', () => {
     expect(observedThis).toBe(globalThis);
   });
 
+  it('uses same-origin Docker API base URLs without rewriting them', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(jsonResponse({ status: 'ok' }));
+    const client = new HttpClient({ baseUrl: '/api/', fetcher });
+
+    await client.get('health');
+
+    expect(fetcher).toHaveBeenCalledWith('/api/health', expect.objectContaining({ credentials: 'include' }));
+  });
+
   it('maps backend contract datasets into frontend view models', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(
       jsonResponse([

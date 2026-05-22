@@ -16,6 +16,10 @@ Frontend Agent
 
 Verify the Vue production build and frontend behavior remain compatible with Phase 7 Docker same-origin `/api` deployment and optional Redis/live-progress fields.
 
+## Status
+
+Complete. Frontend tests and Docker-style production build pass, and same-origin `/api` URL joining is covered by a focused test.
+
 ## Ownership
 
 - Own: `frontend/**`, frontend tests, and `.agent/**`.
