@@ -1,6 +1,6 @@
 <template>
   <div class="review-page">
-    <div v-if="initialLoading && !detail" class="loading-state">Loading review sample...</div>
+    <div v-if="initialLoading && !detail" class="loading-state">正在加载质检样本...</div>
     <div v-else-if="error && !detail" class="error-state">{{ error }}</div>
     <div v-else-if="detail" class="review-refresh-frame" :class="{ 'is-refreshing': refreshing }">
       <ReviewWorkbenchShell
@@ -27,7 +27,7 @@
         :switch-error="refreshError"
       />
     </div>
-    <div v-else class="empty-state">No review detail returned by the backend.</div>
+    <div v-else class="empty-state">后端未返回质检样本详情。</div>
   </div>
 </template>
 
@@ -81,7 +81,7 @@ const readonlyReason = computed(() => {
   const lease = reviewDetail?.sampleLease;
   if (!reviewDetail) return '';
   if (!assignment || assignment.status === 'revoked') {
-    return '该批次尚未分配，需 batch_manager/qc_lead 先分配后才能编辑';
+    return '该批次尚未分配，需批次管理员或质检负责人先分配后才能编辑';
   }
   if (!currentUser) {
     return '未读取到当前用户，当前样本只读';
@@ -90,7 +90,7 @@ const readonlyReason = computed(() => {
     return `该批次已分配给 ${assignment.assigneeDisplayName || assignment.assigneeUserId}`;
   }
   if (!hasEditableLease(lease, currentUser.userId)) {
-    return '未持有有效 sample lease，当前样本只读';
+    return '未持有有效样本锁，当前样本只读';
   }
   return '';
 });
@@ -122,7 +122,7 @@ const loadInitial = async () => {
     if (sequence !== requestSequence) {
       return;
     }
-    error.value = err instanceof Error ? err.message : 'Unable to load review sample';
+    error.value = err instanceof Error ? err.message : '无法加载质检样本';
     refreshError.value = error.value;
   } finally {
     if (sequence === requestSequence) {
@@ -152,7 +152,7 @@ const refreshSample = async () => {
     if (sequence !== requestSequence) {
       return;
     }
-    error.value = err instanceof Error ? err.message : 'Unable to load review sample';
+    error.value = err instanceof Error ? err.message : '无法加载质检样本';
     refreshError.value = detail.value ? error.value : '';
   } finally {
     if (sequence === requestSequence) {

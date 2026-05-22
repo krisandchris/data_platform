@@ -1,27 +1,20 @@
-# TASK-021 Findings
+# TASK-022 Findings
 
-## Frontend Findings
+## Repository Facts
 
-- `AssetTable.vue` rendered every filtered asset directly with no pagination.
-- The asset sample link had no explicit layout containment, so long `sample_id` values could consume table width and squeeze fields on the right.
-- `QcPage.vue` rendered filtered queue items as three-column cards. This made dense batch review harder to scan and had no pagination for larger assignments.
-- The existing QC `canOpenEditable(item)` route/link logic is independent from the card markup and was preserved while changing presentation.
-- No backend API contract changes were needed.
+- The shell receives normalized label config with `code`, `labelZh`, and `labelEn`.
+- Existing helper functions rendered `option.code`, which leaked English codes into the QC page.
+- The user explicitly excluded `violation_category` from this localization pass.
 
-## Decisions
+## Implemented Decisions
 
-- Use 10 rows per page for both asset samples and QC queue items to match the import validation pagination pattern.
-- Keep pagination client-side because both components already receive the full list from current frontend data flows.
-- Use fixed/bounded sample columns and `title` attributes for full long IDs.
-- Use a table-like grid for QC queue rows while keeping each row as a `RouterLink` to the sample review page.
-- Keep very narrow viewport behavior scrollable rather than hiding operational fields.
-
-## Integration Findings
-
-- Frontend branch `agent/TASK-021/frontend/sample-qc-pagination` merged into integration with only `.agent` documentation conflicts.
-- Product files merged without conflicts.
-- Existing unrelated `.gitignore` user modification remains outside TASK-021.
+- Display-only helpers were added so model/draft values remain original codes.
+- For `violation_category`, the page continues displaying the raw value/code.
+- For other label-config backed fields, visible text prefers `labelZh`, then `labelEn`, then known local fallback labels, then raw value.
+- Datalist suggestions keep raw `value` but include localized `label`, so adding a tag still stores the original code.
+- Lease/status/progress/topbar/relation/candidate labels were changed to Chinese operator text.
 
 ## Risks
 
-- Very narrow viewports may still need horizontal scrolling because both pages expose many operational fields. The desktop layout keeps columns bounded so long IDs do not hide right-side fields.
+- Free-text fields such as relation subject/object/description can still contain English if the sample data itself is English. The change maps known tag/code values for display-only text but does not mutate editable free-text values.
+- Some technical identifiers remain intentionally raw, including `violation_category`, sample IDs, candidate IDs, relation IDs, and persisted operation field names.

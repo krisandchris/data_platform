@@ -1,29 +1,18 @@
-# TASK-021 Progress
+# TASK-022 Progress
 
-## 2026-05-22 Frontend Implementation
+## 2026-05-22
 
-- Added client-side 10-row pagination to `AssetTable.vue`.
-- Added asset pagination range text and previous/next controls.
-- Bounded long asset `sample_id` values in the sample column and exposed full values via `title`.
-- Replaced QC queue card layout with horizontal row layout in `QcPage.vue`.
-- Added client-side 10-row pagination to the QC filtered queue.
-- Preserved QC row links and readonly/editable styling behavior.
-- Added frontend regression tests for asset pagination and QC queue pagination/layout.
+- Created frontend worktree from current `main`.
+- Replaced review page loading/empty/fallback errors with Chinese text.
+- Localized review workbench topbar, navigation, evidence panel, relation panel, candidate panel, lease/status text, and submit modal labels.
+- Added display-only label helpers for label-config backed options, preserving raw saved values.
+- Kept `violation_category` display raw per user request.
+- Updated regression tests for localized QC text and option labels.
 
-## Frontend Worktree Verification
+## Verification
 
 - `cd frontend && npm ci`: passed.
-- `cd frontend && npm run test -- src/test/assetTable.test.ts src/test/routesAndPages.test.ts`: passed.
-- `cd frontend && npm run test`: passed.
+- `cd frontend && npm run test -- src/test/routesAndPages.test.ts`: passed.
 - `cd frontend && npm run build`: passed.
+- `cd frontend && npm run test`: passed.
 - `git diff --check`: passed.
-
-## Integration
-
-- Merged frontend branch `agent/TASK-021/frontend/sample-qc-pagination` at `f1f0190`.
-- Resolved `.agent` conflicts by rewriting this task's integration records.
-- Integration verification passed:
-  - `cd frontend && npm run test -- src/test/assetTable.test.ts src/test/routesAndPages.test.ts`
-  - `cd frontend && npm run test`
-  - `cd frontend && npm run build`
-  - `git diff --check`

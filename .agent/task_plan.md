@@ -1,35 +1,47 @@
-# TASK-021 Sample And QC Pagination Plan
+# TASK-022 QC Chinese Localization
 
-Objective: fix two frontend layout regressions:
+Objective: Chinese-localize the sample review / QC page while keeping `violation_category` values unchanged.
 
-- Asset sample preview must paginate samples at 10 rows per page and prevent long `sample_id` values from hiding right-side fields.
-- QC workspace "我的批次" must paginate tasks at 10 rows per page and replace card layout with horizontal single-row entries that keep fields aligned and scannable.
+## Agent Role
 
-## Branches
+Frontend Agent
 
-- Integration: `integration/TASK-021`
-- Frontend: `agent/TASK-021/frontend/sample-qc-pagination` at `f1f0190`
+## Branch
+
+`agent/TASK-022/frontend/qc-zh-localization`
+
+## Worktree
+
+`../_worktrees/data_platform/qc-zh-localization`
+
+## Assigned Scope
+
+- `frontend/src/features/review-workbench/**`
+- Frontend tests that cover review workbench UI text and label-config display.
+
+## Out of Scope
+
+- Backend API contracts.
+- Label-config schema changes.
+- `violation_category` value localization.
+- Unrelated visual redesign.
 
 ## Steps
 
-1. Inspect current asset and QC table/card rendering.
+1. Inspect review workbench text and option rendering helpers.
    - Status: complete.
-2. Add asset table pagination and fixed long-ID column behavior.
+2. Implement display-only label-config option localization for non-`violation_category` fields.
    - Status: complete.
-3. Replace QC queue cards with paginated horizontal rows.
+3. Replace hard-coded English operator text in the QC/review page with Chinese.
    - Status: complete.
-4. Add focused regression tests.
+4. Update focused tests.
    - Status: complete.
-5. Merge frontend branch into integration.
-   - Status: complete.
-6. Run integration verification and merge to main.
+5. Run frontend tests, build, and diff checks.
    - Status: complete.
 
 ## Acceptance Criteria
 
-- Asset sample preview renders at most 10 rows per page.
-- Asset sample preview exposes previous/next controls and range text.
-- Long `sample_id` values stay bounded in the sample column and expose full text via `title`.
-- QC "我的批次" renders as horizontal rows instead of cards.
-- QC task rows render at most 10 items per page with previous/next controls and range text.
-- Existing routes, review links, and QC editability behavior remain unchanged.
+- `violation_category` remains displayed as raw code/value.
+- Other label-config options prefer Chinese labels when available while keeping stored values unchanged.
+- Main QC operator workflow text is Chinese.
+- Existing sample navigation, draft editing, bbox editing, lease/read-only behavior, and submission logic are unchanged.
