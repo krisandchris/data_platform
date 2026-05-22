@@ -13,6 +13,8 @@ from urban_violation_backend.errors import ApiError
 from urban_violation_backend.routes import build_router
 from urban_violation_backend.service import build_fixture_service
 
+APP_VERSION = "0.0.2"
+
 
 def create_app(
     *,
@@ -36,7 +38,7 @@ def create_app(
     )
     app = FastAPI(
         title="Urban Violation Backend API",
-        version="0.1.0",
+        version=APP_VERSION,
         description="Fixture-backed runtime API for frontend and integration tests.",
     )
     app.add_middleware(

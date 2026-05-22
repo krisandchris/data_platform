@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.0.2 - 2026-05-22
+
+- Added PostgreSQL + Redis deployment defaults and migration tooling for durable platform state.
+- Added import validation detail rendering and pagination for scan validation / import preview records.
+- Added asset sample preview pagination and long `sample_id` layout containment.
+- Reworked QC workspace batch queue into paginated horizontal rows for dense review.
+- Fixed Docker rollout packaging and startup checks for database-mode deployments.
+
 ## v0.0.1 - 2026-05-21
 
 - Added Docker Compose LAN deployment with Nginx frontend proxy and FastAPI backend service.

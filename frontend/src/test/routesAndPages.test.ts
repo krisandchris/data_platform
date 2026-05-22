@@ -3120,9 +3120,10 @@ describe('import and review routes', () => {
       configurable: true,
       value: [file],
     });
-    input.element.dispatchEvent(new Event('change'));
+    await input.trigger('change');
     await flushPromises();
     await new Promise((resolve) => window.setTimeout(resolve, 0));
+    await flushPromises();
 
     expect(wrapper.text()).toContain('urban_violation_labels_v1');
     expect(wrapper.text()).toContain('固定枚举');
@@ -3197,9 +3198,10 @@ describe('import and review routes', () => {
       configurable: true,
       value: [file],
     });
-    input.element.dispatchEvent(new Event('change'));
+    await input.trigger('change');
     await flushPromises();
     await new Promise((resolve) => window.setTimeout(resolve, 0));
+    await flushPromises();
 
     const validateButton = wrapper.findAll('button').find((button) => button.text().includes('校验配置'));
     await validateButton?.trigger('click');
