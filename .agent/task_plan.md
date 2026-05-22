@@ -13,7 +13,7 @@ Objective: improve the import validation page so blocking errors and non-blockin
 4. Run frontend tests/build in worktree.
    - Status: complete.
 5. Merge verified frontend branch into integration and then main.
-   - Status: in_progress.
+   - Status: complete.
 
 ## Frontend Worktree
 
@@ -44,6 +44,12 @@ Objective: improve the import validation page so blocking errors and non-blockin
 
 - `cd frontend && npm ci`: passed.
 - `cd frontend && npm run test -- src/test/apiClient.test.ts src/test/routesAndPages.test.ts`: passed.
+- `cd frontend && npm run test`: passed.
+- `cd frontend && npm run build`: passed.
+- `git diff --check`: passed.
+
+## Integration Verification
+
 - `cd frontend && npm run test`: passed.
 - `cd frontend && npm run build`: passed.
 - `git diff --check`: passed.

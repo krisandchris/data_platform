@@ -279,3 +279,8 @@
   - `cd frontend && npm run test`
   - `cd frontend && npm run build`
   - `git diff --check`
+- Merged `agent/TASK-020/frontend/import-validation-ui` into `integration/TASK-020` at merge commit `4bda913`.
+- Integration verification passed:
+  - `cd frontend && npm run test`
+  - `cd frontend && npm run build`
+  - `git diff --check`
