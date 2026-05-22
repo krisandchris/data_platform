@@ -22,4 +22,8 @@
 
 - Merged frontend branch `agent/TASK-021/frontend/sample-qc-pagination` at `f1f0190`.
 - Resolved `.agent` conflicts by rewriting this task's integration records.
-- Integration verification is pending.
+- Integration verification passed:
+  - `cd frontend && npm run test -- src/test/assetTable.test.ts src/test/routesAndPages.test.ts`
+  - `cd frontend && npm run test`
+  - `cd frontend && npm run build`
+  - `git diff --check`

@@ -23,7 +23,7 @@ Objective: fix two frontend layout regressions:
 5. Merge frontend branch into integration.
    - Status: complete.
 6. Run integration verification and merge to main.
-   - Status: pending.
+   - Status: complete.
 
 ## Acceptance Criteria
 

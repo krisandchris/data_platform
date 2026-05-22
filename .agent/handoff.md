@@ -40,7 +40,11 @@ Goal: ship frontend pagination and layout fixes for asset sample preview and QC 
 ## Verification
 
 - Frontend worktree verification passed.
-- Integration verification pending.
+- Integration verification passed:
+  - `cd frontend && npm run test -- src/test/assetTable.test.ts src/test/routesAndPages.test.ts`
+  - `cd frontend && npm run test`
+  - `cd frontend && npm run build`
+  - `git diff --check`
 
 ## Risks
 
