@@ -74,3 +74,15 @@ Do not add other dependencies without documenting a dependency request in `.agen
 - `uv run pytest -q`
 - If Redis is available: `TEST_REDIS_URL=redis://127.0.0.1:<port>/0 uv run pytest -k redis_runtime -q`
 
+
+## Execution Status (2026-05-22)
+
+- [x] Inspect Phase 4 lease/import/QC/session/settings code paths.
+- [x] Add Redis runtime settings (`REDIS_URL`, `PLATFORM_REDIS_ENABLED`) with fallback-safe defaults.
+- [x] Add Redis runtime coordinator module (lease lock, distributed lock, progress, session cache).
+- [x] Wire lease acquire/heartbeat/release to owner-checked Redis runtime lock while keeping durable lease history in store.
+- [x] Add QC queue generation lock and import scan/validate/confirm/retry locks.
+- [x] Add optional live import progress fields on import job responses.
+- [x] Add optional session lookup cache backed by durable session store.
+- [x] Add focused deterministic fake Redis tests and gated real Redis smoke test.
+- [x] Run required command matrix and record results in `.agent/progress.md`.

@@ -13,6 +13,7 @@ from pwdlib import PasswordHash
 from urban_violation_backend.api_schemas import CurrentUserResponse
 from urban_violation_backend.errors import unauthorized
 from urban_violation_backend.permissions import ROLE_PERMISSIONS
+from urban_violation_backend.runtime_coordination import SessionLookupCacheProtocol
 from urban_violation_backend.schemas import (
     AuthSession,
     RoleBinding,
@@ -70,9 +71,15 @@ class AuthContext:
 class AuthService:
     """Internal account/session management."""
 
-    def __init__(self, store: PlatformStateStoreProtocol, settings: AuthSettings) -> None:
+    def __init__(
+        self,
+        store: PlatformStateStoreProtocol,
+        settings: AuthSettings,
+        session_cache: SessionLookupCacheProtocol | None = None,
+    ) -> None:
         self.store = store
         self.settings = settings
+        self._session_cache = session_cache
 
     @staticmethod
     def default_settings() -> AuthSettings:
@@ -159,6 +166,8 @@ class AuthService:
         sessions = self.store.list_sessions()
         sessions.append(session)
         self.store.save_sessions(sessions)
+        if self._session_cache is not None:
+            self._session_cache.set_session(session)
 
         updated_user = user.model_copy(update={"last_seen_at": now, "updated_at": now})
         self.save_user(updated_user)
@@ -177,10 +186,18 @@ class AuthService:
                 updated.append(session)
         if revoked:
             self.store.save_sessions(updated)
+            if self._session_cache is not None:
+                self._session_cache.invalidate_session(token)
         return revoked
 
     def resolve_session(self, token: str) -> AuthSession | None:
         now = self.store.now()
+        if self._session_cache is not None:
+            cached = self._session_cache.get_session(token)
+            if cached is not None:
+                if cached.revoked_at is None and cached.expires_at > now:
+                    return cached
+                self._session_cache.invalidate_session(token)
         sessions = self.store.list_sessions()
         valid: AuthSession | None = None
         touched = False
@@ -198,6 +215,11 @@ class AuthService:
                 valid = session
         if touched:
             self.store.save_sessions(updated_sessions)
+        if self._session_cache is not None:
+            if valid is not None:
+                self._session_cache.set_session(valid)
+            else:
+                self._session_cache.invalidate_session(token)
         return valid
 
     def _roles_for_user(self, user_id: str) -> list[RoleBinding]:
