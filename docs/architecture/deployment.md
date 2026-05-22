@@ -7,7 +7,7 @@ This deployment profile runs the platform as two containers on a LAN host:
 - `DATASET/`: mounted from the host as readonly source data.
 - Runtime state: mounted from the host as writable state for accounts, sessions, permissions, batches, drafts, label config, QC state, and audit records.
 
-Current Compose deployment is file-backed. TASK-019 Phase 3 introduces PostgreSQL foundation code and migrations, Phase 4 adds QC/review PostgreSQL state, and Phase 5 validates optional Redis runtime coordination. These phases do not switch Docker defaults, do not make Redis a required production service, and do not make the production database rollout. TASK-019 will add PostgreSQL and Redis to Docker defaults only in the Phase 7 Docker rollout after database migrations, QC/review state migration, file-state import, Redis restart behavior, Docker rollout checks, and rollback have passed. See [State Persistence Boundaries](./state-persistence-boundaries.md) and [PostgreSQL + Redis Migration Runbook](./postgres-redis-migration-runbook.md).
+Current Compose deployment is file-backed. TASK-019 Phase 3 introduces PostgreSQL foundation code and migrations, Phase 4 adds QC/review PostgreSQL state, Phase 5 validates optional Redis runtime coordination, and Phase 6 adds the explicit file-state import tool. These phases do not switch Docker defaults, do not make Redis a required production service, and do not make the production database rollout. TASK-019 will add PostgreSQL and Redis to Docker defaults only in the Phase 7 Docker rollout after database migrations, QC/review state migration, file-state import, Redis restart behavior, Docker rollout checks, and rollback have passed. See [State Persistence Boundaries](./state-persistence-boundaries.md) and [PostgreSQL + Redis Migration Runbook](./postgres-redis-migration-runbook.md).
 
 The public LAN entrypoint is HTTP on port `8080` by default:
 
@@ -74,6 +74,31 @@ Phase 5 Redis variables are optional verification variables only until Phase 7:
 | `TEST_REDIS_URL` | Operator/test env only | Isolated Redis smoke URL for integration tests. Do not point at shared production Redis because loss checks may expire keys or run `FLUSHDB`. |
 
 Redis must not be treated as durable platform storage. Redis loss may remove only active locks, live progress hints, and optional cache entries. Drafts, submissions, audit, label configs, users, roles, sessions, batch metadata, import job final state, sample pool, exports, and evaluations must remain PostgreSQL-backed in database mode.
+
+Phase 6 file-state import variables are used only for an explicit operator-run migration command. They are not Docker defaults until Phase 7:
+
+| Variable or flag | Current Docker posture | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | Unset in current file-backed Compose defaults | Target database for Alembic, import dry-run/apply, and database-mode verification. |
+| `PLATFORM_STATE_BACKEND` | `file` | Must remain `file` for current Compose defaults. Use `database` only for explicit post-import verification or Phase 7 rollout. |
+| `PLATFORM_DB_AUTO_MIGRATE` | `0` | Keep explicit Alembic migration as the operator path before import. |
+| `--platform-state-root` | `/data/platform_state` in the backend container | Required source file-backed runtime state root read by the import command. |
+| `--label-config-store-root` | `/data/label_config_state` in the backend container | Required source label config and dataset registry root read by the import command. |
+| `--dataset-root` | `/data/datasets/urban_violation` in the backend container | Required readonly source dataset root used to preserve filesystem references. |
+
+Confirmed Phase 6 command surface:
+
+```bash
+DATABASE_URL="$DATABASE_URL" \
+uv run python -m urban_violation_backend.migrate_state import-file-state \
+  --platform-state-root /srv/urban-platform/runtime/platform_state \
+  --label-config-store-root /srv/urban-platform/runtime/label_config_state \
+  --dataset-root /srv/urban-platform/DATASET/urban_violation \
+  --dry-run \
+  --report "$BACKUP_ROOT/file-state-import.dry-run.json"
+```
+
+The import command must not mutate `DATASET/`, uploaded archives, extracted uploaded source trees, media files, generated export artifacts, `PLATFORM_STATE_ROOT`, or `LABEL_CONFIG_STORE_ROOT`. It writes only to the target database and the requested report path. Reverse export from PostgreSQL back to file-backed state is not implemented in Phase 6, so rollback after database-mode writes requires choosing whether PostgreSQL or the pre-cutover file backup is authoritative.
 
 Security cautions:
 

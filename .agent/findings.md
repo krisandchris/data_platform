@@ -67,3 +67,24 @@
   - `DatabaseLabelConfigRepository.import_active_pointer(dataset_id, config_id)` for non-overwriting active-pointer import.
 - DB store and registry APIs are still reused for all other mutable-state domains, with importer-side conflict checks to prevent silent overwrite.
 - Import command returns exit code `3` on conflicts so operators can stop and inspect the JSON report.
+
+## Phase 6 QA Findings (agent/TASK-019/qa/import-tool-tests)
+
+- QA branch supplied file-state import coverage expectations before the backend importer existed.
+- During integration, the QA scenarios were reconciled into `tests/test_migrate_state_import_tool.py`:
+  - CLI report writing through `migrate_state.main()`;
+  - dry-run source-file non-mutation;
+  - post-import database-mode API reads and continued writes.
+- Focused integrated test file now executes against the real importer instead of skipping on module discovery.
+
+## Phase 6 Docs Findings
+
+- Docs branch documented the Phase 6 runbook around the now-confirmed command: `uv run python -m urban_violation_backend.migrate_state import-file-state`.
+- Runbook updates must continue to state that Docker defaults remain file-backed until Phase 7.
+- Reverse export from PostgreSQL back to file-backed roots is not implemented in Phase 6, so rollback after database-mode writes must explicitly choose PostgreSQL or the pre-cutover file backup as authoritative.
+
+## Phase 6 Integration Findings
+
+- Required state roots are CLI flags; only `DATABASE_URL` may be supplied from the environment when `--database-url` is omitted.
+- The JSON report exposes top-level `status`, `dry_run`, redacted `database_url`, `summary`, per-domain counters, `unsupported_domains`, `filesystem_only_domains`, `filesystem_references`, and operator notes.
+- Docs were reconciled from expected/pending command language to confirmed Phase 6 command language after merging backend, QA, and docs branches.

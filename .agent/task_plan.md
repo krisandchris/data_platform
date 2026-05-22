@@ -15,7 +15,7 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 5. Redis runtime state for active leases, locks, session cache, and import progress.
    - Status: complete. Backend, QA, Frontend, and Docs branches are merged into integration; final verification passed.
 6. File-state import tool.
-   - Status: in_progress. Phase 6 worktrees are being prepared for backend implementation, QA coverage, and docs/runbook updates.
+   - Status: in_progress. Backend, QA, and Docs branches are merged into integration; final verification is running.
 7. Docker rollout and full acceptance.
    - Status: pending.
 
@@ -55,9 +55,9 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 
 ## Phase 6 Agent Branches
 
-- Planned: `agent/TASK-019/backend/import-tool`
-- Planned: `agent/TASK-019/qa/import-tool-tests`
-- Planned: `agent/TASK-019/docs/import-tool-runbook`
+- Merged into integration: `agent/TASK-019/backend/import-tool` at `6c70088`
+- Merged into integration: `agent/TASK-019/qa/import-tool-tests` at `ed66515`
+- Merged into integration: `agent/TASK-019/docs/import-tool-runbook` at `af3c2ec`
 
 ## Phase 6 Scope
 

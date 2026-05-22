@@ -87,3 +87,19 @@
   - `uv run pytest tests/test_migrate_state_import_tool.py -q`
   - `uv run pytest tests/test_db_foundation_backend.py -q`
   - `git diff --check`
+
+## 2026-05-22 Phase 6 QA Agent Execution (import-tool-tests)
+
+- Added migration/import test design covering empty import, representative fixture import, idempotent re-run, conflict protection, dry-run non-mutation, and post-import continued writes.
+- Initial QA branch tests skipped until the backend importer module existed.
+- During Lead integration, QA scenarios were reconciled into the backend test file and executed against the real importer.
+- Verification passed:
+  - `uv run pytest tests/test_migrate_state_import_tool.py -q`
+
+## 2026-05-22 Phase 6 Docs Agent Execution (import-tool-runbook)
+
+- Confirmed docs worktree branch: `agent/TASK-019/docs/import-tool-runbook`.
+- Updated docs for Phase 6 import command expectations, dry-run/apply/idempotency/conflict workflow, required env vars and roots, non-mutation guarantees, rollback notes, and post-import verification.
+- Lead integration reconciled docs from expected/pending wording to the confirmed backend command and required CLI flags.
+- Branch verification passed:
+  - `git diff --check`
