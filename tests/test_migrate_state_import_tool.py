@@ -6,7 +6,10 @@ from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+
 from urban_violation_backend.api_schemas import DatasetSummaryResponse
+from urban_violation_backend.app import create_app
 from urban_violation_backend.db import (
     DatabaseBackedPlatformStateStore,
     DatabaseFoundationRegistryRepository,
@@ -15,7 +18,7 @@ from urban_violation_backend.db import (
     run_migrations_to_head,
 )
 from urban_violation_backend.labels import FileBackedLabelConfigRepository, validate_label_config
-from urban_violation_backend.migrate_state import ImportFileStateArgs, run_import_file_state
+from urban_violation_backend.migrate_state import ImportFileStateArgs, main as migrate_state_main, run_import_file_state
 from urban_violation_backend.schemas import (
     AnnotationSnapshot,
     AnnotationSnapshotType,
@@ -53,6 +56,21 @@ from urban_violation_backend.state_store import PlatformStateStore
 
 def _sqlite_database_url(tmp_path: Path, name: str = "phase6.db") -> str:
     return f"sqlite+pysqlite:///{(tmp_path / name).resolve()}"
+
+
+def _json_file_hash(path: Path) -> str:
+    """Return a stable structural hash string for JSON files."""
+    if not path.is_file():
+        return "<missing>"
+    return json.dumps(json.loads(path.read_text(encoding="utf-8")), ensure_ascii=False, sort_keys=True)
+
+
+def _jsonl_file_hash(path: Path) -> str:
+    """Return a stable structural hash string for JSONL files."""
+    if not path.is_file():
+        return "<missing>"
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return json.dumps(rows, ensure_ascii=False, sort_keys=True)
 
 
 def _label_payload(dataset_type: str = "urban_violation") -> dict:
@@ -540,3 +558,139 @@ def test_import_file_state_conflict_reports_without_overwrite(tmp_path: Path) ->
     # No silent overwrite: conflicting row in DB remains untouched.
     reloaded = DatabaseBackedPlatformStateStore(state_root, build_session_factory(build_engine(database_url)))
     assert reloaded.list_users()[0].display_name == "Changed In DB"
+
+
+def test_import_file_state_cli_writes_report(tmp_path: Path) -> None:
+    state_root = tmp_path / "platform_state"
+    label_root = tmp_path / "label_state"
+    dataset_root = tmp_path / "dataset"
+    state_root.mkdir(parents=True)
+    label_root.mkdir(parents=True)
+    dataset_root.mkdir(parents=True)
+
+    report_path = tmp_path / "reports" / "phase6-import.json"
+    database_url = _sqlite_database_url(tmp_path, "cli.db")
+
+    exit_code = migrate_state_main(
+        [
+            "import-file-state",
+            "--platform-state-root",
+            str(state_root),
+            "--label-config-store-root",
+            str(label_root),
+            "--dataset-root",
+            str(dataset_root),
+            "--database-url",
+            database_url,
+            "--dry-run",
+            "--report",
+            str(report_path),
+            "--run-migrations",
+        ]
+    )
+
+    assert exit_code == 0
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+    assert payload["status"] == "ok"
+    assert payload["dry_run"] is True
+    assert payload["summary"]["inserted"] == 0
+    assert "raw_dataset_files" in payload["filesystem_only_domains"]
+
+
+def test_import_file_state_dry_run_does_not_mutate_source_files(tmp_path: Path) -> None:
+    state_root = tmp_path / "platform_state"
+    label_root = tmp_path / "label_state"
+    dataset_root = tmp_path / "dataset"
+    state_root.mkdir(parents=True)
+    label_root.mkdir(parents=True)
+    dataset_root.mkdir(parents=True)
+
+    now = datetime.now(timezone.utc)
+    _seed_platform_state(state_root, now)
+    _seed_registry_files(label_root, now)
+    _seed_label_configs(label_root)
+
+    users_before = _json_file_hash(state_root / "users.json")
+    audit_before = _jsonl_file_hash(state_root / "audit_events.jsonl")
+    active_config_before = _json_file_hash(label_root / "urban_violation" / "label_configs" / "active.json")
+    database_url = _sqlite_database_url(tmp_path, "dry-run.db")
+    run_migrations_to_head(database_url)
+
+    report, exit_code = run_import_file_state(
+        _build_import_args(
+            state_root=state_root,
+            label_root=label_root,
+            dataset_root=dataset_root,
+            database_url=database_url,
+            dry_run=True,
+        )
+    )
+
+    assert exit_code == 0
+    assert report.total_source > 0
+    assert report.total_inserted > 0
+    assert _json_file_hash(state_root / "users.json") == users_before
+    assert _jsonl_file_hash(state_root / "audit_events.jsonl") == audit_before
+    assert _json_file_hash(label_root / "urban_violation" / "label_configs" / "active.json") == active_config_before
+    assert DatabaseBackedPlatformStateStore(state_root, build_session_factory(build_engine(database_url))).list_users() == []
+
+
+def test_import_file_state_post_import_api_reads_and_continued_writes(tmp_path: Path) -> None:
+    state_root = tmp_path / "platform_state"
+    label_root = tmp_path / "label_state"
+    dataset_root = tmp_path / "dataset"
+    state_root.mkdir(parents=True)
+    label_root.mkdir(parents=True)
+    dataset_root.mkdir(parents=True)
+
+    now = datetime.now(timezone.utc)
+    _seed_platform_state(state_root, now)
+    _seed_registry_files(label_root, now)
+    _seed_label_configs(label_root)
+
+    database_url = _sqlite_database_url(tmp_path, "api.db")
+    run_migrations_to_head(database_url)
+    report, exit_code = run_import_file_state(
+        _build_import_args(
+            state_root=state_root,
+            label_root=label_root,
+            dataset_root=dataset_root,
+            database_url=database_url,
+            dry_run=False,
+        )
+    )
+    assert exit_code == 0
+    assert report.total_conflicts == 0
+
+    with TestClient(
+        create_app(
+            label_config_store_root=label_root,
+            platform_state_root=state_root,
+            platform_state_backend="database",
+            database_url=database_url,
+            platform_db_auto_migrate=False,
+            enable_fixture_batch=False,
+        )
+    ) as client:
+        users = client.get("/api/users", headers={"X-User-Id": "platform_admin", "X-User-Role": "platform_admin"})
+        assert users.status_code == 200
+        assert any(item["user_id"] == "annotator_a" for item in users.json())
+
+        created = client.post(
+            "/api/users",
+            json={
+                "user_id": "post_import_writer",
+                "display_name": "Post Import Writer",
+                "email": "post_import_writer@example.local",
+                "password": "StrongPassw0rd!",
+            },
+            headers={"X-User-Id": "platform_admin", "X-User-Role": "platform_admin"},
+        )
+        assert created.status_code == 201
+
+        users_after = client.get(
+            "/api/users",
+            headers={"X-User-Id": "platform_admin", "X-User-Role": "platform_admin"},
+        )
+        assert users_after.status_code == 200
+        assert any(item["user_id"] == "post_import_writer" for item in users_after.json())

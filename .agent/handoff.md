@@ -1,20 +1,21 @@
-# TASK-019 Phase 6 Backend Agent Handoff
+# TASK-019 Phase 6 Integration Handoff
 
-## Agent Role
+## Lead Scope
 
-Backend Agent
+Integration branch: `integration/TASK-019`
 
-## Branch
+Phase 6 delivers the file-state-to-database import path needed before enabling database-backed runtime state in production-like deployments.
 
-`agent/TASK-019/backend/import-tool`
+## Agent Branches Integrated
 
-## Scope Delivered
-
-Implemented Phase 6 file-state import command and focused backend tests for dry-run/apply/idempotency/conflict behavior.
+- `agent/TASK-019/backend/import-tool`
+  - Implemented `urban_violation_backend.migrate_state import-file-state`.
+  - Added conflict-safe import behavior, JSON reporting, filesystem reference reporting, and focused backend tests.
+- `agent/TASK-019/qa/import-tool-tests`
+  - Added migration/import QA coverage expectations.
+  - During integration, the QA scenarios were reconciled into the executable backend test file now that the real importer module exists.
 
 ## Command Surface
-
-Implemented module command:
 
 ```bash
 uv run python -m urban_violation_backend.migrate_state import-file-state \
@@ -27,51 +28,38 @@ uv run python -m urban_violation_backend.migrate_state import-file-state \
   [--run-migrations]
 ```
 
-`DATABASE_URL` env is supported when `--database-url` is omitted.
-
-## JSON Report Schema (top-level)
-
-- `status`: `ok` or `conflict`
-- `dry_run`: boolean
-- `paths`: `platform_state_root`, `label_config_store_root`, `dataset_root`
-- `database_url`: redacted URL
-- `summary`: `source_count`, `inserted`, `matched`, `conflicts`
-- `domains`: per-domain counters + `conflict_ids`
-- `unsupported_domains`: explicit list (currently empty)
-- `filesystem_only_domains`: explicit list of non-DB migrated filesystem domains
-- `filesystem_references`: detected import `source_uri` and `export_artifact_paths`
-- `notes`: operator-facing safety notes
-
-Conflict policy:
-
-- same-id same-content -> `matched`
-- same-id different-content -> conflict (reported, skipped, no overwrite)
-- command exit code is `3` when any conflict exists
+`DATABASE_URL` is supported when `--database-url` is omitted.
 
 ## Imported Domains
 
 - users, role bindings, sessions, audit events
-- dataset type registry
-- registered batches + import jobs (from `batches.json`)
-- label config versions + active pointers (preserved IDs)
-- QC assignments, tasks, leases, drafts, batch drafts, submissions
-- annotation snapshots, modification events
-- sample pool items
-- export jobs
-- evaluations
+- dataset type registry and registered batches/import jobs
+- label config versions and active pointers
+- QC assignments, tasks, leases, per-sample drafts, batch drafts, submissions
+- annotation snapshots and modification events
+- sample pool items, export jobs, evaluations
+
+## Conflict And Safety Behavior
+
+- Same ID and same content is reported as `matched`.
+- Same ID and different content is reported as `conflict`.
+- Conflicting database rows are skipped and are not overwritten.
+- The command exits with code `3` when conflicts are detected.
+- File-backed roots and `DATASET` files are treated as read-only import inputs.
 
 ## Files Changed
 
 - `src/urban_violation_backend/migrate_state.py`
 - `src/urban_violation_backend/db/foundation.py`
 - `tests/test_migrate_state_import_tool.py`
-- `.agent/progress.md`
+- `.agent/task_plan.md`
 - `.agent/findings.md`
+- `.agent/progress.md`
 - `.agent/handoff.md`
 
-## Verification
+## Verification Status
 
-Passed:
+Backend branch verification before integration:
 
 ```bash
 uv run pytest tests/test_migrate_state_import_tool.py -q
@@ -79,7 +67,10 @@ uv run pytest tests/test_db_foundation_backend.py -q
 git diff --check
 ```
 
-## Risks / Unsupported Coverage
+Integration verification is still in progress after resolving the QA merge.
 
-- Batch draft user-id decoding still depends on `_batch.<user_id>.json` naming convention from the file store; if user ids relied on slash escaping in filenames, fidelity could be limited.
-- `unsupported_domains` is currently empty because all required Phase 6 database domains are imported; non-target filesystem domains are explicitly listed under `filesystem_only_domains` and remain read-only.
+## Remaining Risks
+
+- The importer preserves database rows on conflict but does not provide an automated merge/repair mode. Operators must inspect the JSON report and resolve conflicts manually.
+- Batch draft user-id recovery still depends on `_batch.<user_id>.json` file naming from the file store.
+- Filesystem artifacts such as raw datasets, uploaded archives, extracted sources, media files, and export blobs remain filesystem-managed and are reported as references rather than imported into the database.
