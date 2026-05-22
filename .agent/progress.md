@@ -139,4 +139,14 @@
   - `alembic/`
 - Identified the immediate backend rollout risk: backend image lacks `alembic.ini` and `alembic/`, so database-mode startup migration cannot work in the container until the image copies those files.
 - Updated `.agent/task_plan.md` and `.agent/findings.md` with Phase 7 scope, branch plan, exit gate, and initial risks.
+- Created Phase 7 worktrees:
+  - `/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-019-backend-docker-rollout`
+  - `/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-019-qa-docker-rollout-smoke`
+  - `/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-019-frontend-docker-production-build`
+  - `/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-019-docs-docker-rollout-runbook`
+- Created assignment commits:
+  - Backend Docker rollout: `3ce7eca`
+  - QA Docker smoke: `bdb9ebd`
+  - Frontend production build: `5ae8eeb`
+  - Docs Docker rollout runbook: `4111456`
 - Existing unrelated `.gitignore` user modification remains unstaged.
