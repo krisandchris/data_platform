@@ -1,52 +1,46 @@
-# TASK-019 Phase 5 Integration Handoff
+# TASK-019 Phase 6 Backend Agent Handoff
 
 ## Agent Role
 
-Lead Agent
+Backend Agent
 
 ## Branch
 
-`integration/TASK-019`
+`agent/TASK-019/backend/import-tool`
 
-## Scope Completed
+## Assigned Scope
 
-- Phase 5 subagents dispatched and completed.
-- Backend, QA, Frontend, and Docs branches merged into integration.
-- Lead Agent resolved final integration issues and completed Phase 5 verification.
+- Implement the explicit file-state import command for Phase 6.
+- Own backend source under `src/urban_violation_backend/**`, backend CLI entrypoints, and focused backend tests if needed.
+- Do not modify frontend files.
+- Do not change Docker production defaults.
+- Do not add dependencies unless strictly necessary; if a dependency is needed, document it before changing `pyproject.toml` or `uv.lock`.
 
-## Changed Files
+## Required Behavior
 
-- Backend/runtime: `src/urban_violation_backend/runtime_coordination.py`, `src/urban_violation_backend/db/settings.py`, `src/urban_violation_backend/service.py`, `src/urban_violation_backend/auth.py`, `src/urban_violation_backend/api_schemas.py`, `pyproject.toml`, `uv.lock`.
-- Backend/QA tests: `tests/test_redis_runtime_backend.py`, `tests/test_redis_runtime_api.py`, `tests/test_postgres_redis_smoke.py`, `tests/test_api.py`, plus Phase 5 database/QC regression tests from the agent branches.
-- Frontend: `frontend/src/services/urbanViolationApi.ts`, `frontend/src/shared/types/contract.ts`, `frontend/src/test/apiClient.test.ts`, and frontend lease/progress UI files from the agent branch.
-- Docs: `docs/architecture/deployment.md`, `docs/architecture/postgres-redis-migration-runbook.md`, `docs/backend/modules/runtime-and-validation.md`, and Phase 5 state-migration docs from the docs branch.
-- Coordination: `.agent/task_plan.md`, `.agent/findings.md`, `.agent/progress.md`, `.agent/handoff.md`.
+- Provide command surface equivalent to:
+  - `uv run python -m urban_violation_backend.migrate_state import-file-state --platform-state-root ... --label-config-store-root ... --dataset-root ... --dry-run --report ...`
+- Import file-backed state into database-backed repositories:
+  - users, role bindings, sessions, audit;
+  - dataset type registry, registered batches/import jobs;
+  - label configs and active pointers;
+  - QC assignments, tasks, leases, drafts, batch drafts, submissions;
+  - annotation snapshots, modification events, sample pool items, export jobs, evaluations.
+- Preserve source IDs and filesystem references.
+- Support dry-run without DB mutation.
+- Support idempotent re-run with same-content match reporting.
+- Report same-ID different-content conflicts without silent overwrite.
+- Never mutate `DATASET/`, uploaded archives, extracted source files, media files, export artifacts, or file-backed state roots.
 
-## Shared Contracts Changed
+## Verification Expected
 
-Yes. Backend adds optional `live_progress` to import job responses and adds Redis runtime env settings.
+- Focused unit tests for import planning/apply/idempotency/conflict behavior.
+- `uv run pytest <focused tests> -q`.
+- `git diff --check`.
 
-## Dependencies Changed
+## Handoff To Complete
 
-Yes. Backend adds approved Python dependency `redis` through `uv add`.
-
-## Verification
-
-- `uv run pytest tests/test_redis_runtime_backend.py tests/test_redis_runtime_api.py tests/test_postgres_redis_smoke.py tests/test_db_qc_state_api.py::test_db_qc_state_api_restart_persistence_and_full_workflow tests/test_db_qc_state_api.py::test_db_qc_state_api_autosave_then_submit_batch_is_consistent -q` passed.
-- `uv run pytest -k "redis_runtime or postgres_live or db_qc_state or db_foundation or state_store_contract" -q` passed.
-- Disposable Docker PostgreSQL/Redis smoke passed with `tests/test_postgres_redis_smoke.py` and `tests/test_redis_runtime_backend.py::test_real_redis_smoke_if_available`.
-- `uv run pytest -q` passed.
-- `cd frontend && npm run test` passed.
-- `cd frontend && VITE_API_BASE_URL=/api npm run build` passed.
-- `uv run python scripts/docker-compose-auto-subnet.py config` passed.
-- `git diff --check` passed.
-
-## Known Risks
-
-- Rollback after database-mode writes remains a policy decision until a reverse export tool exists.
-- File-state import remains Phase 6.
-- `prompts_complete.md` is an unrelated untracked file in the main worktree and is intentionally untouched.
-
-## Next Agent Notes
-
-- Proceed to Phase 6 file-state import planning/implementation after this integration branch is merged to `main`.
+- List changed files.
+- List command examples.
+- List verification commands/results.
+- Note any unsupported state class or known risk.
