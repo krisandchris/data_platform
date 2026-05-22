@@ -17,7 +17,8 @@
 
 ## 2026-05-22 Phase 5 Lead Integration
 
-- Started merging `agent/TASK-019/backend/redis-runtime`.
-- Backend product files, dependency files, new Redis runtime module, and backend Redis tests merged without product-file conflicts.
-- Root `.agent` files conflicted with Lead Agent integration records and were rewritten as integration records preserving backend findings.
+- Merged `agent/TASK-019/backend/redis-runtime` into `integration/TASK-019` at merge commit `f9f2314`.
+- Started merging `agent/TASK-019/qa/redis-runtime-tests`.
+- Backend product files, dependency files, new Redis runtime module, backend Redis tests, and QA Redis/PostgreSQL test files merged without product-file conflicts.
+- Root `.agent` files conflicted with Lead Agent integration records and were rewritten as integration records preserving agent findings.
 - Untracked `prompts_complete.md` exists in the main worktree and was left untouched.
