@@ -189,3 +189,20 @@
   - `npm ci` reported 6 existing audit vulnerabilities;
   - existing Vue Router no-match warnings remain unchanged.
 - Lead integration preserved the root `.agent` records and summarized frontend handoff details instead of replacing integration planning files with the frontend agent's local `.agent` files.
+
+## 2026-05-22 Phase 7 Docs Agent Execution (docker-rollout-runbook)
+
+- Docs Mill completed `agent/TASK-019/docs/docker-rollout-runbook` at `5ff8f40`.
+- Updated:
+  - `docs/architecture/deployment.md`
+  - `docs/architecture/postgres-redis-migration-runbook.md`
+  - `docs/architecture/state-persistence-boundaries.md`
+- Docs branch verification passed:
+  - `git diff --check`
+  - manual link/structure review
+- Lead integration reconciled the docs with actual backend Compose details:
+  - no `redis_data` volume in default Compose;
+  - `POSTGRES_USER=platform`;
+  - `PLATFORM_DB_AUTO_MIGRATE=1`;
+  - default full-stack startup can use `scripts/docker-compose-auto-subnet.py up -d`.
+- Lead integration preserved the root `.agent` records and summarized docs handoff details instead of replacing integration planning files with the docs agent's local `.agent` files.

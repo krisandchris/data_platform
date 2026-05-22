@@ -8,7 +8,11 @@ Task ID: `TASK-019`
 
 This runbook is the operator draft for migrating an existing file-backed deployment to PostgreSQL + Redis.
 
-Current TASK-019 status: Phase 3 introduces PostgreSQL foundation. Phase 4 is the QC/review state database migration checkpoint. Phase 5 adds optional Redis runtime coordination for database-mode verification. Phase 6 is the file-state import tool phase. Phase 6 still does not switch Docker defaults to database mode. Treat Phase 3, Phase 4, Phase 5, and Phase 6 as implementation verification checkpoints until Phase 7 changes Docker defaults and passes rollout verification.
+Current TASK-019 status: Phase 7 is the Docker rollout phase. Phases 3-6
+introduced PostgreSQL foundation, QC/review database state, Redis runtime
+coordination, and the explicit file-state import tool. Phase 7 changes the
+operator Docker posture to PostgreSQL + Redis by default after import, restart,
+rollback, and smoke checks pass.
 
 It intentionally separates:
 
@@ -118,6 +122,37 @@ The import command writes only to the configured target database and to the requ
 
 The import stores filesystem paths, sizes, hashes, counters, validation summaries, and metadata needed to keep existing media/export/download behavior working. It must not copy large file bytes into PostgreSQL.
 
+## Phase 7 Docker Rollout Scope
+
+Phase 7 is the operator cutover from the file-backed Docker default to
+database-backed Docker runtime:
+
+- Compose includes `postgres`, `redis`, `backend`, and `frontend` services.
+- The backend default is `PLATFORM_STATE_BACKEND=database`.
+- The backend default is `PLATFORM_REDIS_ENABLED=1`.
+- `DATABASE_URL` points at the Compose `postgres` service or an approved
+  external PostgreSQL service.
+- `REDIS_URL` points at the Compose `redis` service or an approved external
+  Redis service.
+- `DATASET_ROOT`, `PLATFORM_STATE_ROOT`, and `LABEL_CONFIG_STORE_ROOT` remain
+  mounted filesystem paths.
+
+Phase 7 does not move raw datasets, uploaded archives, extracted uploaded
+source trees, media bytes, or generated export artifacts into PostgreSQL.
+PostgreSQL stores durable metadata and workflow records; Redis stores only
+short-lived coordination. Reverse export from PostgreSQL back to file-backed
+state is not implemented, so rollback after database-mode writes requires an
+explicit authority decision.
+
+Expected Phase 7 Compose services:
+
+| Service | Purpose | Persistence | Health gate |
+| --- | --- | --- | --- |
+| `postgres` | Durable PostgreSQL state authority | `postgres_data:/var/lib/postgresql/data` | `pg_isready` for configured user/database |
+| `redis` | Active locks, live progress hints, optional caches | No durable-data volume by default; Redis is not durable authority | `redis-cli ping` |
+| `backend` | FastAPI/Uvicorn API in database mode | Host mounts for dataset/runtime files; PostgreSQL for durable records | `/health` over port `8000` inside the container |
+| `frontend` | Nginx Vue production build and same-origin proxy | Rebuildable image content | Depends on healthy backend; external `/health` proxies to backend |
+
 ## Expected Phase 3 Environment Variables
 
 | Variable | Expected values | Required when | Notes |
@@ -186,6 +221,35 @@ This section documents the confirmed Phase 6 CLI surface.
 | `--run-migrations` | Optional operator path | Runs Alembic migrations to head before import. Prefer explicit `uv run alembic upgrade head` when operators want a separate migration checkpoint. |
 
 Docker host-root variables such as `DATASET_HOST_ROOT`, `PLATFORM_STATE_HOST_ROOT`, and `LABEL_CONFIG_HOST_ROOT` are Compose mount inputs. The import command should use the mounted container paths or direct host paths that correspond to those roots. `DATASET_HOST_ROOT` remains the parent directory containing `urban_violation/`; do not pass the dataset child as the Compose host root.
+
+## Expected Phase 7 Docker Environment Variables And Volumes
+
+Backend runtime defaults after Phase 7 cutover:
+
+| Variable | Expected default | Notes |
+| --- | --- | --- |
+| `PLATFORM_STATE_BACKEND` | `database` | PostgreSQL is the durable state authority. |
+| `DATABASE_URL` | `postgresql+psycopg://platform:<password>@postgres:5432/urban_platform` | Use the exact Compose or external-service secret. Redact in logs. |
+| `PLATFORM_DB_AUTO_MIGRATE` | `1` | Backend runs Alembic migrations to head on startup. Set to `0` only for operator-controlled explicit migration. |
+| `PLATFORM_REDIS_ENABLED` | `1` | Enables Redis runtime coordination. |
+| `REDIS_URL` | `redis://redis:6379/0` | Redis is not durable authority. |
+| `PLATFORM_REDIS_LEASE_TTL_SECONDS` | `600` | Active lease lock TTL. |
+| `PLATFORM_REDIS_LOCK_TTL_SECONDS` | `120` | Distributed operation lock TTL. |
+| `PLATFORM_REDIS_IMPORT_PROGRESS_TTL_SECONDS` | `1800` | Live import progress hint TTL. |
+| `PLATFORM_REDIS_SESSION_CACHE_TTL_SECONDS` | `300` | Optional session lookup cache TTL. |
+| `DATASET_ROOT` | `/data/datasets/urban_violation` | Readonly dataset path inside backend container. |
+| `PLATFORM_STATE_ROOT` | `/data/platform_state` | Runtime file root for uploads, extracted sources, export artifacts, and emergency file-backed rollback source. |
+| `LABEL_CONFIG_STORE_ROOT` | `/data/label_config_state` | Legacy label config/runtime registry file root for import and rollback reference. |
+
+Compose host inputs and volumes:
+
+| Name | Expected target | Notes |
+| --- | --- | --- |
+| `DATASET_HOST_ROOT` | `/data/datasets:ro` | Host parent directory that contains `urban_violation/`. |
+| `PLATFORM_STATE_HOST_ROOT` | `/data/platform_state` | Host runtime file root. |
+| `LABEL_CONFIG_HOST_ROOT` | `/data/label_config_state` | Host legacy label config/runtime registry root. |
+| `postgres_data` | `/var/lib/postgresql/data` | PostgreSQL named volume unless using an external service. |
+| Redis storage | none by default | Redis values remain disposable and are recreated from PostgreSQL/filesystem state where needed. |
 
 ## Phase 3 Foundation Verification
 
@@ -416,21 +480,22 @@ Redis must not become the authority for drafts, submissions, audit, users, roles
 
 ## Preconditions
 
-Before starting a production migration after all TASK-019 phases:
+Before starting a production migration and Phase 7 Docker cutover:
 
 - All TASK-019 implementation branches have been integrated and verified.
 - `uv run pytest` passes in file-backed and database modes.
 - Alembic migrations upgrade an empty PostgreSQL database to head.
 - The file-state import command supports `--dry-run`, idempotent import, and conflict reporting.
-- Docker Compose includes `postgres` and `redis` services or equivalent external service URLs.
+- Docker Compose includes `postgres` and `redis` services or approved external service URLs.
+- Compose exposes a documented file-backed emergency rollback path.
 - Operators have a maintenance window with writes blocked.
 - Operators know the current paths for:
   - `DATASET_HOST_ROOT`
   - `PLATFORM_STATE_HOST_ROOT`
   - `LABEL_CONFIG_HOST_ROOT`
   - export artifact root if it is separated later
-
-These production prerequisites are not met by Phase 3, Phase 4, or Phase 5 alone.
+- Operators have selected the authoritative state source for rollback if new
+  database-mode writes occur after cutover.
 
 ## 1. Freeze Writes
 
@@ -494,38 +559,35 @@ sha256sum "$BACKUP_ROOT"/*.tgz > "$BACKUP_ROOT/SHA256SUMS"
 
 ## 3. Prepare PostgreSQL And Redis
 
-Future production rollout step. For Phase 3 or Phase 4, prepare only a temporary PostgreSQL database for migration verification and do not require Redis. For Phase 5 smoke verification, prepare both temporary PostgreSQL and isolated Redis, but do not change Docker production defaults.
+Phase 7 starts PostgreSQL and Redis before backend traffic. Use empty or
+explicitly selected volumes for a new cutover, or approved external service URLs
+if the deployment does not use Compose-managed state services.
 
-For Phase 3 or Phase 4 verification, export only the PostgreSQL URL:
-
-```bash
-export DATABASE_URL='postgresql+psycopg://urban_platform:change-me@localhost:5432/urban_platform'
-```
-
-The exact driver prefix and host value must match the backend branch and local verification database.
-
-For Phase 5 smoke verification, export both service URLs and keep Redis opt-in:
+For Compose-managed services, export the secrets and host roots, then start only
+the data services first:
 
 ```bash
-export DATABASE_URL='postgresql+psycopg://urban_platform:change-me@localhost:5432/urban_platform_test'
-export REDIS_URL='redis://localhost:6379/15'
+export POSTGRES_PASSWORD='<replace-me>'
+export DATABASE_URL='postgresql+psycopg://platform:<replace-me>@postgres:5432/urban_platform'
+export REDIS_URL='redis://redis:6379/0'
 export PLATFORM_STATE_BACKEND=database
 export PLATFORM_REDIS_ENABLED=1
-```
 
-The Redis DB/index must be isolated because smoke checks may expire keys or run `FLUSHDB`.
-
-For final production rollout after Redis and import phases, start PostgreSQL and Redis with empty or explicitly selected volumes:
-
-```bash
 scripts/docker-compose-auto-subnet.py up -d postgres redis
 scripts/docker-compose-auto-subnet.py ps
 ```
 
-For production external services after all phases, export:
+Expected health:
+
+- `postgres` is healthy before Alembic runs.
+- `redis` responds to `PING`.
+- Redis may be empty. PostgreSQL may be empty before migrations/import or may
+  contain a reviewed restored dump.
+
+For production external services, export the external URLs instead:
 
 ```bash
-export DATABASE_URL='postgresql+psycopg://urban_platform:change-me@postgres:5432/urban_platform'
+export DATABASE_URL='postgresql+psycopg://platform:change-me@postgres:5432/urban_platform'
 export REDIS_URL='redis://redis:6379/0'
 ```
 
@@ -533,13 +595,12 @@ Use the actual secret and host values from deployment configuration. Do not comm
 
 ## 4. Run Alembic Migrations
 
-Phase 3 uses the direct Alembic command surface:
-
-From the backend environment or backend container, inspect the target migration state:
+Use the direct Alembic command surface. From a local backend environment,
+inspect the target migration state:
 
 ```bash
-uv run alembic heads
-uv run alembic current
+DATABASE_URL="$DATABASE_URL" uv run alembic heads
+DATABASE_URL="$DATABASE_URL" uv run alembic current
 ```
 
 Upgrade:
@@ -549,14 +610,23 @@ DATABASE_URL="$DATABASE_URL" uv run alembic upgrade head
 DATABASE_URL="$DATABASE_URL" uv run alembic current
 ```
 
+For Compose rollout after `postgres` is healthy, run the same migration through
+the backend image before starting normal backend traffic:
+
+```bash
+scripts/docker-compose-auto-subnet.py build backend
+scripts/docker-compose-auto-subnet.py run --rm backend uv run alembic upgrade head
+scripts/docker-compose-auto-subnet.py run --rm backend uv run alembic current
+```
+
 Expected result:
 
 - `alembic current` reports the head revision.
 - During Phase 3, an empty database contains foundation tables for identity, RBAC, sessions, registry, import job metadata, label config, and audit after upgrade.
 - During Phase 4, an empty database also contains QC assignment, task, lease, draft, submission, snapshot, modification event, sample pool, export metadata, and evaluation metadata tables after upgrade to revision `20260522_0002`.
-- After all TASK-019 phases are complete, an empty database also contains QC, draft, submission, snapshot, sample pool, export, and evaluation tables.
+- During Phase 7, the migrated database contains imported file-backed records plus any new database-mode writes after cutover.
 
-Use `PLATFORM_DB_AUTO_MIGRATE=1` only if the final implementation documents and tests container startup migration behavior. The safer operator path is explicit migration before switching traffic.
+The default Compose backend uses `PLATFORM_DB_AUTO_MIGRATE=1`, so startup runs Alembic migrations automatically after the `postgres` health gate passes. Operators who need an explicit migration checkpoint can set `PLATFORM_DB_AUTO_MIGRATE=0` and run the Alembic commands above before starting backend/frontend traffic.
 
 ## 5. Dry-Run File-State Import
 
@@ -642,7 +712,9 @@ Acceptance:
 
 ## 7. Database-Mode Verification Before Traffic
 
-Future production rollout step after the Redis runtime and import-tool phases. For Phase 3, use the smaller foundation verification checklist near the top of this runbook. For Phase 4, use the QC/review verification checklist. For Phase 5, use the Redis runtime verification checklist without switching production traffic. During Phase 6, verify the imported database explicitly, but do not change Docker defaults before Phase 7.
+Run this checkpoint after Alembic and file-state import pass, before opening
+normal frontend traffic. The goal is to prove the migrated PostgreSQL database,
+Redis runtime coordination, and filesystem artifact references work together.
 
 Start the backend in database mode against the migrated database:
 
@@ -695,9 +767,8 @@ After Redis restart:
 
 ## 8. Docker Rollout
 
-Future production rollout step. Phase 3, Phase 4, Phase 5, and Phase 6 must not change Docker defaults to database mode and must not add Redis as a required runtime service.
-
-Switch Compose to the migrated target defaults only after the import and verification steps pass:
+Start the Phase 7 Compose stack only after backup, migration, import, and
+database-mode verification pass. Phase 7 Compose defaults should already encode:
 
 ```text
 PLATFORM_STATE_BACKEND=database
@@ -706,7 +777,7 @@ DATABASE_URL=<postgres service URL>
 REDIS_URL=<redis service URL>
 ```
 
-Keep filesystem mounts:
+Keep filesystem mounts in place:
 
 ```text
 DATASET_HOST_ROOT:/data/datasets:ro
@@ -714,7 +785,7 @@ PLATFORM_STATE_HOST_ROOT:/data/platform_state
 LABEL_CONFIG_HOST_ROOT:/data/label_config_state
 ```
 
-After the Compose update:
+Start all services:
 
 ```bash
 scripts/docker-compose-auto-subnet.py config
@@ -724,6 +795,14 @@ scripts/docker-compose-auto-subnet.py ps
 curl http://127.0.0.1:8080/health
 curl -i http://127.0.0.1:8080/api/me
 ```
+
+Expected Compose services and health:
+
+- `postgres` is healthy before backend starts.
+- `redis` is healthy before backend starts.
+- `backend` exposes `8000` internally and passes `/health`.
+- `frontend` exposes `${FRONTEND_HTTP_PORT:-8080}:80` and proxies `/health`,
+  `/api/`, and `/media/` to `backend`.
 
 Browser smoke:
 
@@ -740,6 +819,7 @@ Restart persistence checks:
 
 ```bash
 scripts/docker-compose-auto-subnet.py restart backend
+scripts/docker-compose-auto-subnet.py restart postgres
 scripts/docker-compose-auto-subnet.py restart redis
 ```
 
@@ -757,7 +837,20 @@ State that may not survive Redis restart:
 - live progress hints;
 - short-lived cache entries.
 
+State that must remain filesystem-backed:
+
+- raw `DATASET/` source data;
+- uploaded package archives;
+- extracted uploaded source trees;
+- media files served by backend routes;
+- generated export artifacts.
+
 ## 9. Rollback
+
+Rollback always starts by freezing writes and preserving the newest state copy.
+After any database-mode traffic, decide whether PostgreSQL or the pre-cutover
+file backup is authoritative before changing services. Reverse export from
+PostgreSQL back to file-backed JSON roots is not implemented.
 
 Rollback before database-mode writes:
 
@@ -808,6 +901,22 @@ Rollback after database-mode writes:
   ```bash
   docker compose exec -T redis redis-cli FLUSHDB
   ```
+
+Emergency file-backed rollback:
+
+1. Stop `frontend` and `backend` so no database-mode writes continue.
+2. Dump PostgreSQL even if the rollback target is file-backed.
+3. Restore `platform_state` and `label_config_state` from the pre-cutover
+   backup or point host-root variables at a read-only copy of that backup for
+   validation.
+4. Start a file-backed backend with `PLATFORM_STATE_BACKEND=file`,
+   `PLATFORM_REDIS_ENABLED=0`, and no `DATABASE_URL` requirement. If the final
+   Compose file does not expose these as environment overrides, use the last
+   verified file-backed Compose commit or a Lead-approved override file.
+5. Verify login, dataset list, active label config, one review draft, one audit
+   event, one media URL, and one export download before reopening traffic.
+6. Record which post-cutover PostgreSQL-only writes were abandoned or require
+   manual re-entry.
 
 Alembic downgrade:
 

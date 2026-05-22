@@ -125,3 +125,15 @@
 - Frontend tests and production build pass with `VITE_API_BASE_URL=/api`.
 - No dependency files changed; `npm ci` used the existing lockfile and reported 6 existing audit vulnerabilities.
 - Existing Vue Router no-match warnings in `routesAndPages.test.ts` remain unchanged.
+
+## Phase 7 Docs Findings (agent/TASK-019/docs/docker-rollout-runbook)
+
+- Docs branch completed at `5ff8f40` and is being merged into integration.
+- Docs updated Docker deployment, migration runbook, and state-boundary docs for Phase 7 PostgreSQL + Redis rollout.
+- Lead integration reconciled docs against the actual backend Docker implementation:
+  - `postgres:16`, service name `postgres`, named volume `postgres_data`;
+  - `redis:7-alpine`, service name `redis`, no durable Redis data volume by default;
+  - default `POSTGRES_USER=platform`, `POSTGRES_DB=urban_platform`, `POSTGRES_PASSWORD=platform_dev_password`;
+  - default `DATABASE_URL=postgresql+psycopg://platform:<password>@postgres:5432/urban_platform`;
+  - default `PLATFORM_DB_AUTO_MIGRATE=1`.
+- Docs retain the invariant that filesystem artifacts remain on mounted volumes and reverse export back to file-backed JSON roots is not implemented.

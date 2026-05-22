@@ -15,7 +15,7 @@ Phase 7 switches the Docker rollout target to PostgreSQL + Redis defaults, verif
 
 ## Integration Status
 
-Backend Docker rollout and frontend production-build branches are being merged. QA and Docs branches remain in progress.
+Backend Docker rollout, frontend production-build, and docs rollout branches are being merged. QA branch remains in progress.
 
 ## Agent Branches Merged
 
@@ -26,6 +26,9 @@ Backend Docker rollout and frontend production-build branches are being merged. 
 - Pending commit: `agent/TASK-019/frontend/docker-production-build`
   - Adds same-origin `/api/` HttpClient test coverage.
   - Verifies frontend tests and production build with `VITE_API_BASE_URL=/api`.
+- Pending commit: `agent/TASK-019/docs/docker-rollout-runbook`
+  - Updates deployment, migration, and state-boundary docs for Phase 7.
+  - Lead reconciliation aligns docs to actual Compose defaults.
 
 ## Initial Risks
 
