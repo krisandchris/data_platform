@@ -519,6 +519,34 @@ describe('HTTP API adapter', () => {
     );
   });
 
+  it('normalizes backend string import warnings and validation errors into visible messages', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(jsonResponse({
+      job_id: 'job-warning',
+      dataset_id: 'urban_violation__0520',
+      dataset_type: 'urban_violation',
+      batch_key: '0520',
+      state: 'ValidationFailed',
+      expected_assets: 12,
+      imported_assets: 12,
+      stage2_success_count: 9,
+      failure_count: 3,
+      warnings: ['Detected 3 STEP2 failure artifacts; preserved as import diagnostics.'],
+      validation_errors: ['sample-011 is missing a readable image file.'],
+    }));
+    const api = new HttpUrbanViolationApi(new HttpClient({ baseUrl: 'http://backend.test/api', fetcher }));
+
+    const job = await api.getImportJob('urban_violation__0520', 'job-warning');
+
+    expect(job.validationReport?.warnings[0]).toMatchObject({
+      title: 'Backend warning',
+      message: 'Detected 3 STEP2 failure artifacts; preserved as import diagnostics.',
+    });
+    expect(job.validationReport?.blockingErrors[0]).toMatchObject({
+      severity: 'blocking',
+      message: 'sample-011 is missing a readable image file.',
+    });
+  });
+
   it('uploads batch archive as raw zip body with query metadata', async () => {
     const jobPayload = {
       job_id: 'manual-import-urban-violation-urban_violation_0520-1',

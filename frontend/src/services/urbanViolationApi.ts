@@ -2213,15 +2213,52 @@ const normalizeDistributionList = (value: unknown): CountDistribution[] =>
 
 const normalizeWarnings = (value: unknown): ImportWarning[] =>
   arrayValue<unknown>(value).map((item, index) => {
-    const record = isRecord(item) ? item : {};
+    if (!isRecord(item)) {
+      return {
+        id: `warning-${index + 1}`,
+        severity: 'warning',
+        title: 'Backend warning',
+        message: optionalDisplayString(item) ?? '',
+      };
+    }
+    const message = optionalDisplayString(
+      item.message ?? item.detail ?? item.reason ?? item.error ?? item.description ?? item.text,
+    ) ?? '';
     return {
-      id: stringValue(record.id, `warning-${index + 1}`),
-      severity: stringValue(record.severity, 'warning') as ImportWarning['severity'],
-      title: stringValue(record.title, 'Backend warning'),
-      message: stringValue(record.message, ''),
-      createdAt: stringValue(record.createdAt ?? record.created_at, ''),
+      id: stringValue(item.id, `warning-${index + 1}`),
+      severity: stringValue(item.severity, 'warning') as ImportWarning['severity'],
+      title: optionalDisplayString(item.title ?? item.name ?? item.code ?? item.type) ?? 'Backend warning',
+      message,
+      details: normalizeWarningDetails(item),
+      createdAt: optionalString(item.createdAt ?? item.created_at),
     };
   });
+
+const normalizeWarningDetails = (record: Record<string, unknown>) => {
+  const detailPairs: Array<[string, unknown]> = [
+    ['Code', record.code ?? record.error_code ?? record.errorCode],
+    ['Sample', record.sample_id ?? record.sampleId],
+    ['Path', record.path ?? record.file_path ?? record.filePath ?? record.file],
+    ['Field', record.field ?? record.loc],
+    ['Count', record.count],
+  ];
+  const details = detailPairs
+    .map(([label, value]) => {
+      const detail = optionalDisplayString(value);
+      return detail ? `${label}: ${detail}` : '';
+    })
+    .filter(Boolean);
+  const nested = firstRecord(record.details, record.context, record.meta);
+  if (nested) {
+    Object.entries(nested).forEach(([key, value]) => {
+      const detail = optionalDisplayString(value);
+      if (detail) {
+        details.push(`${key}: ${detail}`);
+      }
+    });
+  }
+  return details.length ? details : undefined;
+};
 
 const normalizeLabelConfig = (value: unknown, datasetId: DatasetId): LabelConfig => {
   const record = isRecord(value) ? value : {};
@@ -3398,7 +3435,9 @@ const normalizeImportValidationReport = (
 ): ImportValidationReport => {
   const record = isRecord(value) ? value : {};
   const warnings = normalizeWarnings(record.warnings ?? record.non_blocking_warnings ?? record.nonBlockingWarnings);
-  const blockingErrors = normalizeWarnings(record.blockingErrors ?? record.blocking_errors ?? record.errors)
+  const blockingErrors = normalizeWarnings(
+    record.blockingErrors ?? record.blocking_errors ?? record.errors ?? record.validation_errors ?? record.validationErrors,
+  )
     .map((item) => ({ ...item, severity: 'blocking' as const }));
   const allWarnings = warnings.length ? warnings : fallback.warnings.filter((item) => item.severity !== 'blocking');
   const allBlocking = blockingErrors.length

@@ -89,7 +89,7 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="row in job.validationRows" :key="row.sampleId">
+                <tr v-for="row in paginatedValidationRows" :key="row.sampleId">
                   <td>{{ row.sampleId }}</td>
                   <td>{{ row.imagePath }}</td>
                   <td>{{ row.stage1Path ?? '-' }}</td>
@@ -97,8 +97,25 @@
                   <td>{{ row.failurePath ?? '-' }}</td>
                   <td><StatusChip :value="row.status" /></td>
                 </tr>
+                <tr v-if="validationRows.length === 0">
+                  <td colspan="6">暂无扫描校验记录。</td>
+                </tr>
               </tbody>
             </table>
+          </div>
+          <div v-if="validationRows.length" class="table-pagination">
+            <span>
+              显示 {{ validationRangeStart }}-{{ validationRangeEnd }} / {{ validationRows.length }}，每页 {{ validationPageSize }} 条
+            </span>
+            <div class="pagination-actions">
+              <button class="icon-button" type="button" :disabled="validationPage <= 1" aria-label="上一页" @click="previousValidationPage">
+                <ChevronLeft :size="16" />
+              </button>
+              <strong>{{ validationPage }} / {{ validationTotalPages }}</strong>
+              <button class="icon-button" type="button" :disabled="validationPage >= validationTotalPages" aria-label="下一页" @click="nextValidationPage">
+                <ChevronRight :size="16" />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -110,15 +127,15 @@
             <article v-for="warning in blockingIssues" :key="warning.id" class="blocking">
               <TriangleAlert :size="18" />
               <div>
-                <strong>{{ warning.title }}</strong>
-                <p>{{ warning.message }}</p>
+                <strong>{{ issueTitle(warning) }}</strong>
+                <p v-for="line in issueDetailLines(warning)" :key="line">{{ line }}</p>
               </div>
             </article>
             <article v-for="warning in nonBlockingWarnings" :key="warning.id">
               <TriangleAlert :size="18" />
               <div>
-                <strong>{{ warning.title }}</strong>
-                <p>{{ warning.message }}</p>
+                <strong>{{ issueTitle(warning) }}</strong>
+                <p v-for="line in issueDetailLines(warning)" :key="line">{{ line }}</p>
               </div>
             </article>
             <div v-if="blockingIssues.length === 0 && nonBlockingWarnings.length === 0" class="empty-inline">
@@ -158,14 +175,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
-import { CheckCircle2, FileCheck2, FileCog, FolderTree, Image, RotateCcw, ScanSearch, TriangleAlert } from 'lucide-vue-next';
+import { CheckCircle2, ChevronLeft, ChevronRight, FileCheck2, FileCog, FolderTree, Image, RotateCcw, ScanSearch, TriangleAlert } from 'lucide-vue-next';
 import { apiClient } from '../../services/urbanViolationApi';
 import MetricCard from '../../shared/components/MetricCard.vue';
 import StatusChip from '../../shared/components/StatusChip.vue';
 import { useAsyncState } from '../../shared/composables/useAsyncState';
-import type { ImportJobDetail, ImportJobState, ImportProcessingProgress } from '../../shared/types/contract';
+import type { ImportJobDetail, ImportJobState, ImportProcessingProgress, ImportWarning } from '../../shared/types/contract';
 import ImportStepper from './components/ImportStepper.vue';
 
 const props = defineProps<{
@@ -185,6 +202,19 @@ const actionMessage = ref('');
 const blockingIssues = computed(() => job.value?.validationReport?.blockingErrors ?? job.value?.warnings.filter((warning) => warning.severity === 'blocking') ?? []);
 const nonBlockingWarnings = computed(() => job.value?.validationReport?.warnings ?? job.value?.warnings.filter((warning) => warning.severity !== 'blocking') ?? []);
 const hasBlockingIssues = computed(() => blockingIssues.value.length > 0);
+const validationPageSize = 10;
+const validationPage = ref(1);
+const validationRows = computed(() => {
+  const reportRows = job.value?.validationReport?.rows ?? [];
+  return reportRows.length ? reportRows : job.value?.validationRows ?? [];
+});
+const validationTotalPages = computed(() => Math.max(1, Math.ceil(validationRows.value.length / validationPageSize)));
+const paginatedValidationRows = computed(() => {
+  const start = (validationPage.value - 1) * validationPageSize;
+  return validationRows.value.slice(start, start + validationPageSize);
+});
+const validationRangeStart = computed(() => validationRows.value.length ? ((validationPage.value - 1) * validationPageSize) + 1 : 0);
+const validationRangeEnd = computed(() => Math.min(validationPage.value * validationPageSize, validationRows.value.length));
 const processingImportStates = new Set<ImportJobState>(['Uploading', 'Uploaded', 'Scanning', 'Validating', 'Importing']);
 const processingProgress = computed(() => {
   const progress = job.value?.processingProgress;
@@ -244,8 +274,49 @@ const runAction = async (action: 'scan' | 'validate' | 'confirm' | 'retry') => {
   }
 };
 
+watch(
+  () => [props.id, props.jobId],
+  () => {
+    validationPage.value = 1;
+  },
+);
+
+watch(validationTotalPages, (pageCount) => {
+  if (validationPage.value > pageCount) {
+    validationPage.value = pageCount;
+  }
+});
+
+function previousValidationPage() {
+  validationPage.value = Math.max(1, validationPage.value - 1);
+}
+
+function nextValidationPage() {
+  validationPage.value = Math.min(validationTotalPages.value, validationPage.value + 1);
+}
+
 function clampPercent(value: number) {
   return Math.min(100, Math.max(0, Math.round(value)));
+}
+
+function issueTitle(issue: ImportWarning) {
+  const title = issue.title.trim();
+  const message = issue.message.trim();
+  if ((!title || title === 'Backend warning' || title === 'Validation error') && message) {
+    return message;
+  }
+  return title || message || issue.id;
+}
+
+function issueDetailLines(issue: ImportWarning) {
+  const title = issueTitle(issue);
+  const lines = [
+    issue.message.trim() && issue.message.trim() !== title ? issue.message.trim() : '',
+    ...(issue.details ?? []),
+    issue.createdAt ? `时间: ${issue.createdAt}` : '',
+    issue.id ? `ID: ${issue.id}` : '',
+  ].filter(Boolean);
+  return lines.length ? lines : ['后端未返回详细说明。'];
 }
 
 function progressExpired(progress: ImportProcessingProgress) {
@@ -330,6 +401,12 @@ function phaseText(phase?: string) {
 .validation-list p {
   margin: 4px 0 0;
   color: #8a4b00;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.validation-list article.blocking p {
+  color: #8f1d1d;
 }
 
 .empty-inline {
@@ -337,6 +414,48 @@ function phaseText(phase?: string) {
   border: 1px dashed var(--line-strong);
   border-radius: 8px;
   color: var(--muted);
+}
+
+.table-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.pagination-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pagination-actions strong {
+  min-width: 48px;
+  color: var(--text);
+  text-align: center;
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .mapping-flow {

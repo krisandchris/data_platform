@@ -1,3 +1,39 @@
+# TASK-020 Frontend Import Validation UI Plan
+
+Role: Frontend Agent
+
+Branch: `agent/TASK-020/frontend/import-validation-ui`
+
+Worktree: `/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-020-frontend-import-validation-ui`
+
+## Goal
+
+Show actionable backend import validation details in blocking error and non-blocking warning cards, and paginate the scan validation / import preview table at 10 rows per page.
+
+## Status
+
+- Implementation: complete.
+- Tests: complete.
+- Handoff: ready.
+
+## Changed Scope
+
+- `frontend/src/features/import/ImportJobPage.vue`
+- `frontend/src/services/urbanViolationApi.ts`
+- `frontend/src/shared/types/contract.ts`
+- `frontend/src/test/apiClient.test.ts`
+- `frontend/src/test/routesAndPages.test.ts`
+
+## Verification
+
+- `cd frontend && npm ci`: passed.
+- `cd frontend && npm run test -- src/test/apiClient.test.ts src/test/routesAndPages.test.ts`: passed.
+- `cd frontend && npm run test`: passed.
+- `cd frontend && npm run build`: passed.
+- `git diff --check`: passed.
+
+---
+
 # TASK-019 PostgreSQL + Redis State Migration Plan
 
 Objective: migrate mutable platform state from file-backed JSON/JSONL stores to PostgreSQL, use Redis for active leases/locks/progress, preserve current frontend API behavior, and provide a safe import path from existing runtime state.

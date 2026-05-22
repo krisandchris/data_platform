@@ -58,3 +58,52 @@ Backend Docker rollout, frontend production-build, docs rollout, and QA rollout 
 
 - Use the documented rollback env path with `PLATFORM_STATE_BACKEND=file` and `PLATFORM_REDIS_ENABLED=0` against the preserved mounted runtime roots.
 - If database-mode writes have already occurred, choose PostgreSQL or the pre-cutover file backup as the authoritative state source; reverse export from PostgreSQL to file-backed JSON roots is not implemented.
+# Handoff
+
+## Agent Role
+
+Frontend Agent
+
+## Branch
+
+`agent/TASK-020/frontend/import-validation-ui`
+
+## Worktree
+
+`/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-020-frontend-import-validation-ui`
+
+## Scope Completed
+
+- Preserved backend string warnings as concrete user-visible issue messages.
+- Included backend `validation_errors` in blocking validation issues even when warnings also exist.
+- Added issue detail rendering for blocking and non-blocking cards.
+- Added 10-row pagination to the scan validation / import preview table.
+- Added tests for normalization, detailed issue rendering, and pagination.
+
+## Changed Files
+
+- `frontend/src/features/import/ImportJobPage.vue`
+- `frontend/src/services/urbanViolationApi.ts`
+- `frontend/src/shared/types/contract.ts`
+- `frontend/src/test/apiClient.test.ts`
+- `frontend/src/test/routesAndPages.test.ts`
+
+## Shared Contracts Changed
+
+Yes. Frontend-only TypeScript contract `ImportWarning` gained optional `details?: string[]`.
+
+## Dependencies Changed
+
+No.
+
+## Verification
+
+- `cd frontend && npm ci`: passed.
+- `cd frontend && npm run test -- src/test/apiClient.test.ts src/test/routesAndPages.test.ts`: passed.
+- `cd frontend && npm run test`: passed.
+- `cd frontend && npm run build`: passed.
+- `git diff --check`: passed.
+
+## Known Risks
+
+- Existing route-test Vue Router no-match warnings remain unchanged.
