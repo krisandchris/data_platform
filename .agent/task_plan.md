@@ -18,6 +18,8 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
    - Status: complete. Backend, QA, and Docs branches are merged into integration; final verification passed.
 7. Docker rollout and full acceptance.
    - Status: complete. Backend, QA, Frontend, and Docs branches are merged into integration; final verification and gated Docker live smoke passed.
+8. Coverage hardening to 95%.
+   - Status: pending. Current measured backend and frontend line coverage are below the requested 95% gate.
 
 ## Phase 5 Agent Branches
 
@@ -128,3 +130,9 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 - `cd frontend && VITE_API_BASE_URL=/api npm run build` passed.
 - `scripts/docker-compose-auto-subnet.py build backend frontend` passed.
 - `QA_RUN_DOCKER_ROLLOUT_SMOKE=1 QA_DOCKER_SMOKE_CONFIRM_ISOLATED=1 uv run pytest tests/test_docker_rollout_phase7.py::test_docker_rollout_live_smoke_env_gated -q` passed after `postgres:16` was present locally.
+
+## Coverage Audit
+
+- `uv run --with coverage coverage run --source=src/urban_violation_backend -m pytest -q && uv run --with coverage coverage report -m` passed, but backend line coverage is 87%.
+- `npm install --no-save --package-lock=false @vitest/coverage-v8@2.1.9 && npm run test -- --coverage --coverage.reporter=text` passed, but frontend line coverage is 81.36%.
+- Requested 95% coverage gate is not yet satisfied.

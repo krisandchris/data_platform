@@ -157,3 +157,12 @@
 - Test cleanup removed the isolated `task019qa_*` Compose project; no task-owned containers, volumes, or networks were left behind.
 - Existing unrelated exited `data_platform-backend-1` and `data_platform-frontend-1` containers predate this final smoke and were left untouched.
 - Existing unrelated `.gitignore` user modification remains outside TASK-019.
+
+## Coverage Gate Findings
+
+- Current backend total line coverage is 87%, below the requested 95% gate.
+- Current frontend total line coverage is 81.36%, below the requested 95% gate.
+- Backend coverage gaps are concentrated in `service.py`, `routes.py`, `runtime_coordination.py`, `db/foundation.py`, auth/permission edge paths, and CLI entrypoints.
+- Frontend coverage gaps are concentrated in large UI surfaces and service modules: review workbench shell/page, dataset batch panels, users page, fixture/API service paths, and shared overlay edge paths.
+- The repo currently has no committed backend coverage dependency/configuration and no committed frontend coverage provider/script/threshold, so 95% is not enforced by CI or local default commands.
+- Reaching 95% should be treated as a new testing-hardening phase rather than a Phase 7 Docker rollout completion criterion.

@@ -241,3 +241,15 @@
   - `cd frontend && VITE_API_BASE_URL=/api npm run build`
   - `scripts/docker-compose-auto-subnet.py build backend frontend`
 - Existing unrelated `.gitignore` user modification remains unstaged.
+
+## 2026-05-22 Coverage Gate Audit
+
+- User requested test coverage greater than 95%.
+- Backend coverage command passed:
+  - `uv run --with coverage coverage run --source=src/urban_violation_backend -m pytest -q && uv run --with coverage coverage report -m`
+  - Result: total backend line coverage is 87%.
+- Frontend coverage command passed after temporarily installing the Vitest coverage provider without modifying dependency manifests:
+  - `npm install --no-save --package-lock=false @vitest/coverage-v8@2.1.9 && npm run test -- --coverage --coverage.reporter=text`
+  - Result: total frontend line coverage is 81.36%.
+- `package.json`, `package-lock.json`, `pyproject.toml`, and `uv.lock` remained unchanged.
+- Conclusion: Phase 7 functional smoke/regression testing is complete, but the requested 95% coverage quality gate is not complete.

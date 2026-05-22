@@ -51,6 +51,7 @@ Backend Docker rollout, frontend production-build, docs rollout, and QA rollout 
 - Docker image pulling can still fail in restricted networks; operators should pre-pull or mirror `postgres:16`, `redis:7-alpine`, Python, Node, Nginx, and `ghcr.io/astral-sh/uv` base images before rollout in constrained server environments.
 - File-backed rollback env overrides remain documented and renderable, but Compose still includes `postgres` and `redis` services by default.
 - Large filesystem artifacts remain on mounted volumes; only metadata and durable mutable state move to PostgreSQL.
+- Requested 95% coverage gate is not yet satisfied: backend measured 87%, frontend measured 81.36%.
 - Existing unrelated `.gitignore` user modification is not part of TASK-019 Phase 7.
 
 ## Rollback Plan
