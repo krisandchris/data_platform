@@ -29,6 +29,10 @@
   - QA Kierkegaard: `019e4d4d-bbbc-7d42-8dda-ce0d24546dc5`
   - Frontend Archimedes: `019e4d4d-bc01-76d2-b0ad-6a0044c4384b`
   - Docs Hypatia: `019e4d4d-bc3d-7641-a947-1989e3188f46`
+- QA Kierkegaard completed at `3529101`:
+  - Added `tests/test_redis_runtime_api.py` and `tests/test_postgres_redis_smoke.py`.
+  - Local deterministic checks passed with expected skips.
+  - Live PostgreSQL/Redis smoke remains gated on `TEST_DATABASE_URL` and `TEST_REDIS_URL`.
 
 ## 2026-05-22 Phase 4 Dispatch
 
