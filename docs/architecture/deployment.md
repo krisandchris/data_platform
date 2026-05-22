@@ -1,13 +1,28 @@
 # Docker LAN Deployment
 
-This deployment profile runs the platform as two containers on a LAN host:
+This deployment profile runs the Phase 7 platform on a LAN host with PostgreSQL
+as the durable state backend and Redis as short-lived runtime coordination:
 
+- `postgres`: PostgreSQL stores durable mutable platform records.
+- `redis`: Redis stores only active locks, live progress hints, and optional caches.
+- `backend`: FastAPI runs under Uvicorn in database mode.
 - `frontend`: Nginx serves the Vue production build and proxies backend traffic.
-- `backend`: FastAPI runs under Uvicorn.
 - `DATASET/`: mounted from the host as readonly source data.
-- Runtime state: mounted from the host as writable state for accounts, sessions, permissions, batches, drafts, label config, QC state, and audit records.
+- Runtime file roots: mounted from the host for uploaded archives, extracted
+  sources, media, generated export artifacts, and emergency file-backed rollback
+  references.
 
-Current Compose deployment is file-backed. TASK-019 Phase 3 introduces PostgreSQL foundation code and migrations, Phase 4 adds QC/review PostgreSQL state, Phase 5 validates optional Redis runtime coordination, and Phase 6 adds the explicit file-state import tool. These phases do not switch Docker defaults, do not make Redis a required production service, and do not make the production database rollout. TASK-019 will add PostgreSQL and Redis to Docker defaults only in the Phase 7 Docker rollout after database migrations, QC/review state migration, file-state import, Redis restart behavior, Docker rollout checks, and rollback have passed. See [State Persistence Boundaries](./state-persistence-boundaries.md) and [PostgreSQL + Redis Migration Runbook](./postgres-redis-migration-runbook.md).
+Phase 7 switches the Compose default to `PLATFORM_STATE_BACKEND=database` and
+`PLATFORM_REDIS_ENABLED=1` after Alembic migrations, file-state import, Redis
+loss checks, Docker smoke checks, and rollback review pass. See
+[State Persistence Boundaries](./state-persistence-boundaries.md) and
+[PostgreSQL + Redis Migration Runbook](./postgres-redis-migration-runbook.md).
+
+Lead reconciliation note: this docs worktree and the currently visible backend
+rollout branch still show the pre-Phase-7 two-service `docker-compose.yml`.
+Before merging this branch, reconcile the exact PostgreSQL image tag, Redis
+image tag, named volume names, password variable names, and health-check commands
+against the final backend/QA Docker rollout handoffs.
 
 The public LAN entrypoint is HTTP on port `8080` by default:
 
@@ -23,6 +38,7 @@ Create the host directories before the first start:
 sudo mkdir -p /srv/urban-platform/DATASET
 sudo mkdir -p /srv/urban-platform/runtime/platform_state
 sudo mkdir -p /srv/urban-platform/runtime/label_config_state
+sudo mkdir -p /srv/urban-platform/backups
 ```
 
 Place or bind the raw dataset tree so the backend can read:
@@ -31,7 +47,7 @@ Place or bind the raw dataset tree so the backend can read:
 /srv/urban-platform/DATASET/urban_violation
 ```
 
-The compose file mounts:
+The Compose file keeps these host filesystem mounts:
 
 ```text
 /srv/urban-platform/DATASET:/data/datasets:ro
@@ -39,15 +55,36 @@ The compose file mounts:
 /srv/urban-platform/runtime/label_config_state:/data/label_config_state
 ```
 
+Phase 7 PostgreSQL and Redis service data should use Docker named volumes by
+default, for example:
+
+```text
+postgres_data:/var/lib/postgresql/data
+redis_data:/data
+```
+
+If the final Compose implementation chooses a different Redis persistence
+setting or no Redis volume, preserve the state boundary: Redis is still not
+durable platform storage.
+
 ## Configuration
 
-Important backend environment variables:
+Phase 7 backend environment variables:
 
 | Variable | Default in compose | Purpose |
 | --- | --- | --- |
 | `DATASET_ROOT` | `/data/datasets/urban_violation` | Readonly source dataset root used by the fixture/import runtime. |
-| `PLATFORM_STATE_ROOT` | `/data/platform_state` | Writable runtime state for users, sessions, permissions, drafts, QC, and audit. |
-| `LABEL_CONFIG_STORE_ROOT` | `/data/label_config_state` | Writable label config and dataset registry state. |
+| `PLATFORM_STATE_ROOT` | `/data/platform_state` | Writable runtime file root for uploads, extracted source trees, export artifacts, and emergency file-backed rollback input. It is not the durable authority in database mode. |
+| `LABEL_CONFIG_STORE_ROOT` | `/data/label_config_state` | Legacy label config and dataset registry file root used by import and emergency file-backed rollback. It is not the durable authority in database mode. |
+| `PLATFORM_STATE_BACKEND` | `database` | Selects PostgreSQL-backed durable state. |
+| `DATABASE_URL` | `postgresql+psycopg://urban_platform:<password>@postgres:5432/urban_platform` | PostgreSQL URL for backend runtime, Alembic, and import verification. Redact credentials in logs. |
+| `PLATFORM_DB_AUTO_MIGRATE` | `0` unless the final backend handoff documents startup migration | Controls startup migration behavior. The operator runbook uses explicit Alembic migration before traffic. |
+| `PLATFORM_REDIS_ENABLED` | `1` | Enables Redis-backed runtime coordination. |
+| `REDIS_URL` | `redis://redis:6379/0` | Redis URL for active locks, distributed locks, live progress hints, and optional caches. |
+| `PLATFORM_REDIS_LEASE_TTL_SECONDS` | `600` | Active lease lock TTL. |
+| `PLATFORM_REDIS_LOCK_TTL_SECONDS` | `120` | Distributed operation lock TTL. |
+| `PLATFORM_REDIS_IMPORT_PROGRESS_TTL_SECONDS` | `1800` | Live import progress hint TTL. |
+| `PLATFORM_REDIS_SESSION_CACHE_TTL_SECONDS` | `300` | Optional session lookup cache TTL. |
 | `PLATFORM_IMPORT_ARCHIVE_MAX_BYTES` | `8589934592` | Maximum uploaded batch zip size in bytes. Compose default is 8 GiB. |
 | `PLATFORM_IMPORT_ARCHIVE_EXTRACT_MAX_BYTES` | `34359738368` | Maximum extracted archive content size in bytes. Compose default is 32 GiB. |
 | `PLATFORM_ENABLE_FIXTURE_BATCH` | `0` | Controls whether the built-in `urban_violation__0508_fixture` batch is loaded. Docker deployment disables it so only uploaded/registered batches appear. |
@@ -56,35 +93,35 @@ Important backend environment variables:
 | `PLATFORM_INIT_ADMIN_ID` | `platform_admin` | Bootstrap administrator id. |
 | `PLATFORM_INIT_ADMIN_PASSWORD` | `admin123456` | Bootstrap administrator password. Override this before production use. |
 
-PostgreSQL foundation and QC/review variables are expected by TASK-019 database-mode verification, but they are not Docker defaults yet:
+Phase 7 service variables:
 
-| Variable | Current Docker posture | Purpose |
+| Variable | Default in compose | Purpose |
 | --- | --- | --- |
-| `DATABASE_URL` | Unset in current file-backed Compose defaults | PostgreSQL URL for Alembic and database-backed mode. Required only when `PLATFORM_STATE_BACKEND=database`. |
-| `PLATFORM_STATE_BACKEND` | `file` | Selects `file` or `database`. Keep `file` for Docker deployment until the rollout phase. |
-| `PLATFORM_DB_AUTO_MIGRATE` | `0` | Controls startup migration behavior if backend implements it. Prefer explicit Alembic commands for operator verification. |
-
-Phase 5 Redis variables are optional verification variables only until Phase 7:
-
-| Variable | Current Docker posture | Purpose |
-| --- | --- | --- |
-| `PLATFORM_REDIS_ENABLED` | `0` or unset | Enables Redis-backed runtime coordination only when explicitly set to `1`. Keep disabled for current file-backed Docker deployment. |
-| `REDIS_URL` | Unset in current file-backed Compose defaults | Redis connection URL for active locks, distributed locks, live progress hints, and optional caches. Required only when Redis mode is explicitly enabled. |
-| `TEST_DATABASE_URL` | Operator/test env only | Real PostgreSQL smoke database URL for integration tests. Do not commit. |
-| `TEST_REDIS_URL` | Operator/test env only | Isolated Redis smoke URL for integration tests. Do not point at shared production Redis because loss checks may expire keys or run `FLUSHDB`. |
+| `POSTGRES_DB` | `urban_platform` | PostgreSQL database created by the `postgres` service on first volume initialization. |
+| `POSTGRES_USER` | `urban_platform` | PostgreSQL application user. |
+| `POSTGRES_PASSWORD` | Operator supplied, fallback must be changed before production | PostgreSQL password used to build `DATABASE_URL`. |
+| `DATASET_HOST_ROOT` | `/srv/urban-platform/DATASET` | Host parent directory mounted to `/data/datasets:ro`. Must contain `urban_violation/`. |
+| `PLATFORM_STATE_HOST_ROOT` | `/srv/urban-platform/runtime/platform_state` | Host file root mounted to `/data/platform_state`. |
+| `LABEL_CONFIG_HOST_ROOT` | `/srv/urban-platform/runtime/label_config_state` | Host file root mounted to `/data/label_config_state`. |
+| `FRONTEND_HTTP_PORT` | `8080` | LAN HTTP port exposed by the frontend container. |
+| `PLATFORM_DOCKER_SUBNET` | selected by helper | Bridge network subnet injected by `scripts/docker-compose-auto-subnet.py`. |
 
 Redis must not be treated as durable platform storage. Redis loss may remove only active locks, live progress hints, and optional cache entries. Drafts, submissions, audit, label configs, users, roles, sessions, batch metadata, import job final state, sample pool, exports, and evaluations must remain PostgreSQL-backed in database mode.
 
-Phase 6 file-state import variables are used only for an explicit operator-run migration command. They are not Docker defaults until Phase 7:
+Test-only variables:
 
-| Variable or flag | Current Docker posture | Purpose |
-| --- | --- | --- |
-| `DATABASE_URL` | Unset in current file-backed Compose defaults | Target database for Alembic, import dry-run/apply, and database-mode verification. |
-| `PLATFORM_STATE_BACKEND` | `file` | Must remain `file` for current Compose defaults. Use `database` only for explicit post-import verification or Phase 7 rollout. |
-| `PLATFORM_DB_AUTO_MIGRATE` | `0` | Keep explicit Alembic migration as the operator path before import. |
-| `--platform-state-root` | `/data/platform_state` in the backend container | Required source file-backed runtime state root read by the import command. |
-| `--label-config-store-root` | `/data/label_config_state` in the backend container | Required source label config and dataset registry root read by the import command. |
-| `--dataset-root` | `/data/datasets/urban_violation` in the backend container | Required readonly source dataset root used to preserve filesystem references. |
+| Variable | Purpose |
+| --- | --- |
+| `TEST_DATABASE_URL` | Real PostgreSQL smoke database URL for integration tests. Do not commit. |
+| `TEST_REDIS_URL` | Isolated Redis smoke URL for integration tests. Do not point at shared production Redis because loss checks may expire keys or run `FLUSHDB`. |
+
+File-state import flags still matter during migration and emergency rollback:
+
+| Flag | Purpose |
+| --- | --- |
+| `--platform-state-root` | Source file-backed runtime state root read by the import command. |
+| `--label-config-store-root` | Source label config and dataset registry root read by the import command. |
+| `--dataset-root` | Readonly source dataset root used to preserve filesystem references. |
 
 Confirmed Phase 6 command surface:
 
@@ -113,6 +150,7 @@ Host path and port overrides:
 DATASET_HOST_ROOT=/data/DATASET \
 PLATFORM_STATE_HOST_ROOT=/data/urban-runtime/platform_state \
 LABEL_CONFIG_HOST_ROOT=/data/urban-runtime/label_config_state \
+POSTGRES_PASSWORD='<replace-me>' \
 FRONTEND_HTTP_PORT=8080 \
 scripts/docker-compose-auto-subnet.py up -d
 ```
@@ -135,9 +173,14 @@ PLATFORM_DOCKER_SUBNET=172.30.250.0/24 docker compose up -d
 
 ## Build And Start
 
+For a first database-backed rollout, start PostgreSQL and Redis, run migrations
+explicitly, then start backend and frontend:
+
 ```bash
 scripts/docker-compose-auto-subnet.py build
-scripts/docker-compose-auto-subnet.py up -d
+scripts/docker-compose-auto-subnet.py up -d postgres redis
+scripts/docker-compose-auto-subnet.py run --rm backend uv run alembic upgrade head
+scripts/docker-compose-auto-subnet.py up -d backend frontend
 scripts/docker-compose-auto-subnet.py ps
 curl http://127.0.0.1:8080/health
 ```
@@ -149,6 +192,22 @@ http://127.0.0.1:8080/login
 ```
 
 The frontend build uses `VITE_API_BASE_URL=/api`, so browser API calls stay same-origin through Nginx.
+
+For later restarts after the database is already migrated:
+
+```bash
+scripts/docker-compose-auto-subnet.py up -d
+scripts/docker-compose-auto-subnet.py ps
+```
+
+Expected service health model:
+
+| Service | Expected health gate |
+| --- | --- |
+| `postgres` | `pg_isready` against the configured database/user. |
+| `redis` | `redis-cli ping` returns `PONG`. |
+| `backend` | `GET http://127.0.0.1:8000/health` succeeds inside the container after PostgreSQL and Redis are reachable. |
+| `frontend` | Depends on healthy backend and serves Nginx on `FRONTEND_HTTP_PORT`. |
 
 ## Batch Archive Upload Size
 
@@ -194,11 +253,9 @@ Expected behavior:
 - A clean Docker deployment keeps the `urban_violation` dataset type and label config registry but does not list the built-in fixture batch unless `PLATFORM_ENABLE_FIXTURE_BATCH=1` is set.
 - Media URLs such as `/api/datasets/{batch_id}/media/images/{file_name}` load through the frontend origin.
 
-Phase 5 PostgreSQL/Redis smoke checks are opt-in and should be run outside the current file-backed Compose defaults unless the Lead Agent is explicitly reviewing the Redis branches:
+PostgreSQL/Redis smoke checks:
 
 ```bash
-uv run pytest -k "redis_runtime or db_qc_state" -q
-
 export TEST_DATABASE_URL='postgresql+psycopg://urban_platform:change-me@localhost:5432/urban_platform_test'
 export TEST_REDIS_URL='redis://localhost:6379/15'
 DATABASE_URL="$TEST_DATABASE_URL" uv run alembic upgrade head
@@ -216,6 +273,8 @@ Persistence checks:
 - Upload a label config, restart containers, and confirm the active config still exists.
 - Create or register a batch, restart containers, and confirm batch registry state remains.
 - Save a draft or autosave in the review workbench, restart containers, and confirm the draft can be reloaded.
+- Restart `postgres` and confirm durable state remains visible after the service is healthy again.
+- Restart `redis` and confirm durable state remains visible; active locks and live progress may be lost.
 - Deleting a platform batch must remove runtime registry/state only; the mounted raw `DATASET/` directory is readonly and must not be modified.
 - Uploaded archives, extracted uploaded batch source, media files, and generated export artifacts remain on mounted filesystems and are not moved into PostgreSQL by TASK-019.
 
@@ -229,5 +288,7 @@ cd frontend && npm run test && npm run build
 scripts/docker-compose-auto-subnet.py build
 scripts/docker-compose-auto-subnet.py up -d
 curl http://127.0.0.1:8080/health
+scripts/docker-compose-auto-subnet.py restart backend
+scripts/docker-compose-auto-subnet.py restart redis
 scripts/docker-compose-auto-subnet.py down
 ```

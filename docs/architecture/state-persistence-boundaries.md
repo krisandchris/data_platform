@@ -122,6 +122,34 @@ The import must support dry-run planning, apply, idempotent re-run, and same-ID 
 
 The import must not mutate `DATASET/`, uploaded archives, extracted source files, media files, generated export artifacts, `PLATFORM_STATE_ROOT`, or `LABEL_CONFIG_STORE_ROOT`. New database-mode writes after cutover do not flow back to the old file-backed roots because reverse export is not implemented in Phase 6.
 
+## Phase 7 Docker Rollout Boundary
+
+Phase 7 is the Docker default switch to PostgreSQL + Redis after the migration
+gates pass. In Phase 7 Docker mode:
+
+- PostgreSQL is the authoritative store for durable mutable platform records.
+- Redis is enabled for short-lived coordination only.
+- The backend still mounts `DATASET_ROOT`, `PLATFORM_STATE_ROOT`, and
+  `LABEL_CONFIG_STORE_ROOT`.
+- The filesystem remains authoritative for raw/source and large artifacts.
+- Emergency file-backed rollback remains a supported operator path only from
+  the last file-backed state backup; it is not a reverse export from
+  PostgreSQL.
+
+Phase 7 must preserve these non-database filesystem authorities:
+
+- raw `DATASET/` source data;
+- uploaded package archives;
+- extracted uploaded source trees;
+- source images, STEP outputs, visualizations, and media bytes;
+- generated export artifact files.
+
+After cutover, new database-mode writes do not appear in the old file-backed
+JSON roots. If operators roll back to file-backed mode after accepting writes,
+they must choose between using the pre-cutover file backup or preserving
+PostgreSQL as the newer authority. Redis contents must never drive that
+authority decision.
+
 ## Target PostgreSQL Responsibilities
 
 The final PostgreSQL target is the authoritative store for durable mutable platform records:
@@ -203,8 +231,8 @@ At service startup, cache miss, or source refresh, backend code may hydrate a ru
 - The import tool must not mutate `DATASET/`, uploaded archives, extracted source files, media files, or export artifacts.
 - Same-ID same-content rows are idempotent.
 - Same-ID different-content rows are conflicts and require operator action.
-- Docker must not default to database mode in Phase 4, Phase 5, or Phase 6; the switch is blocked until PostgreSQL migrations, Redis behavior, file-state import, Docker rollout, and rollback have all been tested.
-- Phase 5 Redis mode is opt-in. It must not make Redis the only copy of durable state and must not switch Docker production defaults before Phase 7.
+- Docker must not default to database mode in Phase 4, Phase 5, or Phase 6; the switch is allowed only in Phase 7 after PostgreSQL migrations, Redis behavior, file-state import, Docker rollout, and rollback have all been tested.
+- Phase 7 may enable Redis by default, but Redis must not become the only copy of durable state.
 - Frontend API contracts stay compatible. The frontend should not need to know whether the backend state backend is `file` or `database`.
 
 ## Related Documents
