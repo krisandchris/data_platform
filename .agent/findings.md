@@ -39,3 +39,10 @@
 - PostgreSQL runtime validation against an actual PostgreSQL server still requires a real `TEST_DATABASE_URL`; integration uses SQLite fallback plus Alembic smoke unless a PostgreSQL URL is provided.
 - Rollback after database-mode writes remains a policy decision unless a tested reverse export tool is implemented.
 - Redis is not part of Phase 4 and remains pending for active locks/live progress.
+
+## Phase 5 Dispatch Findings
+
+- Docker is available locally, so Lead integration can attempt disposable PostgreSQL and Redis smoke tests.
+- `redis-server` is not installed on the host; direct non-Docker Redis tests need `TEST_REDIS_URL`.
+- Phase 5 must not make Redis durable authority; Redis loss may remove only active locks, live progress hints, and optional cache entries.
+- Backend dependency change is approved only for the Python `redis` package via `uv add`.
