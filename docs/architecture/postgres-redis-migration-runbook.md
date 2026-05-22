@@ -8,7 +8,7 @@ Task ID: `TASK-019`
 
 This runbook is the operator draft for migrating an existing file-backed deployment to PostgreSQL + Redis.
 
-Current TASK-019 status: Phase 3 introduces PostgreSQL foundation. Phase 4 is the QC/review state database migration checkpoint. Phase 5 adds optional Redis runtime coordination for database-mode verification. These phases do not switch Docker defaults to database mode and do not provide the file-state import tool. Treat Phase 3, Phase 4, and Phase 5 as implementation verification checkpoints, not as a production database rollout.
+Current TASK-019 status: Phase 3 introduces PostgreSQL foundation. Phase 4 is the QC/review state database migration checkpoint. Phase 5 adds optional Redis runtime coordination for database-mode verification. Phase 6 is the file-state import tool phase. Phase 6 still does not switch Docker defaults to database mode. Treat Phase 3, Phase 4, Phase 5, and Phase 6 as implementation verification checkpoints until Phase 7 changes Docker defaults and passes rollout verification.
 
 It intentionally separates:
 
@@ -87,6 +87,37 @@ Redis loss, TTL expiry, or a Redis restart may invalidate only active locks, liv
 
 Docker Compose production defaults still do not switch in Phase 5. The production Compose switch to PostgreSQL + Redis remains Phase 7 unless backend and QA explicitly land, verify, and hand off a different behavior.
 
+## Phase 6 File-State Import Scope
+
+Phase 6 adds an explicit operator-run import command for moving existing file-backed runtime records into PostgreSQL-backed repositories. It is not a container startup hook and must not run automatically on every backend boot.
+
+Confirmed Phase 6 command:
+
+```bash
+uv run python -m urban_violation_backend.migrate_state import-file-state
+```
+
+The command is implemented by `urban_violation_backend.migrate_state` and supports dry-run, apply, JSON report output, optional migration execution, and conflict exit code `3`.
+
+Expected Phase 6 import coverage:
+
+- users, role bindings, durable sessions, and audit events;
+- dataset type registry, registered batches, import jobs, and source filesystem references;
+- label config versions, normalized payloads, content hashes, and active pointers;
+- QC assignments, tasks, lease history, sample drafts, batch drafts, and submissions;
+- annotation snapshots, modification events, correction sample pool items, export jobs, and evaluation runs.
+
+The import command writes only to the configured target database and to the requested report path. It must not mutate:
+
+- `DATASET/` or `DATASET_ROOT`;
+- uploaded zip archives;
+- extracted uploaded batch source trees;
+- source images, STEP outputs, visualizations, and media files;
+- generated export artifact files;
+- file-backed runtime roots such as `PLATFORM_STATE_ROOT` and `LABEL_CONFIG_STORE_ROOT`.
+
+The import stores filesystem paths, sizes, hashes, counters, validation summaries, and metadata needed to keep existing media/export/download behavior working. It must not copy large file bytes into PostgreSQL.
+
 ## Expected Phase 3 Environment Variables
 
 | Variable | Expected values | Required when | Notes |
@@ -135,6 +166,26 @@ Security cautions:
 - Use Redis ACL/password and TLS when required by the deployment environment or managed service.
 - Do not run `FLUSHDB`, restart, or TTL-loss checks against a shared production Redis database. Use an isolated smoke database/index.
 - Redact `DATABASE_URL` and `REDIS_URL` in support bundles, logs, CI output, and deployment records.
+
+## Expected Phase 6 Import Environment Variables And Roots
+
+This section documents the confirmed Phase 6 CLI surface.
+
+| Variable or flag | Required when | Meaning |
+| --- | --- | --- |
+| `DATABASE_URL` | Alembic, dry-run planning against target DB, apply import, and post-import database-mode verification | Target PostgreSQL database URL. Do not commit it or include credentials in logs. |
+| `PLATFORM_STATE_BACKEND=database` | Starting the backend after import | Selects PostgreSQL-backed durable state for post-import reads and continued writes. Do not set this as Docker default until Phase 7. |
+| `PLATFORM_DB_AUTO_MIGRATE=0` | Operator-controlled import | Keep startup migration disabled and run `uv run alembic upgrade head` explicitly before import. Use `1` only if a later backend handoff documents tested startup migration behavior. |
+| `PLATFORM_REDIS_ENABLED=0` | Running the import command | Redis is not required for the import. Enable Redis only for separate Phase 5/Phase 7 runtime verification. |
+| `REDIS_URL` | Redis-enabled post-import runtime verification | Optional for import. Required only when `PLATFORM_REDIS_ENABLED=1`. |
+| `--platform-state-root` | Dry-run and apply | Required source file-backed state root containing users, sessions, audit, QC, drafts, submissions, sample pool, exports, and evaluations. Operators may pass the value from `PLATFORM_STATE_ROOT` explicitly. |
+| `--label-config-store-root` | Dry-run and apply | Required source label config and dataset registry state root. Operators may pass the value from `LABEL_CONFIG_STORE_ROOT` explicitly. |
+| `--dataset-root` | Dry-run, apply, and post-import runtime verification | Required readonly source dataset root, for example `/srv/urban-platform/DATASET/urban_violation`. Operators may pass the value from `DATASET_ROOT` explicitly. |
+| `--dry-run` | Planning import | Build and validate the import plan without creating or changing database rows. |
+| `--report` | Dry-run, apply, and idempotency check | Writes a JSON report for operator records. Use a path under the backup root, not under `DATASET/`. |
+| `--run-migrations` | Optional operator path | Runs Alembic migrations to head before import. Prefer explicit `uv run alembic upgrade head` when operators want a separate migration checkpoint. |
+
+Docker host-root variables such as `DATASET_HOST_ROOT`, `PLATFORM_STATE_HOST_ROOT`, and `LABEL_CONFIG_HOST_ROOT` are Compose mount inputs. The import command should use the mounted container paths or direct host paths that correspond to those roots. `DATASET_HOST_ROOT` remains the parent directory containing `urban_violation/`; do not pass the dataset child as the Compose host root.
 
 ## Phase 3 Foundation Verification
 
@@ -509,9 +560,9 @@ Use `PLATFORM_DB_AUTO_MIGRATE=1` only if the final implementation documents and 
 
 ## 5. Dry-Run File-State Import
 
-Future production rollout step. The file-state import tool is not part of Phase 3 PostgreSQL foundation or Phase 4 QC/review state migration. Do not run a production import until the backend import-tool phase has landed and the command name is confirmed.
+Phase 6 operator workflow. The file-state import tool is not part of Phase 3 PostgreSQL foundation, Phase 4 QC/review state migration, or Phase 5 Redis runtime coordination. Run it only after backups and Alembic migration checks are complete.
 
-The import tool must provide an equivalent command surface:
+Run dry-run first against the exact database that would receive the import:
 
 ```bash
 DATABASE_URL="$DATABASE_URL" \
@@ -525,17 +576,27 @@ uv run python -m urban_violation_backend.migrate_state import-file-state \
 
 Dry-run acceptance:
 
-- Reports counts for every imported class.
-- Reports uploaded package paths and export artifact paths as filesystem references, not database blobs.
-- Reports no same-ID different-content conflicts.
-- Reports no planned mutation under `DATASET/`.
-- Can be re-run without changing files or database rows.
+- The command exits successfully.
+- The report includes counts for each supported state class, including zero counts for empty classes where the implementation reports them.
+- The report identifies uploaded package paths, extracted source paths, media paths, and export artifact paths as filesystem references, not database blobs.
+- The report shows `dry_run` or equivalent report metadata so operators can prove no apply was attempted.
+- The report shows no same-ID different-content conflicts.
+- The report shows no planned mutation under `DATASET/`, `PLATFORM_STATE_ROOT`, or `LABEL_CONFIG_STORE_ROOT`.
+- Re-running dry-run does not change files or database rows.
 
-If conflicts are reported, stop and preserve the dry-run report. Do not use Redis or manual SQL to patch durable conflicts.
+If conflicts are reported:
+
+1. Stop the migration and preserve the dry-run report.
+2. Confirm whether the target database is empty or already contains a previous import attempt.
+3. If the target database is disposable, restore it from the pre-import dump or recreate it and re-run Alembic.
+4. If the conflict represents real source-vs-target disagreement, decide the authoritative copy before applying any import.
+5. Do not use Redis to patch durable conflicts. Avoid manual SQL unless the Lead Agent and database owner explicitly approve a documented repair.
+
+Conflict reports identify the state class and stable id or natural key in per-domain `conflict_ids`. Operators should inspect the source file and target database row for those ids before deciding the authoritative copy.
 
 ## 6. Import File State
 
-Future production rollout step. This is blocked until the file-state import tool exists and has passed dry-run, idempotency, and conflict-report tests.
+Phase 6 operator workflow. Use the same source roots and target database that passed dry-run.
 
 Run the import:
 
@@ -547,6 +608,15 @@ uv run python -m urban_violation_backend.migrate_state import-file-state \
   --dataset-root /srv/urban-platform/DATASET/urban_violation \
   --report "$BACKUP_ROOT/file-state-import.apply.json"
 ```
+
+Review the apply report before starting database-mode traffic. Expected apply report content:
+
+- inserted row counts by state class;
+- same-content match counts for rows that already existed and were not changed;
+- skipped or unsupported state classes, if any;
+- conflict count and conflict details;
+- filesystem references preserved for uploaded archives, extracted source trees, media, and export artifacts;
+- non-mutation summary for source roots.
 
 Re-run the same command once to verify idempotency:
 
@@ -561,14 +631,18 @@ uv run python -m urban_violation_backend.migrate_state import-file-state \
 
 Acceptance:
 
+- The first apply reports no conflicts.
 - The second run reports zero new rows or explicitly idempotent same-content matches.
-- The import does not delete or rewrite file-backed state.
-- The import does not mutate raw dataset files, uploaded archives, extracted source files, media files, or export artifacts.
+- Same-ID same-content records are accepted as idempotent.
+- Same-ID different-content records are reported as conflicts and are not silently overwritten.
+- Dry-run and apply do not delete or rewrite file-backed state.
+- Dry-run and apply do not mutate raw dataset files, uploaded archives, extracted source files, media files, or export artifacts.
 - Batch records retain source pointers that allow `RegisteredBatchRuntime` hydration from the filesystem.
+- If the import reports unsupported state classes, do not cut over production traffic until the owner accepts the gap in writing.
 
 ## 7. Database-Mode Verification Before Traffic
 
-Future production rollout step after the Redis runtime and import-tool phases. For Phase 3, use the smaller foundation verification checklist near the top of this runbook. For Phase 4, use the QC/review verification checklist. For Phase 5, use the Redis runtime verification checklist without switching production traffic. Do not require Redis or production traffic switching during Phase 4.
+Future production rollout step after the Redis runtime and import-tool phases. For Phase 3, use the smaller foundation verification checklist near the top of this runbook. For Phase 4, use the QC/review verification checklist. For Phase 5, use the Redis runtime verification checklist without switching production traffic. During Phase 6, verify the imported database explicitly, but do not change Docker defaults before Phase 7.
 
 Start the backend in database mode against the migrated database:
 
@@ -593,6 +667,20 @@ Smoke expectations:
 - Media URLs still resolve through backend media routes.
 - Export downloads resolve generated files from the filesystem.
 
+Post-import read checks:
+
+- Compare dataset type, batch, label config, import job, audit, QC task, draft, submission, sample pool, export, and evaluation counts against the import report.
+- Inspect at least one migrated batch with source media and confirm backend media URLs return content.
+- Inspect at least one generated export job and confirm the download endpoint streams the existing artifact file.
+- Confirm active label config pointers match the source `LABEL_CONFIG_STORE_ROOT`.
+- Confirm file-backed roots still exist and their file modification times were not advanced by the import, except for operator-created backup/report files outside those roots.
+
+Post-import continued-write checks:
+
+- Create a new durable action in database mode, such as saving a draft, submitting a review fixture, saving a new label config version, or writing an audit-covered management action.
+- Restart the backend and verify the new database-mode write remains visible.
+- Do not expect the new database-mode write to appear in the old file-backed roots. Reverse export back to file-backed state is not implemented in Phase 6.
+
 Redis restart check:
 
 ```bash
@@ -607,7 +695,7 @@ After Redis restart:
 
 ## 8. Docker Rollout
 
-Future production rollout step. Phase 3, Phase 4, and Phase 5 must not change Docker defaults to database mode and must not add Redis as a required runtime service.
+Future production rollout step. Phase 3, Phase 4, Phase 5, and Phase 6 must not change Docker defaults to database mode and must not add Redis as a required runtime service.
 
 Switch Compose to the migrated target defaults only after the import and verification steps pass:
 
@@ -685,11 +773,22 @@ Rollback before database-mode writes:
 4. Start the previous backend/frontend containers.
 5. Verify login, dataset list, label config, review draft, and audit with file-backed state.
 
+Rollback after dry-run only:
+
+- Dry-run should not create database rows or modify source files. Keep or archive the dry-run report, restore no file-backed state unless an operator made unrelated changes during the window, and return traffic to file-backed mode.
+
+Rollback after import apply but before database-mode traffic:
+
+- Stop the backend if it was started for verification.
+- Restore or recreate the target database from the pre-import state. If the database was dedicated to the import, dropping and recreating it from migrations is usually cleaner than deleting individual rows.
+- Keep the file-backed runtime roots as the traffic authority.
+- Preserve the apply and idempotency reports for diagnosis.
+
 Rollback after database-mode writes:
 
 - Freeze writes first.
 - Decide which state is authoritative: the pre-cutover file backup or the PostgreSQL database after cutover.
-- If reverting to file-backed mode, any database-only writes after cutover will not appear unless a tested reverse export tool exists.
+- If reverting to file-backed mode, any database-only writes after cutover will not appear in the file-backed runtime roots. A tested reverse export tool is not implemented in Phase 6.
 - Preserve a PostgreSQL dump before destructive rollback:
 
   ```bash

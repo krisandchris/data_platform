@@ -44,3 +44,77 @@
   - `uv run python scripts/docker-compose-auto-subnet.py config`
   - `git diff --check`
 - Disposable containers `task019-phase5-pg` and `task019-phase5-redis` were removed after smoke validation.
+
+## 2026-05-22 Phase 6 Dispatch
+
+- Started `integration/TASK-019` for Phase 6 from local `main` at `9a9a4d4`.
+- Read Phase 6 requirements from `docs/architecture/state_migration_agent_sequence.md` and `docs/architecture/postgres-redis-migration-runbook.md`.
+- Read current file-backed and database-backed persistence code:
+  - `src/urban_violation_backend/state_store.py`
+  - `src/urban_violation_backend/db/foundation.py`
+  - `src/urban_violation_backend/db/models.py`
+  - `src/urban_violation_backend/cli.py`
+- Updated `.agent/task_plan.md` and `.agent/findings.md` with Phase 6 scope and exit gates.
+- Observed unrelated `.gitignore` user modification and left it unstaged.
+- Created Phase 6 worktrees:
+  - `/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-019-backend-import-tool`
+  - `/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-019-qa-import-tool-tests`
+  - `/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-019-docs-import-tool-runbook`
+- Spawned Phase 6 subagents:
+  - Backend Ramanujan: `019e4d7d-ce80-71f1-acce-2397dd9d9ace`
+  - QA Einstein: `019e4d7d-cee6-7a81-ae7d-7d6a33a08eed`
+  - Docs Dalton: `019e4d7d-cf2e-7b11-89e3-130e9527e374`
+
+## 2026-05-22 Phase 6 Backend Agent Execution (import-tool)
+
+- Implemented `src/urban_violation_backend/migrate_state.py` with command surface:
+  - `uv run python -m urban_violation_backend.migrate_state import-file-state --platform-state-root ... --label-config-store-root ... --dataset-root ... --dry-run --report ...`
+- Added conflict-aware import flow for:
+  - users, role bindings, sessions, audit events;
+  - dataset type registry + registered batches/import jobs;
+  - label config versions + active pointers;
+  - QC assignments/tasks/leases/drafts/batch drafts/submissions;
+  - annotation snapshots/modification events;
+  - sample pool items/export jobs/evaluations.
+- Added preserved-ID label-config import helpers in `DatabaseLabelConfigRepository`:
+  - `import_with_preserved_id()`
+  - `import_active_pointer()`
+- Added focused tests in `tests/test_migrate_state_import_tool.py` covering:
+  - empty dry-run;
+  - apply import and idempotent re-run;
+  - same-ID different-content conflict reporting without overwrite.
+- Verification passed:
+  - `uv run pytest tests/test_migrate_state_import_tool.py -q`
+  - `uv run pytest tests/test_db_foundation_backend.py -q`
+  - `git diff --check`
+
+## 2026-05-22 Phase 6 QA Agent Execution (import-tool-tests)
+
+- Added migration/import test design covering empty import, representative fixture import, idempotent re-run, conflict protection, dry-run non-mutation, and post-import continued writes.
+- Initial QA branch tests skipped until the backend importer module existed.
+- During Lead integration, QA scenarios were reconciled into the backend test file and executed against the real importer.
+- Verification passed:
+  - `uv run pytest tests/test_migrate_state_import_tool.py -q`
+
+## 2026-05-22 Phase 6 Docs Agent Execution (import-tool-runbook)
+
+- Confirmed docs worktree branch: `agent/TASK-019/docs/import-tool-runbook`.
+- Updated docs for Phase 6 import command expectations, dry-run/apply/idempotency/conflict workflow, required env vars and roots, non-mutation guarantees, rollback notes, and post-import verification.
+- Lead integration reconciled docs from expected/pending wording to the confirmed backend command and required CLI flags.
+- Branch verification passed:
+  - `git diff --check`
+
+## 2026-05-22 Phase 6 Lead Integration And Verification
+
+- Merged `agent/TASK-019/backend/import-tool` into `integration/TASK-019` at merge commit `ed6e825`.
+- Merged `agent/TASK-019/qa/import-tool-tests` into `integration/TASK-019` at merge commit `2e1cd78`.
+- Merged `agent/TASK-019/docs/import-tool-runbook` into `integration/TASK-019` at merge commit `2bd8458`.
+- Resolved `.agent` merge conflicts by preserving backend, QA, docs, and lead integration records.
+- Reconciled docs to the confirmed command name and required CLI flags.
+- Verification passed:
+  - `uv run pytest tests/test_migrate_state_import_tool.py tests/test_db_foundation_backend.py -q`
+  - `uv run pytest -k "migrate_state or db_foundation or db_qc_state or state_store_contract" -q`
+  - `uv run pytest -q`
+  - `uv run python scripts/docker-compose-auto-subnet.py config`
+  - `git diff --check`
+- Existing unrelated `.gitignore` user modification remained unstaged.

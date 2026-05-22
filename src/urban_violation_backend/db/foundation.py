@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 from typing import Any, Protocol
 from uuid import uuid4
@@ -63,6 +64,11 @@ from urban_violation_backend.schemas import (
     UserAccount,
 )
 from urban_violation_backend.state_store import PlatformStateStore
+
+
+def _canonical_json(value: Any) -> str:
+    """Build stable JSON text for structural equality checks."""
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
 def _as_utc(value: datetime | None) -> datetime | None:
@@ -345,6 +351,65 @@ class DatabaseLabelConfigRepository(LabelConfigRepositoryProtocol):
             validation=LabelConfigValidationReport.model_validate(row.validation_payload),
             config=DatasetLabelConfig.model_validate(row.config_payload),
         )
+
+    def import_with_preserved_id(self, stored: StoredLabelConfig) -> str:
+        """Import one stored config while preserving config_id.
+
+        Returns one of: ``inserted``, ``matched``, or ``conflict``.
+        """
+        with session_scope(self._session_factory) as session:
+            existing = session.get(LabelConfigRow, stored.config_id)
+            if existing is None:
+                session.add(
+                    LabelConfigRow(
+                        config_id=stored.config_id,
+                        dataset_id=stored.dataset_id,
+                        schema_version=stored.schema_version,
+                        version=stored.version,
+                        status=stored.status,
+                        content_hash=stored.content_hash,
+                        created_at=stored.created_at,
+                        activated_at=stored.activated_at,
+                        file_name=stored.file_name,
+                        validation_payload=stored.validation.model_dump(mode="json"),
+                        config_payload=stored.config.model_dump(mode="json"),
+                    )
+                )
+                return "inserted"
+
+            existing_stored = self._to_stored_model(existing)
+            if _canonical_json(existing_stored.model_dump(mode="json")) == _canonical_json(
+                stored.model_dump(mode="json")
+            ):
+                return "matched"
+            return "conflict"
+
+    def import_active_pointer(self, dataset_id: str, config_id: str) -> str:
+        """Import one active-pointer row without overwriting conflicting pointers.
+
+        Returns one of: ``inserted``, ``matched``, or ``conflict``.
+        """
+        with session_scope(self._session_factory) as session:
+            config_row = session.get(LabelConfigRow, config_id)
+            if config_row is None or config_row.dataset_id != dataset_id:
+                raise LabelConfigVersionNotFoundError(
+                    f"Label config version not found: dataset={dataset_id}, config_id={config_id}"
+                )
+
+            pointer = session.get(LabelConfigActiveRow, dataset_id)
+            now = datetime.now(timezone.utc)
+            if pointer is None:
+                session.add(
+                    LabelConfigActiveRow(
+                        dataset_id=dataset_id,
+                        config_id=config_id,
+                        updated_at=now,
+                    )
+                )
+                return "inserted"
+            if pointer.config_id == config_id:
+                return "matched"
+            return "conflict"
 
 
 class DatabaseBackedPlatformStateStore(PlatformStateStore):

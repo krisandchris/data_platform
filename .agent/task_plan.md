@@ -15,7 +15,7 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 5. Redis runtime state for active leases, locks, session cache, and import progress.
    - Status: complete. Backend, QA, Frontend, and Docs branches are merged into integration; final verification passed.
 6. File-state import tool.
-   - Status: pending.
+   - Status: complete. Backend, QA, and Docs branches are merged into integration; final verification passed.
 7. Docker rollout and full acceptance.
    - Status: pending.
 
@@ -50,5 +50,37 @@ Objective: migrate mutable platform state from file-backed JSON/JSONL stores to 
 - `uv run pytest -q` passed.
 - `cd frontend && npm run test` passed.
 - `cd frontend && VITE_API_BASE_URL=/api npm run build` passed.
+- `uv run python scripts/docker-compose-auto-subnet.py config` passed.
+- `git diff --check` passed.
+
+## Phase 6 Agent Branches
+
+- Merged into integration: `agent/TASK-019/backend/import-tool` at `6c70088`
+- Merged into integration: `agent/TASK-019/qa/import-tool-tests` at `ed66515`
+- Merged into integration: `agent/TASK-019/docs/import-tool-runbook` at `af3c2ec`
+
+## Phase 6 Scope
+
+- Add an explicit CLI command for importing existing file-backed runtime state into the PostgreSQL-backed repositories.
+- Import users, role bindings, sessions, audit events, dataset type registry, registered batches/import jobs, label configs/active pointers, QC assignments, tasks, leases, sample drafts, batch drafts, submissions, snapshots, modification events, sample pool items, export jobs, and evaluation runs.
+- Preserve original IDs and filesystem references.
+- Support `--dry-run`, `--report`, idempotent re-run, and same-ID different-content conflict reporting.
+- Do not mutate `DATASET/`, uploaded archives, extracted source files, media files, export artifacts, or file-backed runtime roots.
+- Keep Docker defaults file-backed until Phase 7.
+
+## Phase 6 Exit Gate
+
+- Empty import succeeds and reports zero imported rows.
+- Full fixture import succeeds into database mode.
+- Repeated import is idempotent and reports same-content matches rather than duplicating rows.
+- Same-ID different-content conflicts are reported without silent overwrite.
+- Post-import API reads and continued writes work in database mode.
+- Docs include confirmed command names, reports, rollback notes, and verification commands.
+
+## Phase 6 Verification Results
+
+- `uv run pytest tests/test_migrate_state_import_tool.py tests/test_db_foundation_backend.py -q` passed.
+- `uv run pytest -k "migrate_state or db_foundation or db_qc_state or state_store_contract" -q` passed with expected live-test skips.
+- `uv run pytest -q` passed with expected live-test skips.
 - `uv run python scripts/docker-compose-auto-subnet.py config` passed.
 - `git diff --check` passed.

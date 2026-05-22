@@ -1,52 +1,99 @@
-# TASK-019 Phase 5 Integration Handoff
+# TASK-019 Phase 6 Integration Handoff
 
-## Agent Role
+## Lead Scope
 
-Lead Agent
+Integration branch: `integration/TASK-019`
 
-## Branch
+Phase 6 delivers the explicit file-state-to-database import path needed before enabling database-backed runtime state in production-like deployments.
 
-`integration/TASK-019`
+## Agent Branches Integrated
 
-## Scope Completed
+- `agent/TASK-019/backend/import-tool`
+  - Implemented `urban_violation_backend.migrate_state import-file-state`.
+  - Added conflict-safe import behavior, JSON reporting, filesystem reference reporting, and focused backend tests.
+- `agent/TASK-019/qa/import-tool-tests`
+  - Added migration/import QA coverage expectations.
+  - During integration, the QA scenarios were reconciled into the executable backend test file now that the real importer module exists.
+- `agent/TASK-019/docs/import-tool-runbook`
+  - Updated migration, deployment, and persistence-boundary docs for the Phase 6 import workflow.
+  - During integration, command wording was reconciled from expected/pending to confirmed.
 
-- Phase 5 subagents dispatched and completed.
-- Backend, QA, Frontend, and Docs branches merged into integration.
-- Lead Agent resolved final integration issues and completed Phase 5 verification.
+## Command Surface
 
-## Changed Files
+```bash
+uv run python -m urban_violation_backend.migrate_state import-file-state \
+  --platform-state-root ... \
+  --label-config-store-root ... \
+  --dataset-root ... \
+  [--database-url ...] \
+  [--dry-run] \
+  [--report ...] \
+  [--run-migrations]
+```
 
-- Backend/runtime: `src/urban_violation_backend/runtime_coordination.py`, `src/urban_violation_backend/db/settings.py`, `src/urban_violation_backend/service.py`, `src/urban_violation_backend/auth.py`, `src/urban_violation_backend/api_schemas.py`, `pyproject.toml`, `uv.lock`.
-- Backend/QA tests: `tests/test_redis_runtime_backend.py`, `tests/test_redis_runtime_api.py`, `tests/test_postgres_redis_smoke.py`, `tests/test_api.py`, plus Phase 5 database/QC regression tests from the agent branches.
-- Frontend: `frontend/src/services/urbanViolationApi.ts`, `frontend/src/shared/types/contract.ts`, `frontend/src/test/apiClient.test.ts`, and frontend lease/progress UI files from the agent branch.
-- Docs: `docs/architecture/deployment.md`, `docs/architecture/postgres-redis-migration-runbook.md`, `docs/backend/modules/runtime-and-validation.md`, and Phase 5 state-migration docs from the docs branch.
-- Coordination: `.agent/task_plan.md`, `.agent/findings.md`, `.agent/progress.md`, `.agent/handoff.md`.
+`DATABASE_URL` is supported when `--database-url` is omitted. The state roots are required CLI flags.
 
-## Shared Contracts Changed
+## Imported Domains
 
-Yes. Backend adds optional `live_progress` to import job responses and adds Redis runtime env settings.
+- users, role bindings, sessions, audit events
+- dataset type registry and registered batches/import jobs
+- label config versions and active pointers
+- QC assignments, tasks, leases, per-sample drafts, batch drafts, submissions
+- annotation snapshots and modification events
+- sample pool items, export jobs, evaluations
 
-## Dependencies Changed
+## Conflict And Safety Behavior
 
-Yes. Backend adds approved Python dependency `redis` through `uv add`.
+- Same ID and same content is reported as `matched`.
+- Same ID and different content is reported as `conflict`.
+- Conflicting database rows are skipped and are not overwritten.
+- The command exits with code `3` when conflicts are detected.
+- File-backed roots and `DATASET` files are treated as read-only import inputs.
 
-## Verification
+## Files Changed
 
-- `uv run pytest tests/test_redis_runtime_backend.py tests/test_redis_runtime_api.py tests/test_postgres_redis_smoke.py tests/test_db_qc_state_api.py::test_db_qc_state_api_restart_persistence_and_full_workflow tests/test_db_qc_state_api.py::test_db_qc_state_api_autosave_then_submit_batch_is_consistent -q` passed.
-- `uv run pytest -k "redis_runtime or postgres_live or db_qc_state or db_foundation or state_store_contract" -q` passed.
-- Disposable Docker PostgreSQL/Redis smoke passed with `tests/test_postgres_redis_smoke.py` and `tests/test_redis_runtime_backend.py::test_real_redis_smoke_if_available`.
-- `uv run pytest -q` passed.
-- `cd frontend && npm run test` passed.
-- `cd frontend && VITE_API_BASE_URL=/api npm run build` passed.
-- `uv run python scripts/docker-compose-auto-subnet.py config` passed.
-- `git diff --check` passed.
+- `src/urban_violation_backend/migrate_state.py`
+- `src/urban_violation_backend/db/foundation.py`
+- `tests/test_migrate_state_import_tool.py`
+- `docs/architecture/postgres-redis-migration-runbook.md`
+- `docs/architecture/deployment.md`
+- `docs/architecture/state-persistence-boundaries.md`
+- `.agent/task_plan.md`
+- `.agent/findings.md`
+- `.agent/progress.md`
+- `.agent/handoff.md`
 
-## Known Risks
+## Verification Status
 
-- Rollback after database-mode writes remains a policy decision until a reverse export tool exists.
-- File-state import remains Phase 6.
-- `prompts_complete.md` is an unrelated untracked file in the main worktree and is intentionally untouched.
+Backend branch verification before integration:
 
-## Next Agent Notes
+```bash
+uv run pytest tests/test_migrate_state_import_tool.py -q
+uv run pytest tests/test_db_foundation_backend.py -q
+git diff --check
+```
 
-- Proceed to Phase 6 file-state import planning/implementation after this integration branch is merged to `main`.
+QA merge verification after integration:
+
+```bash
+uv run pytest tests/test_migrate_state_import_tool.py -q
+```
+
+Final integration verification:
+
+```bash
+uv run pytest tests/test_migrate_state_import_tool.py tests/test_db_foundation_backend.py -q
+uv run pytest -k "migrate_state or db_foundation or db_qc_state or state_store_contract" -q
+uv run pytest -q
+uv run python scripts/docker-compose-auto-subnet.py config
+git diff --check
+```
+
+All commands passed. Selector and full test runs included expected live-test skips.
+
+## Remaining Risks
+
+- The importer preserves database rows on conflict but does not provide an automated merge/repair mode. Operators must inspect the JSON report and resolve conflicts manually.
+- Batch draft user-id recovery still depends on `_batch.<user_id>.json` file naming from the file store.
+- Filesystem artifacts such as raw datasets, uploaded archives, extracted sources, media files, and export blobs remain filesystem-managed and are reported as references rather than imported into the database.
+- Docker defaults intentionally remain file-backed until Phase 7.
