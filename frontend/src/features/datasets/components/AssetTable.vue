@@ -90,64 +90,86 @@
     </div>
 
     <div v-if="filteredAssets.length === 0" class="empty-state">No assets match the current filters.</div>
-    <table v-else>
-      <thead>
-        <tr>
-          <th>sample_id</th>
-          <th>media</th>
-          <th>stage</th>
-          <th>decision</th>
-          <th>category</th>
-          <th>sample category</th>
-          <th>confidence</th>
-          <th>qc</th>
-          <th>edit</th>
-          <th>updated</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="asset in filteredAssets" :key="asset.id">
-          <td>
-            <RouterLink class="sample-link" :to="reviewLink(asset.sampleId)">{{ asset.sampleId }}</RouterLink>
-          </td>
-          <td>
-            <div class="thumb">
-              <img v-if="safeMedia(asset)" :src="safeMedia(asset)" alt="" @error="markFailed(asset.id)" />
-              <span v-if="failedImages.has(asset.id) || !safeMedia(asset)">{{ asset.mediaStatus ?? 'URL' }}</span>
-            </div>
-            <small class="asset-muted">{{ asset.mediaStatus ?? 'unknown' }}</small>
-          </td>
-          <td>
-            <div class="chip-stack">
-              <StatusChip :value="asset.stage1Status" label="STEP1 ready" />
-              <StatusChip :value="asset.hasStage2Failure ? 'stage2_failed' : asset.stage2Status" />
-            </div>
-          </td>
-          <td><StatusChip :value="asset.judgeDecision" /></td>
-          <td>
-            <div class="chip-stack">
-              <CategoryChip v-for="category in asset.violationCategories" :key="category" :value="category" />
-            </div>
-          </td>
-          <td>
-            <div class="chip-stack">
-              <StatusChip v-for="category in asset.sampleCategories" :key="category" :value="category" />
-            </div>
-          </td>
-          <td>{{ asset.highestConfidence === undefined ? '-' : `${(asset.highestConfidence * 100).toFixed(2)}%` }}</td>
-          <td><StatusChip :value="asset.qcStatus" /></td>
-          <td><StatusChip :value="asset.labelEditStatus ?? 'none'" /></td>
-          <td>{{ formatTime(asset.updatedAt) }}</td>
-        </tr>
-      </tbody>
-    </table>
+    <div v-else class="asset-table__scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>sample_id</th>
+            <th>media</th>
+            <th>stage</th>
+            <th>decision</th>
+            <th>category</th>
+            <th>sample category</th>
+            <th>confidence</th>
+            <th>qc</th>
+            <th>edit</th>
+            <th>updated</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="asset in paginatedAssets" :key="asset.id">
+            <td>
+              <RouterLink class="sample-link" :to="reviewLink(asset.sampleId)" :title="asset.sampleId">
+                {{ asset.sampleId }}
+              </RouterLink>
+            </td>
+            <td>
+              <div class="thumb">
+                <img v-if="safeMedia(asset)" :src="safeMedia(asset)" alt="" @error="markFailed(asset.id)" />
+                <span v-if="failedImages.has(asset.id) || !safeMedia(asset)">{{ asset.mediaStatus ?? 'URL' }}</span>
+              </div>
+              <small class="asset-muted">{{ asset.mediaStatus ?? 'unknown' }}</small>
+            </td>
+            <td>
+              <div class="chip-stack">
+                <StatusChip :value="asset.stage1Status" label="STEP1 ready" />
+                <StatusChip :value="asset.hasStage2Failure ? 'stage2_failed' : asset.stage2Status" />
+              </div>
+            </td>
+            <td><StatusChip :value="asset.judgeDecision" /></td>
+            <td>
+              <div class="chip-stack">
+                <CategoryChip v-for="category in asset.violationCategories" :key="category" :value="category" />
+              </div>
+            </td>
+            <td>
+              <div class="chip-stack">
+                <StatusChip v-for="category in asset.sampleCategories" :key="category" :value="category" />
+              </div>
+            </td>
+            <td>{{ asset.highestConfidence === undefined ? '-' : `${(asset.highestConfidence * 100).toFixed(2)}%` }}</td>
+            <td><StatusChip :value="asset.qcStatus" /></td>
+            <td><StatusChip :value="asset.labelEditStatus ?? 'none'" /></td>
+            <td>{{ formatTime(asset.updatedAt) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div v-if="filteredAssets.length" class="pagination-bar" aria-label="资产样本分页">
+      <span>{{ assetPaginationText }}</span>
+      <div class="pagination-bar__controls">
+        <button type="button" :disabled="assetPage === 1" aria-label="上一页" @click="assetPage = Math.max(1, assetPage - 1)">
+          <ChevronLeft :size="16" />
+        </button>
+        <strong>{{ assetPage }} / {{ assetTotalPages }}</strong>
+        <button
+          type="button"
+          :disabled="assetPage === assetTotalPages"
+          aria-label="下一页"
+          @click="assetPage = Math.min(assetTotalPages, assetPage + 1)"
+        >
+          <ChevronRight :size="16" />
+        </button>
+      </div>
+    </div>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
-import { RotateCcw } from 'lucide-vue-next';
+import { ChevronLeft, ChevronRight, RotateCcw } from 'lucide-vue-next';
 import { toBrowserMediaUrl } from '../../../services/media';
 import CategoryChip from '../../../shared/components/CategoryChip.vue';
 import StatusChip from '../../../shared/components/StatusChip.vue';
@@ -175,6 +197,8 @@ const localFilters = reactive<AssetListFilters>({
 });
 
 const failedImages = ref(new Set<string>());
+const assetPageSize = 10;
+const assetPage = ref(1);
 const assetIdentityKey = computed(() =>
   [props.datasetId, ...props.assets.map((asset) => `${asset.id}:${asset.imageUrl ?? ''}:${asset.thumbnailUrl ?? ''}`)].join('|'),
 );
@@ -220,11 +244,36 @@ const filteredAssets = computed(() =>
     );
   }),
 );
+const assetTotalPages = computed(() => Math.max(1, Math.ceil(filteredAssets.value.length / assetPageSize)));
+const assetPageStartIndex = computed(() => (filteredAssets.value.length ? (assetPage.value - 1) * assetPageSize : 0));
+const assetPageEndIndex = computed(() => Math.min(filteredAssets.value.length, assetPageStartIndex.value + assetPageSize));
+const paginatedAssets = computed(() => filteredAssets.value.slice(assetPageStartIndex.value, assetPageEndIndex.value));
+const assetPaginationText = computed(() =>
+  filteredAssets.value.length
+    ? `显示 ${assetPageStartIndex.value + 1}-${assetPageEndIndex.value} / ${filteredAssets.value.length}，每页 ${assetPageSize} 条`
+    : `显示 0 / 0，每页 ${assetPageSize} 条`,
+);
 
-watch(localFilters, () => emit('filtersChanged', { ...localFilters }), { deep: true });
+watch(
+  localFilters,
+  () => {
+    assetPage.value = 1;
+    emit('filtersChanged', { ...localFilters });
+  },
+  { deep: true },
+);
 watch(assetIdentityKey, () => {
+  assetPage.value = 1;
   failedImages.value = new Set();
 });
+watch(
+  () => filteredAssets.value.length,
+  () => {
+    if (assetPage.value > assetTotalPages.value) {
+      assetPage.value = assetTotalPages.value;
+    }
+  },
+);
 
 const resetFilters = () => {
   localFilters.judgeDecision = 'all';
@@ -295,14 +344,20 @@ const formatTime = (value: string) => new Intl.DateTimeFormat('zh-CN', { dateSty
 table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.asset-table__scroll {
+  overflow-x: auto;
 }
 
 th,
 td {
-  padding: 14px 16px;
+  padding: 12px 14px;
   border-bottom: 1px solid var(--line);
   text-align: left;
   vertical-align: middle;
+  min-width: 0;
 }
 
 th {
@@ -312,9 +367,49 @@ th {
   text-transform: uppercase;
 }
 
+th:nth-child(1),
+td:nth-child(1) {
+  width: 210px;
+}
+
+th:nth-child(2),
+td:nth-child(2) {
+  width: 126px;
+}
+
+th:nth-child(3),
+td:nth-child(3),
+th:nth-child(5),
+td:nth-child(5),
+th:nth-child(6),
+td:nth-child(6) {
+  width: 150px;
+}
+
+th:nth-child(7),
+td:nth-child(7),
+th:nth-child(10),
+td:nth-child(10) {
+  width: 108px;
+}
+
+th:nth-child(4),
+td:nth-child(4),
+th:nth-child(8),
+td:nth-child(8),
+th:nth-child(9),
+td:nth-child(9) {
+  width: 104px;
+}
+
 .sample-link {
+  display: block;
+  max-width: 100%;
   color: var(--blue);
   font-weight: 760;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .thumb {
@@ -354,17 +449,48 @@ th {
   gap: 6px;
 }
 
+.pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.pagination-bar__controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pagination-bar button {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+}
+
+.pagination-bar button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 @media (max-width: 1080px) {
   .filters {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .asset-table {
-    overflow-x: auto;
-  }
-
   table {
-    min-width: 920px;
+    min-width: 1180px;
   }
 }
 </style>
