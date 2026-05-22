@@ -1,44 +1,53 @@
-# TASK-019 PostgreSQL + Redis State Migration Plan
+# TASK-019 Phase 5 Docs Plan
 
-Objective: migrate mutable platform state from file-backed JSON/JSONL stores to PostgreSQL, use Redis for active leases/locks/progress, preserve current frontend API behavior, and provide a safe import path from existing runtime state.
+## Goal
 
-## Phases
+Update architecture and runbooks for Redis runtime coordination, including operator validation for Redis loss, PostgreSQL authority, live progress expiry, and real PostgreSQL/Redis smoke checks.
 
-1. Baseline and contract freeze.
-   - Status: complete.
-2. Store interface extraction.
-   - Status: complete.
-3. PostgreSQL foundation for identity, registry, label config, import jobs, and audit.
-   - Status: complete.
-4. PostgreSQL migration for QC, drafts, submissions, sample pool, exports, and evaluations.
-   - Status: complete. Backend, QA, Frontend, and Docs branches are merged into `integration/TASK-019`; local integration verification passed with SQLite database fallback.
-5. Redis runtime state for active leases, locks, session cache, and import progress.
-   - Status: pending.
-6. File-state import tool.
-   - Status: pending.
-7. Docker rollout and full acceptance.
-   - Status: pending.
+## Role
 
-## Phase 4 Agent Branches
+Docs Agent
 
-- Merged into integration: `agent/TASK-019/backend/qc-state` at `254e9f0`
-- Merged into integration: `agent/TASK-019/qa/qc-state-tests` at `a3c16e9`
-- Merged into integration: `agent/TASK-019/frontend/qc-db-compat` at `011df88`
-- Merged into integration: `agent/TASK-019/docs/qc-state-runbooks` at `b4f1042`
+## Branch
 
-## Phase 4 Scope
+`agent/TASK-019/docs/redis-runtime-runbooks`
 
-- Move authoritative QC assignments, task records, lease history, drafts, batch drafts, submissions, annotation snapshots, modification events, sample pool items, export job metadata, and evaluation run metadata to PostgreSQL in database mode.
-- Preserve file-backed mode and existing frontend API response contracts.
-- Keep raw dataset files, uploaded archives, extracted source trees, media files, and export artifacts on the filesystem.
-- Do not introduce Redis or switch Docker defaults in this phase.
+## Worktree
 
-## Phase 4 Exit Gate
+`/mnt/lc/LC/ares_xtws/0_train_data/_worktrees/data_platform/TASK-019-docs-redis-runtime-runbooks`
 
-- Database mode supports the full review workflow through confirmation and persistence across service recreation.
-- File-backed test suite remains green.
-- Frontend tests/build remain green.
-- QA database-mode tests pass with SQLite fallback and optionally with `TEST_DATABASE_URL`.
-- Docs and runbooks are reconciled with the implemented Phase 4 behavior.
+## Assigned Scope
 
-Exit gate status: complete for local integration. PostgreSQL-specific live validation still requires `TEST_DATABASE_URL`.
+- `docs/architecture/state-persistence-boundaries.md`
+- `docs/architecture/postgres-redis-migration-runbook.md`
+- `docs/architecture/state_migration_agent_sequence.md`
+- `docs/backend/modules/runtime-and-validation.md`
+- `docs/architecture/deployment.md`
+- `.agent/**`
+
+## Out Of Scope
+
+- Product code
+- Tests
+- Docker default production switch
+
+## Planned Steps
+
+1. Inspect existing Phase 5 docs.
+2. Document Redis env vars, responsibilities, TTL/loss behavior, and security cautions.
+3. Document real PostgreSQL/Redis smoke validation with `TEST_DATABASE_URL` and `TEST_REDIS_URL`.
+4. Keep docs explicit that Redis is not durable authority and Docker production rollout remains Phase 7.
+5. Update `.agent/progress.md` and complete `.agent/handoff.md`; commit changes.
+
+## Acceptance Criteria
+
+- Docs match implemented Phase 5 behavior after integration reconciliation.
+- Runbook states that Redis loss only affects active locks/live progress hints.
+- Runbook explains that PostgreSQL/database state remains authoritative.
+- `git diff --check` passes.
+
+## Expected Checks
+
+- `git diff --check`
+- Manual link/structure review
+
