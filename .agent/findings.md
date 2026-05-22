@@ -46,3 +46,12 @@
 - Rollback after database-mode writes remains a policy decision unless a tested reverse export tool is implemented.
 - File-state import remains Phase 6.
 - Untracked `prompts_complete.md` exists in the main worktree and is unrelated to TASK-019 Phase 5.
+
+## Phase 6 Initial Findings
+
+- Phase 6 must implement `uv run python -m urban_violation_backend.migrate_state import-file-state` or reconcile the runbook to the final command name.
+- File-backed runtime state is read through `PlatformStateStore` under `PLATFORM_STATE_ROOT`.
+- File-backed label configs are read through `FileBackedLabelConfigRepository` under `LABEL_CONFIG_STORE_ROOT`.
+- Database targets are already represented by `DatabaseFoundationRegistryRepository`, `DatabaseLabelConfigRepository`, and `DatabaseBackedPlatformStateStore`.
+- The import should prefer existing store APIs where possible, but conflict reporting requires explicit same-ID same-content vs same-ID different-content checks.
+- Existing `.gitignore` has an unrelated user modification in the main workspace; it should stay unstaged unless the user explicitly wants it committed.
