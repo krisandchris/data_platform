@@ -227,7 +227,6 @@ function withLeaseContext<T extends LabelEditPatchPayload>(payload: T): T {
     ...payload,
     leaseId: detail.value?.sampleLease?.leaseId,
     baseRevision: detail.value?.qcTask?.taskRevision,
-    taskRevision: detail.value?.qcTask?.taskRevision,
   };
 }
 

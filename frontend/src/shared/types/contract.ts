@@ -1090,7 +1090,6 @@ export interface LabelEditPatchPayload {
   labelConfigVersion?: string;
   leaseId?: string;
   baseRevision?: number | string;
-  taskRevision?: number;
   operations: LabelEditOperation[];
 }
 

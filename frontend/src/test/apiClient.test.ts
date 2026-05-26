@@ -838,9 +838,10 @@ describe('HTTP API adapter', () => {
         },
       ],
     };
-    const validation = await api.validateLabelEdit('ds-live', 'sample-1', patch);
+    const patchWithClientOnlyRevision = { ...patch, taskRevision: 9 };
+    const validation = await api.validateLabelEdit('ds-live', 'sample-1', patchWithClientOnlyRevision);
     const saveResult = await api.submitLabelEdit('ds-live', 'sample-1', {
-      ...patch,
+      ...patchWithClientOnlyRevision,
       submitAction: 'save_draft',
       taskStatus: 'annotation_draft',
     });
@@ -867,6 +868,7 @@ describe('HTTP API adapter', () => {
     });
     expect(validateBody).not.toHaveProperty('sample_id');
     expect(validateBody).not.toHaveProperty('submit_action');
+    expect(validateBody).not.toHaveProperty('task_revision');
     expect(JSON.stringify(validateBody)).not.toContain('review_decision');
     expect(JSON.stringify(validateBody)).not.toContain('change_note');
     expect(fetcher.mock.calls[2][0]).toBe(
@@ -878,6 +880,7 @@ describe('HTTP API adapter', () => {
       task_status: 'annotation_draft',
     });
     expect(saveBody).not.toHaveProperty('sample_id');
+    expect(saveBody).not.toHaveProperty('task_revision');
     expect(JSON.stringify(saveBody)).not.toContain('review_decision');
     expect(JSON.stringify(saveBody)).not.toContain('change_note');
     expect(validation.valid).toBe(true);

@@ -3338,6 +3338,7 @@ describe('import and review routes', () => {
       'sample-1',
       expect.objectContaining({
         taskMode: 'label_edit',
+        baseRevision: 7,
         operations: expect.arrayContaining([
           expect.objectContaining({
             scope: 'relation:R1',
@@ -3348,6 +3349,7 @@ describe('import and review routes', () => {
         ]),
       }),
     );
+    expect(mockApiClient.validateLabelEdit.mock.calls[0]?.[2]).not.toHaveProperty('taskRevision');
 
     const saveButton = wrapper.findAll('button').find((button) => button.text().includes('保存草稿'));
     await saveButton?.trigger('click');

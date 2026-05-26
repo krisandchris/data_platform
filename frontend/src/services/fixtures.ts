@@ -2404,6 +2404,7 @@ export const fixtureApiClient: UrbanViolationApi = {
     await delay();
     const history = labelEdits.get(sampleId) ?? [];
     const user = currentFixtureUser();
+    const taskRevision = Number(payload.baseRevision);
     const state: LabelEditState = {
       editId: `label-edit-${history.length + 1}`,
       datasetId: dataset.id,
@@ -2415,7 +2416,7 @@ export const fixtureApiClient: UrbanViolationApi = {
       labelConfigId: payload.labelConfigId,
       labelConfigVersion: payload.labelConfigVersion,
       leaseId: payload.leaseId,
-      taskRevision: payload.taskRevision,
+      taskRevision: Number.isFinite(taskRevision) ? taskRevision : undefined,
       operations: clone(payload.operations),
       updatedAt: new Date().toISOString(),
     };
@@ -2431,7 +2432,7 @@ export const fixtureApiClient: UrbanViolationApi = {
         operations: clone(payload.operations),
         labelConfigId: payload.labelConfigId,
         labelConfigVersion: payload.labelConfigVersion,
-        taskRevision: payload.taskRevision,
+        taskRevision: Number.isFinite(taskRevision) ? taskRevision : undefined,
         submittedAt: state.updatedAt,
         validation: {
           valid: true,

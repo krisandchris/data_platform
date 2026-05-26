@@ -1007,7 +1007,6 @@ const patchPayload = computed<LabelEditPatchPayload>(() => ({
   labelConfigVersion: props.labelConfig?.version,
   leaseId: props.sampleLease?.leaseId,
   baseRevision: props.qcTask?.taskRevision,
-  taskRevision: props.qcTask?.taskRevision,
   operations: operations.value,
 }));
 const batchDraftEntryList = computed(() => Object.values(batchDraftEntries.value));

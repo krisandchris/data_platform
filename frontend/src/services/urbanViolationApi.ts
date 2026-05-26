@@ -2404,7 +2404,6 @@ const toBackendLabelEditPayload = (payload: LabelEditPatchPayload | LabelEditSub
     label_config_version: payload.labelConfigVersion,
     lease_id: payload.leaseId,
     base_revision: payload.baseRevision,
-    task_revision: payload.taskRevision,
     operations: payload.operations.map((operation) => ({
       scope: operation.scope,
       field: operation.field,
