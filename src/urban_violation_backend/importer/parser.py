@@ -97,6 +97,7 @@ class FixtureImportBundle(StrictModel):
 
 def discover_stage_run_dir(dataset_root: Path, stage_prefix: str) -> Path:
     """Return the newest stage run directory that contains a manifest."""
+    exact_stage_dir = dataset_root / stage_prefix
     candidates = sorted(
         (
             path
@@ -107,6 +108,8 @@ def discover_stage_run_dir(dataset_root: Path, stage_prefix: str) -> Path:
         ),
         key=lambda path: path.name,
     )
+    if not candidates and (exact_stage_dir / "meta" / "manifest.jsonl").is_file():
+        return exact_stage_dir
     if not candidates:
         raise FileNotFoundError(
             f"Missing {stage_prefix} run manifest under {dataset_root}"

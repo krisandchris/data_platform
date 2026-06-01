@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import io
 import json
+import os
 from pathlib import Path
 from typing import Any
 import zipfile
@@ -12,9 +13,25 @@ import zipfile
 import pytest
 from fastapi.testclient import TestClient
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+RELATIVE_DATASET_ROOT = Path("DATASET")
+DEFAULT_DATASET_ROOT_RELATIVE = RELATIVE_DATASET_ROOT / "urban_violation"
+DATASET_0520_RELATIVE_PATH = RELATIVE_DATASET_ROOT / "urban_violation_0520"
+DATASET_ROOT = PROJECT_ROOT / RELATIVE_DATASET_ROOT
+DEFAULT_DATASET_ROOT = PROJECT_ROOT / DEFAULT_DATASET_ROOT_RELATIVE
+LABEL_CONFIG_PATH = DEFAULT_DATASET_ROOT / "label_config.json"
+DATASET_0520_PATH = PROJECT_ROOT / DATASET_0520_RELATIVE_PATH
+
+os.environ.setdefault("DATASET_ROOT", str(DEFAULT_DATASET_ROOT_RELATIVE))
+_effective_dataset_root = Path(os.environ["DATASET_ROOT"])
+if not _effective_dataset_root.is_absolute():
+    _effective_dataset_root = PROJECT_ROOT / _effective_dataset_root
+if not _effective_dataset_root.exists():
+    os.environ.setdefault("PLATFORM_ENABLE_FIXTURE_BATCH", "0")
+
 import urban_violation_backend.app as app_module
 from urban_violation_backend.app import create_app
-from urban_violation_backend.service import DEFAULT_DATASET_ROOT, build_fixture_service
+from urban_violation_backend.service import build_fixture_service
 
 
 DATASET_ID = "urban_violation"
@@ -23,12 +40,6 @@ SUCCESS_SAMPLE_ID = "000142_0_1762483003246"
 FAILURE_SAMPLE_ID = "001710_0_1763108687181"
 MULTI_CANDIDATE_SAMPLE_ID = "000122_0_1760525212732"
 IMPORT_JOB_ID = "fixture-import-urban-violation"
-LABEL_CONFIG_PATH = Path(
-    "/mnt/lc/LC/ares_xtws/0_train_data/data_platform/DATASET/urban_violation/label_config.json"
-)
-DATASET_0520_PATH = Path(
-    "/mnt/lc/LC/ares_xtws/0_train_data/data_platform/DATASET/urban_violation_0520"
-)
 
 
 @pytest.fixture
@@ -1061,7 +1072,7 @@ def test_dataset_batch_delete_admin_cleans_runtime_state_and_keeps_source_data(t
         assert created.status_code == 201
         batch_id = created.json()["dataset_id"]
         sample_id = "000424_0_1762499124659"
-        source_dir = (Path.cwd() / "DATASET" / "urban").resolve()
+        source_dir = (DATASET_ROOT / "urban").resolve()
         assert source_dir.is_dir()
 
         _activate_label_config(scoped_client)
@@ -2633,6 +2644,25 @@ def test_submit_batch_finalizes_assignment_and_multiple_sample_submissions(clien
     assert task_by_sample[MULTI_CANDIDATE_SAMPLE_ID]["status"] == "submitted"
     assert task_by_sample[SUCCESS_SAMPLE_ID]["latest_submission_id"] is not None
     assert task_by_sample[MULTI_CANDIDATE_SAMPLE_ID]["latest_submission_id"] is not None
+
+    qc = client.get(
+        f"/api/datasets/{DATASET_ID}/qc",
+        headers=_admin_headers(),
+    )
+    assert qc.status_code == 200
+    qc_by_sample = {item["sample_id"]: item for item in qc.json()["items"]}
+    assert qc_by_sample[SUCCESS_SAMPLE_ID]["latest_submission"]["submission_id"] == task_by_sample[SUCCESS_SAMPLE_ID]["latest_submission_id"]
+    assert qc_by_sample[SUCCESS_SAMPLE_ID]["latest_submission"]["operations"]
+
+    admin_detail = client.get(
+        f"/api/datasets/{DATASET_ID}/samples/{SUCCESS_SAMPLE_ID}/review",
+        headers=_admin_headers(),
+    )
+    assert admin_detail.status_code == 200
+    detail_payload = admin_detail.json()
+    assert detail_payload["latest_submission"]["submission_id"] == task_by_sample[SUCCESS_SAMPLE_ID]["latest_submission_id"]
+    assert detail_payload["latest_submission"]["operations"]
+    assert detail_payload["my_draft"] is None
 
     audit = client.get(
         "/api/audit-events",

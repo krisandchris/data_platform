@@ -8,6 +8,29 @@ This repository uses separate Git worktrees for three implementation tracks.
 - `../data_platform_frontend_agent` on branch `agent/frontend-implementation`
 - `../data_platform_integration_agent` on branch `agent/integration-testing`
 
+## Initialization
+
+Run this from the main workspace to create or repair the standard worktrees:
+
+```bash
+scripts/init-agent-worktrees.sh init
+```
+
+The initializer is idempotent for clean worktrees. It creates missing branches from
+`main`, fast-forwards existing clean worktrees, and links each worktree's
+`DATASET` path to the shared source configured by `DATASET_SOURCE`.
+If the default `./DATASET` source is absent on a machine, rerun the initializer
+with the local dataset path in `DATASET_SOURCE`.
+
+Useful variants:
+
+```bash
+scripts/init-agent-worktrees.sh status
+scripts/init-agent-worktrees.sh sync
+INSTALL_DEPS=1 scripts/init-agent-worktrees.sh init
+DATASET_SOURCE=/path/to/DATASET scripts/init-agent-worktrees.sh init
+```
+
 ## Shared Inputs
 
 - Product and architecture docs: `docs/README.md`, `docs/frontend/README.md`, `docs/backend/README.md`, `docs/architecture/README.md`

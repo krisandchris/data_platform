@@ -161,7 +161,12 @@ use_node_version() {
   if [[ -f "$nvmrc" && -s "$nvm_dir/nvm.sh" ]]; then
     # shellcheck source=/dev/null
     . "$nvm_dir/nvm.sh"
-    nvm use "$(tr -d '[:space:]' < "$nvmrc")"
+    local requested_node
+    requested_node="$(tr -d '[:space:]' < "$nvmrc")"
+    if nvm use "$requested_node"; then
+      return
+    fi
+    warn "nvm could not use $requested_node; using current node/npm from PATH"
     return
   fi
 

@@ -176,7 +176,10 @@ let activeReviewShortcutOwner: symbol | undefined;
                 v-for="item in relationViews"
                 :key="item.badge"
                 class="index-button"
-                :class="{ active: item.badge === activeRelationKey, dirty: item.dirty, warning: item.orphan }"
+                :class="[
+                  `index-button--${relationBoxTone(item)}`,
+                  { active: item.badge === activeRelationKey, dirty: item.dirty, warning: item.orphan },
+                ]"
                 type="button"
                 @click="setActiveRelation(item.badge)"
               >
@@ -220,11 +223,15 @@ let activeReviewShortcutOwner: symbol | undefined;
                 </label>
                 <label class="field">
                   <span class="mini-label">客体</span>
-                  <input
+                  <select
                     :value="activeRelationDraft.object"
                     :disabled="!canEditLabels"
-                    @input="setRelationField('object', inputValue($event))"
-                  />
+                    @change="setRelationField('object', inputValue($event))"
+                  >
+                    <option v-for="option in objectOptions(activeRelationDraft.object)" :key="option" :value="option">
+                      {{ optionDisplayLabel('object', option) }}
+                    </option>
+                  </select>
                 </label>
               </div>
 
@@ -757,6 +764,7 @@ interface RelationView {
   base: StageRelation;
   verification?: FactVerification;
   badge: string;
+  tone: RelationIdentityTone;
   draft: RelationDraft;
   orphan: boolean;
   dirty: boolean;
@@ -778,9 +786,28 @@ const FIELD_VALUE_LABELS: Record<string, Record<string, string>> = {
   relation: {
     blocks: '阻挡',
     near: '靠近',
+    occupying: '占据',
     occupies: '占据',
     adjacent_to: '相邻',
     overlaps: '重叠',
+  },
+  object: {
+    pedestrian_walkway: '人行道',
+    tactile_paving: '盲道',
+    parking_line_or_parking_zone: '停车线或停车区域',
+    curb_or_edge: '路缘或边界',
+    roadway: '车行道',
+    shop_boundary: '店铺边界',
+    counter_or_operation_area: '柜台或经营区域',
+    entrance_or_exit: '出入口',
+    public_area: '公共区域',
+    sidewalk: '人行道',
+    'sidewalk passage': '人行道',
+    curb: '路缘或边界',
+    'crosswalk edge': '路缘或边界',
+    road: '车行道',
+    'road lane': '车行道',
+    intersection: '公共区域',
   },
   visibility_level: {
     clear: '清晰',
@@ -831,6 +858,8 @@ const FIELD_VALUE_LABELS: Record<string, Record<string, string>> = {
     electric_vehicle: '电动车',
     nonmotor_vehicle: '非机动车',
     'nonmotor vehicle': '非机动车',
+    motor_vehicle: '机动车',
+    'motor vehicle': '机动车',
     shared_bicycle: '共享单车',
     bicycle: '自行车',
     goods: '货物',
@@ -901,8 +930,25 @@ const lastAutosavedAt = ref<string>();
 const autosaveIntervalMs = ref(readAutosaveIntervalMs());
 const submitModalOpen = ref(false);
 const navigationPending = ref(false);
+const RELATION_TONE_OVERRIDES: Record<string, RelationIdentityTone> = {
+  R1: 'blue',
+  R2: 'cyan',
+  R3: 'green',
+  R4: 'orange',
+};
 const DEFAULT_RELATION_TONES: RelationIdentityTone[] = ['blue', 'green', 'orange', 'cyan', 'yellow', 'teal'];
 const ORPHAN_RELATION_TONE: BBoxTone = 'purple';
+const RELATION_OBJECT_OPTIONS = [
+  'pedestrian_walkway',
+  'tactile_paving',
+  'parking_line_or_parking_zone',
+  'curb_or_edge',
+  'roadway',
+  'shop_boundary',
+  'counter_or_operation_area',
+  'entrance_or_exit',
+  'public_area',
+];
 const shortcutOwner = Symbol('review-workbench-shortcuts');
 let autosaveTimer: number | undefined;
 
@@ -983,6 +1029,7 @@ const relationViews = computed<RelationView[]>(() => {
       base: relation,
       verification,
       badge,
+      tone: relationTone(badge),
       draft,
       orphan: !evidenceKeys.has(badge),
       dirty: relationDirty(relation, verification, draft),
@@ -1326,8 +1373,8 @@ function imageRelationSelected(relationId: string | number) {
   return activeImageRelationKey.value === relationBadge(relationId);
 }
 
-function relationBoxTone(relation: Pick<RelationView, 'badge' | 'orphan'>): BBoxTone {
-  return relation.orphan ? ORPHAN_RELATION_TONE : relationTone(relation.badge);
+function relationBoxTone(relation: Pick<RelationView, 'tone' | 'orphan'>): BBoxTone {
+  return relation.orphan ? ORPHAN_RELATION_TONE : relation.tone;
 }
 
 function candidateBoxTone(relationId: string): RelationIdentityTone {
@@ -1335,7 +1382,12 @@ function candidateBoxTone(relationId: string): RelationIdentityTone {
 }
 
 function relationTone(relationId: string): RelationIdentityTone {
-  const seed = Array.from(relationId).reduce((total, char) => total + char.charCodeAt(0), 0);
+  const badge = relationBadge(relationId);
+  const overrideTone = RELATION_TONE_OVERRIDES[badge];
+  if (overrideTone) {
+    return overrideTone;
+  }
+  const seed = Array.from(badge).reduce((total, char) => total + char.charCodeAt(0), 0);
   return DEFAULT_RELATION_TONES[seed % DEFAULT_RELATION_TONES.length];
 }
 
@@ -1353,6 +1405,10 @@ function selectOptions(fieldName: string, current: string) {
     .find((field) => field.field === fieldName && field.mode === 'closed_enum')
     ?.options.map((option) => option.code) ?? [];
   return Array.from(new Set([current, ...options].filter(Boolean)));
+}
+
+function objectOptions(current: string) {
+  return Array.from(new Set([current, ...RELATION_OBJECT_OPTIONS].filter(Boolean)));
 }
 
 function optionDisplayLabel(fieldName: string, code: string) {
@@ -1517,6 +1573,23 @@ function sampleLevelDraftEntry(): BatchLabelEditDraftSample | undefined {
   };
 }
 
+function submittedDraftEntry(): BatchLabelEditDraftSample | undefined {
+  const submission = props.detail.latestSubmission;
+  if (!submission || submission.sampleId !== baseSample.value.asset.sampleId || !submission.operations.length) {
+    return undefined;
+  }
+  return {
+    sampleId: submission.sampleId,
+    leaseId: undefined,
+    baseRevision: submission.taskRevision ?? patchPayload.value.baseRevision ?? null,
+    labelConfigId: submission.labelConfigId ?? patchPayload.value.labelConfigId ?? null,
+    labelConfigVersion: submission.labelConfigVersion ?? patchPayload.value.labelConfigVersion ?? null,
+    operations: [...submission.operations],
+    dirty: false,
+    saved: true,
+  };
+}
+
 function currentRemoteBatchDraftSample(): { sample: BatchLabelEditDraftSample; savedAt?: string } | undefined {
   const sampleId = baseSample.value.asset.sampleId;
   const sample = props.batchDraft?.samples.find((entry) => entry.sampleId === sampleId && entry.saved && !entry.dirty);
@@ -1530,7 +1603,7 @@ function currentRemoteBatchDraftSample(): { sample: BatchLabelEditDraftSample; s
 }
 
 function restorableDraftSampleForCurrentSample():
-  | { sample: BatchLabelEditDraftSample; savedAt?: string; source: 'local' | 'batch' | 'sample' | 'cached' }
+  | { sample: BatchLabelEditDraftSample; savedAt?: string; source: 'local' | 'batch' | 'sample' | 'submitted' | 'cached' }
   | undefined {
   const sampleId = baseSample.value.asset.sampleId;
   const existing = batchDraftEntries.value[sampleId];
@@ -1553,6 +1626,15 @@ function restorableDraftSampleForCurrentSample():
       sample: sampleLevelDraft,
       savedAt: props.detail.myDraft?.updatedAt,
       source: 'sample',
+    };
+  }
+
+  const submittedDraft = submittedDraftEntry();
+  if (submittedDraft) {
+    return {
+      sample: submittedDraft,
+      savedAt: props.detail.latestSubmission?.submittedAt,
+      source: 'submitted',
     };
   }
 
@@ -3029,14 +3111,17 @@ function candidateSnapshotFromBase(candidate: Stage2Candidate, id: string) {
 }
 
 .index-button {
+  --index-tone: #4a5568;
+  --index-tone-soft: rgba(74, 85, 104, 0.18);
+
   position: relative;
   display: inline-grid;
   width: 100%;
   min-height: 40px;
   place-items: center;
-  border: 1px solid #343d4c;
+  border: 1px solid color-mix(in srgb, var(--index-tone) 76%, #11151b 24%);
   border-radius: 8px;
-  background: #1f2630;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--index-tone-soft) 70%, #1f2630 30%), #1f2630 58%);
   color: #edf2f7;
   padding: 0;
   text-align: center;
@@ -3045,12 +3130,12 @@ function candidateSnapshotFromBase(candidate: Stage2Candidate, id: string) {
 }
 
 .index-button.active {
-  border-color: rgba(79, 140, 255, 0.8);
-  box-shadow: 0 0 0 1px rgba(79, 140, 255, 0.35);
+  border-color: var(--index-tone);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--index-tone) 52%, transparent);
 }
 
 .index-button.warning {
-  border-color: rgba(214, 158, 46, 0.58);
+  border-style: dashed;
 }
 
 .index-button span {
@@ -3061,6 +3146,41 @@ function candidateSnapshotFromBase(candidate: Stage2Candidate, id: string) {
   height: 7px;
   border-radius: 999px;
   background: #d69e2e;
+}
+
+.index-button--blue {
+  --index-tone: #7aa7ff;
+  --index-tone-soft: rgba(122, 167, 255, 0.18);
+}
+
+.index-button--green {
+  --index-tone: #67d391;
+  --index-tone-soft: rgba(103, 211, 145, 0.18);
+}
+
+.index-button--orange {
+  --index-tone: #f6ad55;
+  --index-tone-soft: rgba(246, 173, 85, 0.2);
+}
+
+.index-button--cyan {
+  --index-tone: #22d3ee;
+  --index-tone-soft: rgba(34, 211, 238, 0.2);
+}
+
+.index-button--yellow {
+  --index-tone: #facc15;
+  --index-tone-soft: rgba(250, 204, 21, 0.18);
+}
+
+.index-button--teal {
+  --index-tone: #2dd4bf;
+  --index-tone-soft: rgba(45, 212, 191, 0.18);
+}
+
+.index-button--purple {
+  --index-tone: #c084fc;
+  --index-tone-soft: rgba(192, 132, 252, 0.18);
 }
 
 .relation-editor,

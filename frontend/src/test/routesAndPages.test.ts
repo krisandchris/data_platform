@@ -828,7 +828,11 @@ const labelConfig: LabelConfig = {
       mode: 'open_tags',
       labelZh: '分割目标',
       allowCustom: true,
-      options: [{ code: 'goods', labelZh: '货物', aliases: [] }],
+      options: [
+        { code: 'goods', labelZh: '货物', aliases: [] },
+        { code: 'nonmotor_vehicle', labelZh: '非机动车', aliases: [] },
+        { code: 'motor_vehicle', labelZh: '机动车', aliases: [] },
+      ],
     },
   ],
 };
@@ -3400,6 +3404,101 @@ describe('import and review routes', () => {
     );
   });
 
+  it('shows legacy occupying relations and motor vehicle segmentation targets with Chinese labels', async () => {
+    mockApiClient.getReviewSample.mockResolvedValue({
+      ...reviewDetail,
+      stage1: {
+        ...reviewDetail.stage1,
+        keyRelations: reviewDetail.stage1.keyRelations.map((relation, index) =>
+          index === 0 ? { ...relation, relation: 'occupying' } : relation,
+        ),
+      },
+      stage2: reviewDetail.stage2
+        ? {
+            ...reviewDetail.stage2,
+            candidates: reviewDetail.stage2.candidates.map((candidate, index) =>
+              index === 0
+                ? { ...candidate, segmentationTargets: ['nonmotor_vehicle', 'motor_vehicle'] }
+                : candidate,
+            ),
+          }
+        : reviewDetail.stage2,
+    });
+    mockApiClient.listQcQueue.mockResolvedValue(qcQueue);
+
+    const wrapper = mount(ReviewWorkbenchPage, {
+      props: {
+        id: 'ds-live',
+        sampleId: 'sample-1',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('占据');
+    expect(wrapper.text()).not.toContain('occupying');
+    expect(wrapper.text()).toContain('非机动车');
+    expect(wrapper.text()).toContain('机动车');
+  });
+
+  it('edits relation object through the configured anchor selector', async () => {
+    mockApiClient.getReviewSample.mockResolvedValue(reviewDetail);
+    mockApiClient.listQcQueue.mockResolvedValue(qcQueue);
+
+    const wrapper = mount(ReviewWorkbenchPage, {
+      props: {
+        id: 'ds-live',
+        sampleId: 'sample-1',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    const objectSelect = wrapper.findAll('.relation-editor select')[1];
+    const objectOptions = objectSelect.findAll('option').map((option) => option.text());
+    expect(objectOptions).toEqual(
+      expect.arrayContaining([
+        '人行道',
+        '盲道',
+        '停车线或停车区域',
+        '路缘或边界',
+        '车行道',
+        '店铺边界',
+        '柜台或经营区域',
+        '出入口',
+        '公共区域',
+      ]),
+    );
+
+    await objectSelect.setValue('tactile_paving');
+    const validateButton = wrapper.findAll('button').find((button) => button.text().includes('校验修改'));
+    await validateButton?.trigger('click');
+    await flushPromises();
+
+    expect(mockApiClient.validateLabelEdit).toHaveBeenCalledWith(
+      'ds-live',
+      'sample-1',
+      expect.objectContaining({
+        operations: expect.arrayContaining([
+          expect.objectContaining({
+            scope: 'relation:R1',
+            field: 'object',
+            op: 'replace',
+            after: 'tactile_paving',
+          }),
+        ]),
+      }),
+    );
+  });
+
   it('uses Arrow/A and Arrow/D shortcuts for guarded queue navigation', async () => {
     const { router, push: routerPush } = makeRouterPushMock();
     const sample2Detail = makeReviewDetail('sample-2');
@@ -4081,6 +4180,76 @@ describe('import and review routes', () => {
     expect(wrapper.findAll('button').find((button) => button.text().includes('保存草稿'))?.attributes('disabled')).toBeDefined();
   });
 
+  it('shows latest submitted operations in the admin review editor when no admin draft exists', async () => {
+    mockApiClient.getReviewSample.mockResolvedValue({
+      ...reviewDetail,
+      currentUser: adminUser,
+      myDraft: undefined,
+      qcTask: {
+        ...reviewDetail.qcTask,
+        status: 'submitted',
+        latestSubmissionId: 'submission-sample-1',
+        taskRevision: 8,
+      },
+      latestSubmission: {
+        submissionId: 'submission-sample-1',
+        datasetId: 'ds-live',
+        sampleId: 'sample-1',
+        userId: 'annotator_a',
+        userDisplayName: '标注员 A',
+        status: 'submitted',
+        submittedAt: '2026-05-18T00:00:00Z',
+        labelConfigId: 'label-config-1',
+        labelConfigVersion: 'urban_violation_labels_v1',
+        operations: [
+          {
+            scope: 'relation:R1',
+            field: 'subject',
+            op: 'replace',
+            before: 'goods',
+            after: 'submitted goods',
+          },
+          {
+            scope: 'candidate:C1',
+            field: 'evidence_reasoning',
+            op: 'replace',
+            before: 'goods block sidewalk',
+            after: 'submitted candidate reasoning',
+          },
+        ],
+      },
+    });
+    mockApiClient.listQcQueue.mockResolvedValue(qcQueue);
+    mockApiClient.getMyBatchLabelEditDraft.mockResolvedValueOnce({
+      datasetId: 'ds-live',
+      savedSampleCount: 0,
+      totalSampleCount: 1,
+      dirtySampleCount: 0,
+      samples: [],
+    });
+
+    const wrapper = mount(ReviewWorkbenchPage, {
+      props: {
+        id: 'ds-live',
+        sampleId: 'sample-1',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    expect((wrapper.find('.relation-editor input').element as HTMLInputElement).value).toBe('submitted goods');
+    expect((wrapper.find('.candidate-editor textarea').element as HTMLTextAreaElement).value).toBe(
+      'submitted candidate reasoning',
+    );
+    expect(wrapper.find('[aria-label="标注修改底栏"]').text()).toContain('当前样本修改 2 项');
+    expect(wrapper.find('[aria-label="标注修改底栏"]').text()).toContain('自动保存 空闲');
+    expect(wrapper.findAll('button').find((button) => button.text().includes('保存草稿'))?.attributes('disabled')).toBeDefined();
+  });
+
   it('restores saved batch draft candidate deletions without marking the sample unsaved', async () => {
     mockApiClient.getReviewSample.mockResolvedValue(reviewDetail);
     mockApiClient.listQcQueue.mockResolvedValue(qcQueue);
@@ -4253,6 +4422,127 @@ describe('import and review routes', () => {
       .findAll('.bbox-shell__box--purple')
       .filter((box) => box.classes().includes('bbox-shell__box--selected'));
     expect(selectedPurpleBoxes.length).toBeGreaterThan(0);
+  });
+
+  it('uses a distinct cyan tone for R2 relation boxes and review index button', async () => {
+    const relationDetail: ReviewSampleDetail = {
+      ...reviewDetail,
+      stage1: {
+        ...reviewDetail.stage1,
+        keyRelations: [
+          {
+            relationIndex: 'R1',
+            subject: 'goods',
+            relation: 'blocks',
+            object: 'sidewalk',
+            bbox: [100, 100, 220, 220],
+          },
+          {
+            relationIndex: 'R2',
+            subject: 'cone',
+            relation: 'near',
+            object: 'curb',
+            bbox: [230, 120, 340, 260],
+          },
+          {
+            relationIndex: 'R3',
+            subject: 'bicycle',
+            relation: 'near',
+            object: 'sidewalk',
+            bbox: [350, 160, 470, 300],
+          },
+          {
+            relationIndex: 'R4',
+            subject: 'sign',
+            relation: 'near',
+            object: 'road',
+            bbox: [480, 180, 600, 330],
+          },
+        ],
+      },
+      stage2: reviewDetail.stage2
+        ? {
+            ...reviewDetail.stage2,
+            factVerifications: [
+              {
+                ...reviewDetail.stage2.factVerifications[0],
+                relationIndex: 'R1',
+                subject: 'goods',
+                relation: 'blocks',
+                object: 'sidewalk',
+                bbox: [100, 100, 220, 220],
+              },
+              {
+                ...reviewDetail.stage2.factVerifications[0],
+                relationIndex: 'R2',
+                subject: 'cone',
+                relation: 'near',
+                object: 'curb',
+                bbox: [230, 120, 340, 260],
+              },
+              {
+                ...reviewDetail.stage2.factVerifications[0],
+                relationIndex: 'R3',
+                subject: 'bicycle',
+                relation: 'near',
+                object: 'sidewalk',
+                bbox: [350, 160, 470, 300],
+              },
+              {
+                ...reviewDetail.stage2.factVerifications[0],
+                relationIndex: 'R4',
+                subject: 'sign',
+                relation: 'near',
+                object: 'road',
+                bbox: [480, 180, 600, 330],
+              },
+            ],
+            candidates: [
+              {
+                ...reviewDetail.stage2.candidates[0],
+                evidenceRelationIndices: ['R1', 'R2', 'R3', 'R4'],
+              },
+            ],
+          }
+        : undefined,
+    };
+    mockApiClient.getReviewSample.mockResolvedValue(relationDetail);
+    mockApiClient.listQcQueue.mockResolvedValue(qcQueue);
+
+    const wrapper = mount(ReviewWorkbenchPage, {
+      props: {
+        id: 'ds-live',
+        sampleId: 'sample-1',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    const relationToneClass = (label: string) =>
+      wrapper
+        .findAll('.bbox-shell__box')
+        .find((box) => box.attributes('aria-label') === label)
+        ?.classes()
+        .find((className) => className.startsWith('bbox-shell__box--'));
+    expect(relationToneClass('R1')).toBe('bbox-shell__box--blue');
+    expect(relationToneClass('R2')).toBe('bbox-shell__box--cyan');
+    expect(relationToneClass('R3')).toBe('bbox-shell__box--green');
+    expect(relationToneClass('R4')).toBe('bbox-shell__box--orange');
+
+    const indexToneClass = (label: string) =>
+      wrapper
+        .findAll('.relation-index-track .index-button')
+        .find((button) => button.text().includes(label))
+        ?.classes()
+        .find((className) => className.startsWith('index-button--'));
+    expect(indexToneClass('R1')).toBe('index-button--blue');
+    expect(indexToneClass('R2')).toBe('index-button--cyan');
+    expect(indexToneClass('R3')).toBe('index-button--green');
+    expect(indexToneClass('R4')).toBe('index-button--orange');
   });
 
   it('allows empty segmentation targets and sends a delete operation for removed candidates', async () => {

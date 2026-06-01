@@ -1444,6 +1444,16 @@ class FixtureRuntimeService:
             created_at=submission.created_at,
         )
 
+    def _latest_submission_response(
+        self,
+        dataset_id: str,
+        sample_id: str,
+    ) -> LabelEditSubmissionResponse | None:
+        submissions = self._state_store.list_submissions(dataset_id, sample_id)
+        if not submissions:
+            return None
+        return self._to_submission_response(submissions[-1])
+
     @staticmethod
     def _to_sample_pool_item_response(item: CorrectionSamplePoolItem) -> SamplePoolItemResponse:
         return SamplePoolItemResponse(
@@ -5869,9 +5879,7 @@ class FixtureRuntimeService:
             draft = self._state_store.get_draft(active_dataset_id, sample_id, context.user_id)
             if draft is not None:
                 my_draft = self._to_draft_response(draft)
-            submissions = self._state_store.list_submissions(active_dataset_id, sample_id)
-            if submissions:
-                latest_submission = self._to_submission_response(submissions[-1])
+            latest_submission = self._latest_submission_response(active_dataset_id, sample_id)
         return AssetDetailResponse(
             dataset_id=response_dataset_id,
             dataset_type=response_dataset_type,
@@ -6562,6 +6570,11 @@ class FixtureRuntimeService:
                     asset = self._build_asset_item(sample, runtime.reviews.get(sample.sample_id, []))
                     task = task_map.get(sample.sample_id)
                     active_lease = self._active_lease_for_sample(active_dataset_id, sample.sample_id)
+                    latest_submission = (
+                        self._latest_submission_response(active_dataset_id, sample.sample_id)
+                        if task is not None and task.latest_submission_id
+                        else None
+                    )
                     items.append(
                         QCQueueItem(
                             qc_queue_id=summary.qc_queue_id or self._queue_id_for_dataset(dataset_id),
@@ -6582,6 +6595,7 @@ class FixtureRuntimeService:
                             assignee_user_id=task.assignee_user_id if task is not None else None,
                             active_lease_user_id=active_lease.user_id if active_lease is not None else None,
                             latest_submission_id=(task.latest_submission_id if task is not None else None),
+                            latest_submission=latest_submission,
                         )
                     )
             return QCQueueResponse(
@@ -6607,6 +6621,11 @@ class FixtureRuntimeService:
             asset = self._build_asset_item(sample)
             task = task_map.get(sample.sample_id)
             active_lease = self._active_lease_for_sample(self._dataset_id, sample.sample_id)
+            latest_submission = (
+                self._latest_submission_response(self._dataset_id, sample.sample_id)
+                if task is not None and task.latest_submission_id
+                else None
+            )
             items.append(
                 QCQueueItem(
                     qc_queue_id=self._qc_queue_id,
@@ -6627,6 +6646,7 @@ class FixtureRuntimeService:
                     assignee_user_id=task.assignee_user_id if task is not None else None,
                     active_lease_user_id=active_lease.user_id if active_lease is not None else None,
                     latest_submission_id=(task.latest_submission_id if task is not None else None),
+                    latest_submission=latest_submission,
                 )
             )
         return QCQueueResponse(

@@ -38,6 +38,7 @@ These three files are intentionally compact. Use git history for detailed phase-
 ## Agent And Runtime Documents
 
 - Main workspace rules: `AGENTS.md`
+- Agent worktree initialization: `scripts/init-agent-worktrees.sh`
 - Main accepted-code stack: `scripts/dev-stack.sh`
 - Agent worktree stack: `scripts/agent-dev-stack.sh`
 - Integration smoke runner: `scripts/integration-smoke.sh`

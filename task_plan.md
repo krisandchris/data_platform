@@ -54,6 +54,7 @@ After human review and verification, accepted changes are synchronized into the 
 | Frontend architecture repair | P0 complete | Route reuse refresh, batch-switch cache cleanup, dataset type/batch semantic aliases, and focused tests are integrated. P1/P2 remain. |
 | QC closed loop | Planned | The PDF方案 is adapted as a backend-derived snapshot/diff pipeline, not frontend-only event capture. |
 | Main-workspace governance | Complete | `AGENTS.md` and `scripts/agent-dev-stack.sh` added. |
+| Agent worktree initialization | Complete | `scripts/init-agent-worktrees.sh` added to create/sync backend, frontend, and integration worktrees with shared `DATASET` links. |
 
 ## Protected Review Workbench Rules
 
@@ -78,6 +79,7 @@ Protected behavior:
 
 ### P0 - Keep Stable
 
+- Use `scripts/init-agent-worktrees.sh status` before assigning work to confirm the standard agent worktrees exist and are on the expected branches.
 - Before any new frontend/backend product change, synchronize main into the corresponding agent worktree.
 - Use `scripts/agent-dev-stack.sh` to run agent worktree code for review.
 - After implementation agents finish, use integration validation against the combined frontend/backend product before syncing accepted code into main.

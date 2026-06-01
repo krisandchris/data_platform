@@ -7,6 +7,7 @@ from pathlib import Path
 from urban_violation_backend.importer.parser import (
     Stage2ManifestFailureEntry,
     Stage2ManifestSuccessEntry,
+    discover_stage_run_dir,
     import_fixture_samples,
     normalize_media_url,
     pair_stage_samples,
@@ -24,6 +25,24 @@ DATASET_ROOT_0520 = Path(
 )
 SUCCESS_SAMPLE_ID = "000142_0_1762483003246"
 FAILURE_SAMPLE_ID = "001710_0_1763108687181"
+
+
+def test_discover_stage_run_dir_accepts_exact_stage_directory(tmp_path: Path) -> None:
+    stage_dir = tmp_path / "stage1"
+    (stage_dir / "meta").mkdir(parents=True)
+    (stage_dir / "meta" / "manifest.jsonl").write_text("", encoding="utf-8")
+
+    assert discover_stage_run_dir(tmp_path, "stage1") == stage_dir
+
+
+def test_discover_stage_run_dir_prefers_named_run_directory(tmp_path: Path) -> None:
+    stage_dir = tmp_path / "stage1"
+    run_dir = tmp_path / "stage1_run_0518"
+    for path in (stage_dir, run_dir):
+        (path / "meta").mkdir(parents=True)
+        (path / "meta" / "manifest.jsonl").write_text("", encoding="utf-8")
+
+    assert discover_stage_run_dir(tmp_path, "stage1") == run_dir
 
 
 def test_read_manifest_required_ids_present() -> None:

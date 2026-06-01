@@ -170,14 +170,15 @@
       "options": [
         {"code": "electric_vehicle", "label_zh": "电动车", "label_en": "electric vehicle", "sort_order": 10, "aliases": ["electric_scooter", "电动自行车", "电动两轮车"]},
         {"code": "nonmotor_vehicle", "label_zh": "非机动车", "label_en": "non-motor vehicle", "sort_order": 20, "aliases": ["nonmotor_vehicle"]},
-        {"code": "shared_bicycle", "label_zh": "共享单车", "label_en": "shared bicycle", "sort_order": 30, "aliases": ["shared_bicycle", "共享自行车"]},
-        {"code": "bicycle", "label_zh": "自行车", "label_en": "bicycle", "sort_order": 40, "aliases": ["bike"]},
-        {"code": "goods", "label_zh": "货物", "label_en": "goods", "sort_order": 50, "aliases": ["杂物", "goods"]},
-        {"code": "carton", "label_zh": "纸箱", "label_en": "carton", "sort_order": 60, "aliases": ["箱子", "box", "箱状物体"]},
-        {"code": "person", "label_zh": "人", "label_en": "person", "sort_order": 70, "aliases": ["行人", "人员"]},
-        {"code": "vendor_stall", "label_zh": "摊位", "label_en": "vendor stall", "sort_order": 80, "aliases": ["临时摊位", "摊贩"]},
-        {"code": "table_chair", "label_zh": "桌椅", "label_en": "table and chair", "sort_order": 90, "aliases": ["table", "chair", "椅子"]},
-        {"code": "umbrella", "label_zh": "遮阳伞", "label_en": "umbrella", "sort_order": 100, "aliases": ["umbrella"]}
+        {"code": "motor_vehicle", "label_zh": "机动车", "label_en": "motor vehicle", "sort_order": 30, "aliases": ["motor_vehicle", "机动车", "汽车"]},
+        {"code": "shared_bicycle", "label_zh": "共享单车", "label_en": "shared bicycle", "sort_order": 40, "aliases": ["shared_bicycle", "共享自行车"]},
+        {"code": "bicycle", "label_zh": "自行车", "label_en": "bicycle", "sort_order": 50, "aliases": ["bike"]},
+        {"code": "goods", "label_zh": "货物", "label_en": "goods", "sort_order": 60, "aliases": ["杂物", "goods"]},
+        {"code": "carton", "label_zh": "纸箱", "label_en": "carton", "sort_order": 70, "aliases": ["箱子", "box", "箱状物体"]},
+        {"code": "person", "label_zh": "人", "label_en": "person", "sort_order": 80, "aliases": ["行人", "人员"]},
+        {"code": "vendor_stall", "label_zh": "摊位", "label_en": "vendor stall", "sort_order": 90, "aliases": ["临时摊位", "摊贩"]},
+        {"code": "table_chair", "label_zh": "桌椅", "label_en": "table and chair", "sort_order": 100, "aliases": ["table", "chair", "椅子"]},
+        {"code": "umbrella", "label_zh": "遮阳伞", "label_en": "umbrella", "sort_order": 110, "aliases": ["umbrella"]}
       ]
     }
   ]

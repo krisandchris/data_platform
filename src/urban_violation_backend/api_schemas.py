@@ -1022,6 +1022,7 @@ class QCQueueItem(StrictModel):
     assignee_user_id: str | None = None
     active_lease_user_id: str | None = None
     latest_submission_id: str | None = None
+    latest_submission: LabelEditSubmissionResponse | None = None
 
 
 class QCQueueResponse(StrictModel):

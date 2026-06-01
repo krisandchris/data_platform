@@ -1015,6 +1015,7 @@ const fixtureLabelConfig: LabelConfig = {
       options: [
         { code: 'goods', labelZh: '货物', labelEn: 'goods', aliases: ['杂物'] },
         { code: 'nonmotor_vehicle', labelZh: '非机动车', labelEn: 'non-motor vehicle', aliases: [] },
+        { code: 'motor_vehicle', labelZh: '机动车', labelEn: 'motor vehicle', aliases: ['机动车', '汽车'] },
         { code: 'person', labelZh: '人', labelEn: 'person', aliases: ['行人'] },
       ],
     },

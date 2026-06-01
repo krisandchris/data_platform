@@ -8,10 +8,63 @@ This file now records only current project progress and recent verification cont
 
 - Main workspace is initialized as a git worktree with dedicated frontend, backend, and integration agent worktrees.
 - `AGENTS.md` now defines main-workspace governance: product frontend/backend code work should be done in agent worktrees first, then reviewed and synchronized into main.
+- `scripts/init-agent-worktrees.sh` initializes or repairs the standard backend, frontend, and integration agent worktrees from the main workspace.
 - `scripts/agent-dev-stack.sh` starts and stops frontend/backend code from the agent worktrees for human review.
 - `scripts/dev-stack.sh` remains the launcher for accepted main-workspace code.
 - Current accepted code includes dataset management, import jobs, asset browsing, preannotations, QC queue, sample review, label editing, label config upload/reload, multi-user assignment, user center, permissions, and audit baseline.
 - Current documentation has been organized under `docs/README.md`, `docs/frontend/README.md`, `docs/backend/README.md`, and `docs/architecture/README.md`.
+
+## Latest Work
+
+### Agent Worktree Initialization
+
+- Added `scripts/init-agent-worktrees.sh` to create, status-check, and sync the standard backend, frontend, and integration agent worktrees.
+- Added documentation entries in `AGENT_WORKTREES.md` and `docs/README.md`.
+- Recorded durable initialization facts in `findings.md` and `task_plan.md`.
+- Initial execution exposed that requiring a clean main workspace blocks first-time initialization while the initializer itself is still uncommitted; adjusted this to warn and continue because new worktrees are created from the configured `BASE_REF`.
+- Ran `scripts/init-agent-worktrees.sh init`; backend, frontend, and integration worktrees were created at commit `2db902a` on their expected branches and are clean.
+- `DATASET` links were skipped because neither the default `./DATASET` nor the older documented shared dataset path exists in this environment. Re-run with `DATASET_SOURCE=/actual/DATASET` when the dataset location is available.
+
+### Rejected_Data_0518 Run-Through
+
+- Started validation for dataset root `/mnt/data1/Project/XTS/data_platform/dataset/Rejected_Data_0518`.
+- Dataset layout is `images/`, `stage1/`, and `stage2/` with manifests under `stage1/meta/manifest.jsonl` and `stage2/meta/manifest.jsonl`.
+- Current importer discovery only accepts `stage1_run_*` and `stage2_run_*`, so the backend agent must add compatibility for exact `stage1`/`stage2` run directories before the stack can ingest this dataset.
+- Backend agent added importer compatibility for exact `stage1` and `stage2` directories while preserving preference for named `stage*_run_*` directories.
+- Real data import check passed in the backend agent worktree: `505` imported assets, `496` STEP2 successes, `8` STEP2 failure artifacts, and one missing STEP2 manifest row handled as the existing `Stage2MissingError` path.
+- Focused new backend tests passed: `2 passed`.
+- Synchronized the backend importer compatibility fix into the main workspace.
+- Added `dataset/` to `.gitignore` so local large input data under lowercase `dataset/` is not accidentally tracked.
+- Main workspace verification passed:
+  - `uv run pytest tests/test_manifest_parser.py::test_discover_stage_run_dir_accepts_exact_stage_directory tests/test_manifest_parser.py::test_discover_stage_run_dir_prefers_named_run_directory`: 2 passed.
+  - Real data import check: `505` assets, `496` STEP2 successes, `8` STEP2 failure artifacts.
+  - `git diff --check`: passed.
+- Main stack was started with `DATASET_ROOT=/mnt/data1/Project/XTS/data_platform/dataset/Rejected_Data_0518` and isolated runtime roots under `.runtime/rejected-data-0518`.
+- Live checks passed:
+  - `GET /health`: 200.
+  - `GET /api/datasets`: fixture batch reports `total_assets=505`, `stage1_count=505`, `stage2_success_count=496`, `stage2_failure_count=8`.
+  - Session login as `platform_admin` succeeded.
+  - Built-in `urban_violation` label config saved and activated for dataset type `urban_violation`.
+  - `POST /api/datasets/urban_violation__0508_fixture/qc/generate`: 200 with `505` QC tasks.
+  - First sample review detail returned 2 relations and 1 candidate.
+  - First asset image URL returned `200 image/jpeg`.
+  - Frontend `/login` returned 200.
+- Stack remains running for user review at backend `http://127.0.0.1:8000` and frontend `http://127.0.0.1:5173`.
+
+### Review Label Display And Segmentation Target Refinement
+
+- Confirmed backend built-in relation label config does not expose `occupying`; it exposes only `占据` with English label `occupies`.
+- Confirmed `Rejected_Data_0518` raw STEP data contains legacy relation code `occupying` (`636` stage1 parsed occurrences and `627` stage2 parsed occurrences), while `占据` does not appear in raw parsed relation values.
+- Implemented frontend display compatibility so legacy `occupying` relation values render as `占据`.
+- Added `motor_vehicle` / `机动车` to segmentation target options next to `nonmotor_vehicle` / `非机动车` in backend built-in label config and frontend fixtures/display mappings.
+- Added backend tests for built-in label config relation/segmentation target expectations.
+- Added frontend review-workbench route test coverage for displaying legacy `occupying` as `占据` and showing `motor_vehicle` as `机动车`.
+- Verification passed:
+  - Backend agent: `uv run pytest tests/test_builtin_label_config.py tests/test_label_config_repository_contract.py`: 5 passed.
+  - Frontend agent: `npm run test -- src/test/routesAndPages.test.ts`: 76 passed.
+  - Main workspace backend: same focused backend tests, 5 passed.
+  - Main workspace frontend: same focused frontend test, 76 passed.
+  - `git diff --check`: passed.
 
 ## Latest Completed Work
 
@@ -1092,3 +1145,67 @@ After the latest main verification, both stack stop commands were run and checke
   - `npm run test -- routesAndPages -t "autosaves only when the batch draft is dirty and editable|lets reviewers set the autosave interval|keeps newer edits dirty"` passed.
   - `npm run test -- routesAndPages -t "does not repeat shortcut actions during pending"` passed.
   - `npm run build` passed.
+
+## Submitted Batch Review Visibility Investigation
+
+- Investigated the report that annotator batch draft save + batch submit appears unsaved when a platform admin opens the QC queue.
+- Found that backend draft save and batch submit persist data:
+  - batch draft save writes per-sample drafts and a batch manifest;
+  - batch submit creates `LabelEditSubmission`, updates task status to `submitted`, stores `latest_submission_id`, releases leases, and clears the batch draft manifest.
+- Found that admin review display does not apply the submitted patch:
+  - review detail returns raw imported `stage1`/`stage2` plus `latest_submission`;
+  - the workbench restores only current-user drafts/batch drafts/local cache, not `latestSubmission.operations`.
+- Runtime check in `.runtime/mimo-1548` confirmed a real submitted record for `1548_000002` with operations and task status `submitted`; the user-facing problem is display/materialization of submitted operations for reviewer/admin, not missing persistence.
+- Implemented accepted fix through backend/frontend agent worktrees and synchronized verified patches back to the main workspace:
+  - backend QC queue items now include `latest_submission` when a task has `latest_submission_id`;
+  - backend review detail reuses the same latest-submission helper;
+  - frontend review workbench restores `detail.latestSubmission.operations` for admin/qc review when there is no current-user draft;
+  - regression tests cover submitted operations appearing in the admin editor and backend queue/detail submission visibility.
+- Verification:
+  - `npm run test -- routesAndPages -t "shows latest submitted operations|restores saved batch draft relation"` passed in the frontend agent worktree and main workspace.
+  - `npm run build` passed in the frontend agent worktree and main workspace.
+  - Backend `api_schemas.py`/`service.py` AST parse passed in the backend agent worktree and main workspace.
+  - Backend `QCQueueItem.latest_submission` serialization probe passed in the backend agent worktree and main workspace.
+  - `create_app()` started successfully against `/mnt/data1/Project/XTS/data_platform/dataset/Rejected_Data_0518` in the backend agent worktree and main workspace.
+  - Full `tests/test_api.py` targeted pytest could not run in this environment because that suite still imports a hard-coded legacy fixture path `/mnt/lc/LC/ares_xtws/0_train_data/data_platform/DATASET/urban_violation`.
+
+## test_api Relative Path Cleanup
+
+- Replaced `tests/test_api.py` legacy absolute fixture paths with paths derived from the repository root:
+  - `DATASET/urban_violation`;
+  - `DATASET/urban_violation_0520`;
+  - `DATASET/urban`.
+- Set test default `DATASET_ROOT` to the relative string `DATASET/urban_violation` before importing the FastAPI app module.
+- If the relative dataset is absent in a worktree, collection now disables fixture-batch startup instead of failing during module import.
+- Verification:
+  - Backend agent `uv run pytest tests/test_api.py --collect-only -q`: collected 81 tests.
+  - Main workspace `uv run pytest tests/test_api.py --collect-only -q`: collected 81 tests.
+  - `tests/test_api.py` AST parse passed.
+  - Search found no legacy `/mnt/lc`, `/mnt/data1`, `/home`, or `Path.cwd() / "DATASET"` path usage in `tests/test_api.py`.
+
+### 2026-05-28 R2 Relation Tone Update
+
+- Frontend agent worktree: fixed canonical relation tones so R2 uses cyan and R1/R3/R4 remain blue/green/orange.
+- Added matching relation tone classes to the right-side fact relation index buttons.
+- Added focused frontend test coverage for R1-R4 overlay and index-button tone classes.
+
+Verification for R2 relation tone update:
+- Frontend agent: `npm run test -- src/test/routesAndPages.test.ts` passed, 78 tests.
+- Frontend agent: `npm run build` passed.
+- Main workspace: `npm run test -- src/test/routesAndPages.test.ts` passed, 78 tests.
+- Main workspace: `npm run build` passed.
+- Restarted dev stack with dataset `/mnt/data1/Project/XTS/data_platform/dataset/mimo_1548` and 0.0.0.0 hosts.
+- Status: backend pid 2088093 at http://0.0.0.0:8000, frontend pid 2088475 at http://0.0.0.0:5173.
+- Health: backend `/health` returned `{"status":"ok","dataset_id":"urban_violation"}`; frontend root returned HTTP 200.
+
+### 2026-05-29 Relation Object Selector Update
+
+- Frontend agent worktree: changed the review workbench fact-relation `客体` editor from free text input to a configured selector.
+- Selector options now include the requested anchor/object set: 人行道、盲道、停车线或停车区域、路缘或边界、车行道、店铺边界、柜台或经营区域、出入口、公共区域.
+- Kept legacy object values display-compatible by mapping common imported values such as `sidewalk`, `curb`, `road`, and `intersection` to the corresponding Chinese labels while preserving unknown/current values.
+- Added focused route/workbench test coverage for editing the relation object selector and validating the generated `relation:*` label-edit operation.
+
+Verification for relation object selector update:
+- Frontend agent: `npm run test -- src/test/routesAndPages.test.ts` passed, 79 tests.
+- Main workspace: `npm run test -- src/test/routesAndPages.test.ts` passed, 79 tests.
+- Main workspace: `git diff --check` passed.

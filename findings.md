@@ -25,6 +25,9 @@ This file keeps durable project facts, constraints, and open risks. Historical n
 ## Dataset Facts
 
 - Primary fixture root: `DATASET/urban_violation`.
+- Current local run-through dataset root: `/mnt/data1/Project/XTS/data_platform/dataset/Rejected_Data_0518`.
+- `Rejected_Data_0518` uses exact stage directories `stage1/` and `stage2/` with `meta/manifest.jsonl`, not `stage1_run_*` and `stage2_run_*`.
+- Importer discovery now accepts exact `stage1`/`stage2` directories when no named `stage*_run_*` directory is present, while still preferring named run directories when they exist.
 - Top-level fixture layout:
   - `images/`: 797 original `.jpg` files.
   - `stage1_run_0508/`: STEP1 outputs.
@@ -248,6 +251,7 @@ This file keeps durable project facts, constraints, and open risks. Historical n
 - Frontend/backend product work should be done in agent worktrees.
 - Main workspace should integrate only reviewed and accepted changes.
 - Agent worktrees can lag behind main; compare before syncing and avoid copying stale shared contract files wholesale.
+- Standard agent worktrees can be initialized with `scripts/init-agent-worktrees.sh`; the script creates missing branches from `main`, fast-forwards clean worktrees, and links each worktree's `DATASET` path to `DATASET_SOURCE`.
 - `DATASET` in agent worktrees should be a symlink to the main readonly dataset rather than a copied 1.6G tree.
 - Sync excludes must preserve worktree `.git` pointer files.
 
@@ -391,3 +395,21 @@ This file keeps durable project facts, constraints, and open risks. Historical n
 - Allowed intervals are intentionally fixed to `1`, `2`, `3`, and `5` minutes to avoid excessive autosave write pressure.
 - The setting is stored in `localStorage` under `urbanViolationReviewAutosaveIntervalMs`, so it is remembered per browser.
 - Changing the interval while dirty clears the pending timeout and schedules the next autosave using the new interval.
+
+## 2026-05-28 Submitted Batch Review Visibility Investigation
+
+- Batch draft save is durable: `save_my_batch_draft()` upserts per-sample `LabelEditDraft` records and saves a user-level batch draft manifest.
+- Batch submit is also durable: `submit_label_edit_batch()` validates each saved draft, creates `LabelEditSubmission` records, marks tasks `SUBMITTED`, stores `latest_submission_id`, deletes the annotator drafts, releases leases, and clears the batch draft manifest.
+- The admin review detail response still returns raw imported `stage1` and `stage2` from the `FixtureSample`; submitted operations are exposed only as `latest_submission`.
+- The review workbench restores editable state from local dirty draft, current user's batch draft, current user's sample draft, or local cached saved draft. It does not restore from `detail.latestSubmission`.
+- Therefore the observed issue is not that save/submit necessarily lost data. The submitted patch is stored, but the admin's QC review editor is initialized from raw data because annotator-owned drafts are gone after submit and `latestSubmission.operations` are not applied for reviewer/admin display.
+- Accepted fix:
+  - expose full `latest_submission` on QC queue rows when the task has `latest_submission_id`;
+  - keep imported `stage1/stage2` as immutable baseline;
+  - restore `latestSubmission.operations` in the review workbench after current-user draft sources and before cached saved state.
+
+## 2026-05-28 R2 Relation Tone
+
+- Confirmed relation overlay colors are assigned by `relationTone()` in `ReviewWorkbenchShell.vue`.
+- The right-side relation index buttons previously did not carry relation tone classes, so the review panel could not reliably mirror overlay colors.
+- Implementation in frontend agent fixes canonical tones: R1 blue, R2 cyan, R3 green, R4 orange; orphan relations remain purple.

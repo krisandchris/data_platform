@@ -10,11 +10,11 @@ PLATFORM_AUTH_MODE="${PLATFORM_AUTH_MODE:-session}"
 PLATFORM_DEV_ANON="${PLATFORM_DEV_ANON:-0}"
 
 BACKEND_HOST="${BACKEND_HOST:-127.0.0.1}"
-BACKEND_PORT="${BACKEND_PORT:-8000}"
+BACKEND_PORT="${BACKEND_PORT:-8001}"
 FRONTEND_HOST="${FRONTEND_HOST:-0.0.0.0}"
 FRONTEND_PUBLIC_HOST="${FRONTEND_PUBLIC_HOST:-127.0.0.1}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
-START_TIMEOUT="${START_TIMEOUT:-90}"
+START_TIMEOUT="${START_TIMEOUT:-240}"
 LOG_LINES="${LOG_LINES:-80}"
 
 BACKEND_PID_FILE="$RUNTIME_DIR/backend.pid"
@@ -38,9 +38,9 @@ Usage:
   scripts/dev-stack.sh urls
 
 Environment overrides:
-  BACKEND_HOST=127.0.0.1 BACKEND_PORT=8000
+  BACKEND_HOST=127.0.0.1 BACKEND_PORT=8001
   FRONTEND_HOST=0.0.0.0 FRONTEND_PUBLIC_HOST=127.0.0.1 FRONTEND_PORT=5173
-  RUNTIME_DIR=.runtime START_TIMEOUT=90 LOG_LINES=80
+  RUNTIME_DIR=.runtime START_TIMEOUT=240 LOG_LINES=80
   PLATFORM_STATE_ROOT=.runtime/platform_state
   LABEL_CONFIG_STORE_ROOT=.runtime/label_config_state
   PLATFORM_AUTH_MODE=session
@@ -142,7 +142,12 @@ use_node_version() {
   if [[ -f "$ROOT_DIR/.nvmrc" && -s "$nvm_dir/nvm.sh" ]]; then
     # shellcheck source=/dev/null
     . "$nvm_dir/nvm.sh"
-    nvm use "$(tr -d '[:space:]' < "$ROOT_DIR/.nvmrc")"
+    local requested_node
+    requested_node="$(tr -d '[:space:]' < "$ROOT_DIR/.nvmrc")"
+    if nvm use "$requested_node"; then
+      return
+    fi
+    warn "nvm could not use $requested_node; using current node/npm from PATH"
     return
   fi
 
