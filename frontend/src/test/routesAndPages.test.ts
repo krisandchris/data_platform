@@ -3595,7 +3595,7 @@ describe('import and review routes', () => {
     wrapper.unmount();
   });
 
-  it('uses V for validate-only and S for the batch draft save lifecycle', async () => {
+  it('uses V for validate-only and Ctrl+S for the batch draft save lifecycle', async () => {
     mockApiClient.getReviewSample.mockResolvedValue(reviewDetail);
     mockApiClient.listQcQueue.mockResolvedValue(qcQueue);
 
@@ -3614,13 +3614,11 @@ describe('import and review routes', () => {
 
     await wrapper.find('.relation-editor input').setValue('shortcut subject');
 
-    const ctrlSave = dispatchDocumentShortcut('s', { ctrlKey: true });
     const metaSave = dispatchDocumentShortcut('s', { metaKey: true });
     const ctrlEnter = dispatchDocumentShortcut('Enter', { ctrlKey: true });
     const metaEnter = dispatchDocumentShortcut('Enter', { metaKey: true });
     await flushPromises();
 
-    expect(ctrlSave.defaultPrevented).toBe(false);
     expect(metaSave.defaultPrevented).toBe(false);
     expect(ctrlEnter.defaultPrevented).toBe(false);
     expect(metaEnter.defaultPrevented).toBe(false);
@@ -3641,7 +3639,13 @@ describe('import and review routes', () => {
     const keyS = dispatchDocumentShortcut('s');
     await flushPromises();
 
-    expect(keyS.defaultPrevented).toBe(true);
+    expect(keyS.defaultPrevented).toBe(false);
+    expect(mockApiClient.saveMyBatchLabelEditDraft).not.toHaveBeenCalled();
+
+    const ctrlSave = dispatchDocumentShortcut('s', { ctrlKey: true });
+    await flushPromises();
+
+    expect(ctrlSave.defaultPrevented).toBe(true);
     expect(mockApiClient.saveMyBatchLabelEditDraft).toHaveBeenCalledWith(
       'ds-live',
       expect.objectContaining({
@@ -3687,21 +3691,25 @@ describe('import and review routes', () => {
 
     await wrapper.find('.relation-editor input').setValue('focused edit subject');
     dispatchElementShortcut(wrapper.find('.relation-editor input').element, 's');
+    dispatchElementShortcut(wrapper.find('.relation-editor input').element, 's', { ctrlKey: true });
     dispatchElementShortcut(wrapper.find('.relation-editor textarea').element, 'v');
     dispatchElementShortcut(wrapper.find('.relation-editor select').element, 'ArrowRight');
     const saveButton = wrapper.findAll('button').find((button) => button.text().includes('保存草稿'));
     dispatchElementShortcut(saveButton!.element, 'x');
+    dispatchElementShortcut(saveButton!.element, 's', { ctrlKey: true });
 
     const editable = document.createElement('div');
     editable.setAttribute('contenteditable', 'true');
     document.body.appendChild(editable);
     dispatchElementShortcut(editable, 's');
+    dispatchElementShortcut(editable, 's', { ctrlKey: true });
     editable.remove();
 
     const roleTextbox = document.createElement('div');
     roleTextbox.setAttribute('role', 'textbox');
     document.body.appendChild(roleTextbox);
     dispatchElementShortcut(roleTextbox, 's');
+    dispatchElementShortcut(roleTextbox, 's', { ctrlKey: true });
     roleTextbox.remove();
 
     await flushPromises();
@@ -3749,10 +3757,10 @@ describe('import and review routes', () => {
     await flushPromises();
 
     await wrapper.find('.relation-editor input').setValue('pending save subject');
-    dispatchDocumentShortcut('s');
+    dispatchDocumentShortcut('s', { ctrlKey: true });
     await flushPromises();
-    dispatchDocumentShortcut('s');
-    dispatchDocumentShortcut('s', { repeat: true });
+    dispatchDocumentShortcut('s', { ctrlKey: true });
+    dispatchDocumentShortcut('s', { ctrlKey: true, repeat: true });
     await flushPromises();
 
     expect(mockApiClient.saveMyBatchLabelEditDraft).toHaveBeenCalledTimes(1);
@@ -3766,7 +3774,7 @@ describe('import and review routes', () => {
     });
     await flushPromises();
 
-    dispatchDocumentShortcut('s');
+    dispatchDocumentShortcut('s', { ctrlKey: true });
     await flushPromises();
     expect(mockApiClient.saveMyBatchLabelEditDraft).toHaveBeenCalledTimes(1);
     wrapper.unmount();
@@ -4543,6 +4551,311 @@ describe('import and review routes', () => {
     expect(indexToneClass('R2')).toBe('index-button--cyan');
     expect(indexToneClass('R3')).toBe('index-button--green');
     expect(indexToneClass('R4')).toBe('index-button--orange');
+  });
+
+  it('highlights the matching relation index when an image relation box is selected', async () => {
+    const relationDetail: ReviewSampleDetail = {
+      ...reviewDetail,
+      stage1: {
+        ...reviewDetail.stage1,
+        keyRelations: [
+          {
+            relationIndex: 'R1',
+            subject: 'goods',
+            relation: 'blocks',
+            object: 'sidewalk',
+            bbox: [100, 100, 220, 220],
+          },
+          {
+            relationIndex: 'R2',
+            subject: 'cone',
+            relation: 'near',
+            object: 'curb',
+            bbox: [230, 120, 340, 260],
+          },
+        ],
+      },
+      stage2: reviewDetail.stage2
+        ? {
+            ...reviewDetail.stage2,
+            factVerifications: [
+              {
+                ...reviewDetail.stage2.factVerifications[0],
+                relationIndex: 'R1',
+                subject: 'goods',
+                relation: 'blocks',
+                object: 'sidewalk',
+                bbox: [100, 100, 220, 220],
+              },
+              {
+                ...reviewDetail.stage2.factVerifications[0],
+                relationIndex: 'R2',
+                subject: 'cone',
+                relation: 'near',
+                object: 'curb',
+                bbox: [230, 120, 340, 260],
+              },
+            ],
+            candidates: [
+              {
+                ...reviewDetail.stage2.candidates[0],
+                evidenceRelationIndices: ['R1'],
+              },
+            ],
+          }
+        : undefined,
+    };
+    mockApiClient.getReviewSample.mockResolvedValue(relationDetail);
+    mockApiClient.listQcQueue.mockResolvedValue(qcQueue);
+
+    const wrapper = mount(ReviewWorkbenchPage, {
+      props: {
+        id: 'ds-live',
+        sampleId: 'sample-1',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    await wrapper
+      .findAll('.bbox-shell__box')
+      .find((box) => box.attributes('aria-label') === 'R2')
+      ?.trigger('click');
+    await flushPromises();
+
+    const relationButton = (label: string) =>
+      wrapper.findAll('.relation-index-track .index-button').find((button) => button.text().includes(label));
+    expect(relationButton('R2')?.classes()).toEqual(expect.arrayContaining(['active', 'image-highlight']));
+    expect(relationButton('R1')?.classes()).not.toContain('image-highlight');
+  });
+
+  it('highlights candidate evidence relations in the relation index and image boxes', async () => {
+    const relationDetail: ReviewSampleDetail = {
+      ...reviewDetail,
+      stage1: {
+        ...reviewDetail.stage1,
+        keyRelations: [
+          {
+            relationIndex: 'R1',
+            subject: 'goods',
+            relation: 'blocks',
+            object: 'sidewalk',
+            bbox: [100, 100, 220, 220],
+          },
+          {
+            relationIndex: 'R2',
+            subject: 'cone',
+            relation: 'near',
+            object: 'curb',
+            bbox: [230, 120, 340, 260],
+          },
+          {
+            relationIndex: 'R3',
+            subject: 'bicycle',
+            relation: 'near',
+            object: 'sidewalk',
+            bbox: [350, 160, 470, 300],
+          },
+          {
+            relationIndex: 'R4',
+            subject: 'sign',
+            relation: 'near',
+            object: 'road',
+            bbox: [480, 180, 600, 330],
+          },
+        ],
+      },
+      stage2: reviewDetail.stage2
+        ? {
+            ...reviewDetail.stage2,
+            factVerifications: [
+              {
+                ...reviewDetail.stage2.factVerifications[0],
+                relationIndex: 'R1',
+                subject: 'goods',
+                relation: 'blocks',
+                object: 'sidewalk',
+                bbox: [100, 100, 220, 220],
+              },
+              {
+                ...reviewDetail.stage2.factVerifications[0],
+                relationIndex: 'R2',
+                subject: 'cone',
+                relation: 'near',
+                object: 'curb',
+                bbox: [230, 120, 340, 260],
+              },
+              {
+                ...reviewDetail.stage2.factVerifications[0],
+                relationIndex: 'R3',
+                subject: 'bicycle',
+                relation: 'near',
+                object: 'sidewalk',
+                bbox: [350, 160, 470, 300],
+              },
+              {
+                ...reviewDetail.stage2.factVerifications[0],
+                relationIndex: 'R4',
+                subject: 'sign',
+                relation: 'near',
+                object: 'road',
+                bbox: [480, 180, 600, 330],
+              },
+            ],
+            candidates: [
+              {
+                ...reviewDetail.stage2.candidates[0],
+                evidenceRelationIndices: ['R1', 'R2', 'R3'],
+              },
+            ],
+          }
+        : undefined,
+    };
+    mockApiClient.getReviewSample.mockResolvedValue(relationDetail);
+    mockApiClient.listQcQueue.mockResolvedValue(qcQueue);
+
+    const wrapper = mount(ReviewWorkbenchPage, {
+      props: {
+        id: 'ds-live',
+        sampleId: 'sample-1',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    await wrapper
+      .findAll('.candidate-index-track .index-button')
+      .find((button) => button.text().includes('C1'))
+      ?.trigger('click');
+    await flushPromises();
+
+    const relationButtonClasses = (label: string) =>
+      wrapper
+        .findAll('.relation-index-track .index-button')
+        .find((button) => button.text().includes(label))
+        ?.classes() ?? [];
+    expect(relationButtonClasses('R1')).toEqual(expect.arrayContaining(['active', 'evidence-highlight']));
+    expect(relationButtonClasses('R2')).toContain('evidence-highlight');
+    expect(relationButtonClasses('R3')).toContain('evidence-highlight');
+    expect(relationButtonClasses('R4')).not.toContain('evidence-highlight');
+
+    const relationBoxClasses = (label: string) =>
+      wrapper
+        .findAll('.bbox-shell__box')
+        .find((box) => box.attributes('aria-label') === label)
+        ?.classes() ?? [];
+    expect(relationBoxClasses('R1')).toContain('bbox-shell__box--selected');
+    expect(relationBoxClasses('R2')).toContain('bbox-shell__box--selected');
+    expect(relationBoxClasses('R3')).toContain('bbox-shell__box--selected');
+    expect(relationBoxClasses('R4')).not.toContain('bbox-shell__box--selected');
+  });
+
+  it('toggles all image evidence boxes from the bottom action bar without losing the active relation', async () => {
+    const relationDetail: ReviewSampleDetail = {
+      ...reviewDetail,
+      stage1: {
+        ...reviewDetail.stage1,
+        keyRelations: [
+          {
+            relationIndex: 'R1',
+            subject: 'goods',
+            relation: 'blocks',
+            object: 'sidewalk',
+            bbox: [100, 100, 220, 220],
+          },
+          {
+            relationIndex: 'R2',
+            subject: 'cone',
+            relation: 'near',
+            object: 'curb',
+            bbox: [230, 120, 340, 260],
+          },
+        ],
+      },
+      stage2: reviewDetail.stage2
+        ? {
+            ...reviewDetail.stage2,
+            factVerifications: [
+              {
+                ...reviewDetail.stage2.factVerifications[0],
+                relationIndex: 'R1',
+                subject: 'goods',
+                relation: 'blocks',
+                object: 'sidewalk',
+                bbox: [100, 100, 220, 220],
+              },
+              {
+                ...reviewDetail.stage2.factVerifications[0],
+                relationIndex: 'R2',
+                subject: 'cone',
+                relation: 'near',
+                object: 'curb',
+                bbox: [230, 120, 340, 260],
+              },
+            ],
+            candidates: [
+              {
+                ...reviewDetail.stage2.candidates[0],
+                evidenceRelationIndices: ['R1', 'R2'],
+              },
+            ],
+          }
+        : undefined,
+    };
+    mockApiClient.getReviewSample.mockResolvedValue(relationDetail);
+    mockApiClient.listQcQueue.mockResolvedValue(qcQueue);
+
+    const wrapper = mount(ReviewWorkbenchPage, {
+      props: {
+        id: 'ds-live',
+        sampleId: 'sample-1',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    await wrapper
+      .findAll('.bbox-shell__box')
+      .find((box) => box.attributes('aria-label') === 'R2')
+      ?.trigger('click');
+    await flushPromises();
+    expect(wrapper.findAll('.bbox-shell__box').length).toBeGreaterThan(0);
+
+    const toggleButton = () => wrapper.findAll('button').find((button) => button.text().includes('隐藏边框') || button.text().includes('显示边框'));
+    await toggleButton()?.trigger('click');
+    await flushPromises();
+
+    expect(wrapper.findAll('.bbox-shell__box')).toHaveLength(0);
+    expect(toggleButton()?.text()).toContain('显示边框');
+    expect(
+      wrapper
+        .findAll('.relation-index-track .index-button')
+        .find((button) => button.text().includes('R2'))
+        ?.classes(),
+    ).toContain('active');
+
+    await toggleButton()?.trigger('click');
+    await flushPromises();
+
+    expect(toggleButton()?.text()).toContain('隐藏边框');
+    expect(
+      wrapper
+        .findAll('.bbox-shell__box')
+        .find((box) => box.attributes('aria-label') === 'R2')
+        ?.classes(),
+    ).toContain('bbox-shell__box--selected');
   });
 
   it('allows empty segmentation targets and sends a delete operation for removed candidates', async () => {

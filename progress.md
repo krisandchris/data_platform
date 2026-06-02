@@ -1209,3 +1209,44 @@ Verification for relation object selector update:
 - Frontend agent: `npm run test -- src/test/routesAndPages.test.ts` passed, 79 tests.
 - Main workspace: `npm run test -- src/test/routesAndPages.test.ts` passed, 79 tests.
 - Main workspace: `git diff --check` passed.
+
+### 2026-06-01 Review Workbench Relation Highlight Update
+
+- Frontend agent worktree: added synchronized highlight state for image evidence bbox selection and candidate evidence relation selection.
+- Clicking a relation bbox in the image evidence area now highlights and strengthens the matching `R*` button in the fact relation review index.
+- Clicking a candidate such as `C1` now highlights all of its evidence relations in the right-side relation index and marks their image boxes selected/red with a thicker outline.
+- Direct relation selection clears candidate evidence highlighting so single-relation review remains focused.
+
+Verification for relation highlight update:
+- Frontend agent: `npm run test -- src/test/routesAndPages.test.ts` passed, 81 tests.
+- Frontend agent: `npm run build` passed.
+- Main workspace: `npm run test -- src/test/routesAndPages.test.ts` passed, 81 tests.
+- Main workspace: `npm run build` passed.
+- Main workspace: `git diff --check` passed.
+
+### 2026-06-02 Review Workbench Hide Boxes Toggle
+
+- Frontend agent worktree: added a bottom-bar `隐藏边框` / `显示边框` toggle before `跳过样本`.
+- The toggle hides or restores all image evidence bbox overlays without changing relation/candidate selection state or label data.
+- Restoring boxes preserves the current selected relation/highlight state.
+
+Verification for hide boxes toggle:
+- Frontend agent: `npm run test -- src/test/routesAndPages.test.ts` passed, 82 tests.
+- Frontend agent: `npm run build` passed.
+- Main workspace: `npm run test -- src/test/routesAndPages.test.ts` passed, 82 tests.
+- Main workspace: `npm run build` passed.
+- Main workspace: `git diff --check` passed.
+
+### 2026-06-02 Review Workbench Save Shortcut Update
+
+- Frontend agent worktree: changed manual draft save shortcut from plain `S` to `Ctrl+S`.
+- The save button now advertises `Control+S` through `aria-keyshortcuts`.
+- Plain `S` no longer saves; `Ctrl+S` saves only when the batch draft is saveable and the shortcut target is not an editable control.
+- Existing guarded shortcuts for navigation, skip, and validate remain plain-key shortcuts.
+
+Verification for save shortcut update:
+- Frontend agent: `npm run test -- src/test/routesAndPages.test.ts` passed, 82 tests.
+- Frontend agent: `npm run build` passed.
+- Main workspace: `npm run test -- src/test/routesAndPages.test.ts` passed, 82 tests.
+- Main workspace: `npm run build` passed.
+- Main workspace: `git diff --check` passed.

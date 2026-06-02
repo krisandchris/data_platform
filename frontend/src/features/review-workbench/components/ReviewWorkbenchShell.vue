@@ -178,7 +178,13 @@ let activeReviewShortcutOwner: symbol | undefined;
                 class="index-button"
                 :class="[
                   `index-button--${relationBoxTone(item)}`,
-                  { active: item.badge === activeRelationKey, dirty: item.dirty, warning: item.orphan },
+                  {
+                    active: item.badge === activeRelationKey,
+                    dirty: item.dirty,
+                    warning: item.orphan,
+                    'image-highlight': imageRelationSelected(item.badge),
+                    'evidence-highlight': candidateEvidenceRelationSelected(item.badge),
+                  },
                 ]"
                 type="button"
                 @click="setActiveRelation(item.badge)"
@@ -564,6 +570,11 @@ let activeReviewShortcutOwner: symbol | undefined;
         <span class="pill" :class="validationPillClass">{{ validationStatusText }}</span>
       </div>
       <div class="label-edit-actions">
+        <button class="decision-button box-toggle" type="button" @click="toggleAllBoxes">
+          <EyeOff v-if="showAllBoxes" :size="17" />
+          <Eye v-else :size="17" />
+          {{ showAllBoxes ? '隐藏边框' : '显示边框' }}
+        </button>
         <button
           class="decision-button skip"
           type="button"
@@ -588,7 +599,7 @@ let activeReviewShortcutOwner: symbol | undefined;
           class="save-button"
           type="button"
           :disabled="!canSaveBatchDraft"
-          aria-keyshortcuts="S"
+          aria-keyshortcuts="Control+S"
           @click="saveDraft"
         >
           <Save :size="17" />
@@ -661,6 +672,8 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleAlert,
+  Eye,
+  EyeOff,
   ListChecks,
   Save,
   Send,
@@ -908,9 +921,11 @@ const baseSample = computed(() => props.detail);
 const showStage1 = ref(true);
 const showStage2 = ref(true);
 const showCandidates = ref(true);
+const showAllBoxes = ref(true);
 const activeRelationKey = ref(relationBadge(props.detail.stage1.keyRelations[0]?.relationIndex ?? 'R1'));
 const activeImageRelationKey = ref('');
 const activeCandidateId = ref('');
+const candidateEvidenceRelationKeys = ref<Set<string>>(new Set());
 const reviewDraft = ref<ReviewDraft>(createReviewDraft(props.detail));
 const candidateTagInput = ref('');
 const remoteSuggestions = ref<Record<string, string[]>>({});
@@ -1186,6 +1201,10 @@ const batchSubmitBlockReasons = computed(() => {
 const batchSubmitReady = computed(() => batchSubmitBlockReasons.value.length === 0);
 
 const overlayBoxes = computed<OverlayBox[]>(() => {
+  if (!showAllBoxes.value) {
+    return [];
+  }
+
   const boxes: OverlayBox[] = [];
   if (showStage1.value) {
     relationViews.value.forEach((item) => {
@@ -1195,7 +1214,7 @@ const overlayBoxes = computed<OverlayBox[]>(() => {
         bbox: item.draft.bbox,
         tone: relationBoxTone(item),
         relationIndex: item.badge,
-        selected: imageRelationSelected(item.badge),
+        selected: imageRelationSelected(item.badge) || candidateEvidenceRelationSelected(item.badge),
         editable: canEditLabels.value,
       });
     });
@@ -1210,7 +1229,7 @@ const overlayBoxes = computed<OverlayBox[]>(() => {
         bbox: relationView?.draft.bbox ?? verification.bbox,
         tone: relationView ? relationBoxTone(relationView) : relationTone(badge),
         relationIndex: badge,
-        selected: imageRelationSelected(badge),
+        selected: imageRelationSelected(badge) || candidateEvidenceRelationSelected(badge),
       });
     });
   }
@@ -1224,7 +1243,7 @@ const overlayBoxes = computed<OverlayBox[]>(() => {
           bbox: relation.draft.bbox,
           tone: candidateBoxTone(relationId),
           relationIndex: relationId,
-          selected: imageRelationSelected(relationId),
+          selected: imageRelationSelected(relationId) || candidateEvidenceRelationSelected(relationId),
         });
       }
     });
@@ -1371,6 +1390,20 @@ function relationIdsMatch(a: string | number, b: string | number) {
 
 function imageRelationSelected(relationId: string | number) {
   return activeImageRelationKey.value === relationBadge(relationId);
+}
+
+function candidateEvidenceRelationSelected(relationId: string | number) {
+  return candidateEvidenceRelationKeys.value.has(relationBadge(relationId));
+}
+
+function clearCandidateEvidenceHighlight() {
+  if (candidateEvidenceRelationKeys.value.size) {
+    candidateEvidenceRelationKeys.value = new Set();
+  }
+}
+
+function highlightCandidateEvidenceRelations(candidate: CandidateDraft | undefined) {
+  candidateEvidenceRelationKeys.value = new Set(candidate?.evidenceRelationIds.map((item) => relationBadge(item)) ?? []);
 }
 
 function relationBoxTone(relation: Pick<RelationView, 'tone' | 'orphan'>): BBoxTone {
@@ -2195,7 +2228,17 @@ function handleVisibilityChange() {
 }
 
 function handleWorkbenchKeydown(event: KeyboardEvent) {
-  if (activeReviewShortcutOwner !== shortcutOwner || !shouldHandlePlainShortcut(event)) {
+  if (activeReviewShortcutOwner !== shortcutOwner) {
+    return;
+  }
+
+  if (shouldHandleSaveShortcut(event)) {
+    event.preventDefault();
+    void saveDraft();
+    return;
+  }
+
+  if (!shouldHandlePlainShortcut(event)) {
     return;
   }
 
@@ -2220,10 +2263,6 @@ function handleWorkbenchKeydown(event: KeyboardEvent) {
     void validateChanges();
     return;
   }
-  if (key === 's' && canSaveBatchDraft.value) {
-    event.preventDefault();
-    void saveDraft();
-  }
 }
 
 function shouldHandlePlainShortcut(event: KeyboardEvent) {
@@ -2232,7 +2271,24 @@ function shouldHandlePlainShortcut(event: KeyboardEvent) {
   }
 
   const key = event.key.toLowerCase();
-  if (!['arrowleft', 'arrowright', 'a', 'd', 'x', 'v', 's'].includes(key)) {
+  if (!['arrowleft', 'arrowright', 'a', 'd', 'x', 'v'].includes(key)) {
+    return false;
+  }
+
+  return !isEditableShortcutTarget(event.target);
+}
+
+function shouldHandleSaveShortcut(event: KeyboardEvent) {
+  if (
+    event.defaultPrevented ||
+    event.repeat ||
+    event.isComposing ||
+    !event.ctrlKey ||
+    event.metaKey ||
+    event.altKey ||
+    event.key.toLowerCase() !== 's' ||
+    !canSaveBatchDraft.value
+  ) {
     return false;
   }
 
@@ -2295,22 +2351,32 @@ function setCandidateField(field: keyof CandidateDraft, value: CandidateDraft[ke
   markEdited();
 }
 
-function setActiveRelation(relationId: string) {
+function setActiveRelation(relationId: string, options: { keepCandidateEvidenceHighlight?: boolean } = {}) {
   activeRelationKey.value = relationBadge(relationId);
+  if (!options.keepCandidateEvidenceHighlight) {
+    clearCandidateEvidenceHighlight();
+  }
 }
 
 function setActiveCandidate(candidateId: string) {
   activeCandidateId.value = candidateId;
   const candidate = reviewDraft.value.candidateDrafts.find((item) => item.id === candidateId);
+  highlightCandidateEvidenceRelations(candidate);
+  activeImageRelationKey.value = candidate?.evidenceRelationIds[0] ? relationBadge(candidate.evidenceRelationIds[0]) : '';
   if (candidate?.evidenceRelationIds[0]) {
-    setActiveRelation(candidate.evidenceRelationIds[0]);
+    setActiveRelation(candidate.evidenceRelationIds[0], { keepCandidateEvidenceHighlight: true });
   }
+}
+
+function toggleAllBoxes() {
+  showAllBoxes.value = !showAllBoxes.value;
 }
 
 function selectOverlayBox(box: OverlayBox) {
   if (box.relationIndex) {
     const relationId = relationBadge(box.relationIndex);
     activeImageRelationKey.value = relationId;
+    clearCandidateEvidenceHighlight();
     setActiveRelation(relationId);
   }
 }
@@ -2320,6 +2386,7 @@ function updateOverlayBox(box: OverlayBox, bbox: BBox) {
     return;
   }
   activeImageRelationKey.value = relationBadge(box.relationIndex);
+  clearCandidateEvidenceHighlight();
   setActiveRelation(box.relationIndex);
   setRelationField('bbox', bbox);
 }
@@ -3038,6 +3105,11 @@ function candidateSnapshotFromBase(candidate: Stage2Candidate, id: string) {
   object-fit: fill;
 }
 
+.image-stage :deep(.bbox-shell__box--selected) {
+  border-width: 4px;
+  box-shadow: 0 0 0 1px rgba(255, 59, 48, 0.42), 0 0 18px rgba(255, 59, 48, 0.52);
+}
+
 .scene-strip {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(260px, 0.9fr);
@@ -3132,6 +3204,15 @@ function candidateSnapshotFromBase(candidate: Stage2Candidate, id: string) {
 .index-button.active {
   border-color: var(--index-tone);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--index-tone) 52%, transparent);
+}
+
+.index-button.image-highlight,
+.index-button.evidence-highlight {
+  border-color: #ff3b30;
+  outline: 2px solid rgba(255, 59, 48, 0.55);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 1px rgba(255, 59, 48, 0.3), 0 0 18px rgba(255, 59, 48, 0.42);
+  color: #fff5f5;
 }
 
 .index-button.warning {
