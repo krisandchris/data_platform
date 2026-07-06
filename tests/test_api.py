@@ -502,6 +502,31 @@ def test_offline_mode_loads_project_label_config(
     assert type_detail.json()["active_label_config_version"] == 1
 
 
+def test_offline_label_config_path_does_not_become_state_root(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    label_config_path = project_root / "label_config.json"
+    label_config_path.write_text(json.dumps(_minimal_label_config_payload()), encoding="utf-8")
+    state_root = tmp_path / "offline_state"
+
+    monkeypatch.setenv("PLATFORM_AUTH_MODE", "offline_single_user")
+    monkeypatch.setenv("OFFLINE_LABEL_CONFIG_PATH", str(label_config_path))
+    monkeypatch.setenv("OFFLINE_STATE_ROOT", str(state_root))
+    monkeypatch.delenv("OFFLINE_DATA_ROOT", raising=False)
+    monkeypatch.delenv("LABEL_CONFIG_STORE_ROOT", raising=False)
+    monkeypatch.setattr(service_module, "DEFAULT_DATASET_ROOT", tmp_path / "missing_default_dataset")
+
+    service = build_fixture_service()
+
+    assert service._label_config_store_root == (state_root / "label_config_state").resolve()  # noqa: SLF001
+    assert not (project_root / "dataset_batches.json").exists()
+    assert not (project_root / DATASET_ID).exists()
+    assert service.get_active_label_config(DATASET_ID).version == "offline_labels_v1"
+
+
 def test_offline_qc_queue_auto_assigns_single_user(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
