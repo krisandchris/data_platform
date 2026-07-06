@@ -4,9 +4,9 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FRONTEND_DIR="$ROOT_DIR/frontend"
 RUNTIME_DIR="${RUNTIME_DIR:-$ROOT_DIR/.runtime/offline-stack}"
-OFFLINE_DATA_ROOT="${OFFLINE_DATA_ROOT:-${DATASET_ROOT:-$ROOT_DIR/DATASET/urban_violation}}"
+OFFLINE_DATA_ROOT="${OFFLINE_DATA_ROOT:-}"
 OFFLINE_STATE_ROOT="${OFFLINE_STATE_ROOT:-$ROOT_DIR/.runtime/offline_state}"
-OFFLINE_LABEL_CONFIG_PATH="${OFFLINE_LABEL_CONFIG_PATH:-$OFFLINE_DATA_ROOT/label_config.json}"
+OFFLINE_LABEL_CONFIG_PATH="${OFFLINE_LABEL_CONFIG_PATH:-$ROOT_DIR/label_config.json}"
 OFFLINE_DATASET_ID="${OFFLINE_DATASET_ID:-urban_violation}"
 
 BACKEND_HOST="${BACKEND_HOST:-127.0.0.1}"
@@ -26,6 +26,7 @@ STACK_ENV_FILE="$RUNTIME_DIR/offline-stack.env"
 BACKEND_URL="http://$BACKEND_HOST:$BACKEND_PORT"
 FRONTEND_URL="http://$FRONTEND_PUBLIC_HOST:$FRONTEND_PORT"
 QC_URL="$FRONTEND_URL/datasets/$OFFLINE_DATASET_ID/qc"
+UPLOAD_URL="$FRONTEND_URL/datasets/types/$OFFLINE_DATASET_ID?create=batch"
 
 usage() {
   cat <<'USAGE'
@@ -37,9 +38,9 @@ Usage:
   scripts/offline-stack.sh urls
 
 Environment overrides:
-  OFFLINE_DATA_ROOT=DATASET/urban_violation
+  OFFLINE_DATA_ROOT=/path/to/extracted/batch   Optional; unset means manual ZIP upload only
   OFFLINE_STATE_ROOT=.runtime/offline_state
-  OFFLINE_LABEL_CONFIG_PATH=$OFFLINE_DATA_ROOT/label_config.json
+  OFFLINE_LABEL_CONFIG_PATH=label_config.json
   OFFLINE_DATASET_ID=urban_violation
   BACKEND_PORT=8001 FRONTEND_PORT=5173
 USAGE
@@ -154,6 +155,7 @@ write_stack_env() {
     printf 'BACKEND_URL=%q\n' "$BACKEND_URL"
     printf 'FRONTEND_URL=%q\n' "$FRONTEND_URL"
     printf 'QC_URL=%q\n' "$QC_URL"
+    printf 'UPLOAD_URL=%q\n' "$UPLOAD_URL"
   } > "$STACK_ENV_FILE"
 }
 
@@ -166,8 +168,9 @@ load_stack_env() {
 print_urls() {
   printf 'Backend health: %s/health\n' "$BACKEND_URL"
   printf 'Frontend:       %s\n' "$FRONTEND_URL"
+  printf 'Upload ZIP:     %s\n' "$UPLOAD_URL"
   printf 'QC workbench:   %s\n' "$QC_URL"
-  printf 'Data root:      %s\n' "$OFFLINE_DATA_ROOT"
+  printf 'Data root:      %s\n' "${OFFLINE_DATA_ROOT:-manual ZIP upload only}"
   printf 'State root:     %s\n' "$OFFLINE_STATE_ROOT"
 }
 
@@ -186,7 +189,12 @@ start_backend() {
   info "starting backend on $BACKEND_URL"
   (
     cd "$ROOT_DIR"
-    export OFFLINE_DATA_ROOT OFFLINE_STATE_ROOT OFFLINE_LABEL_CONFIG_PATH
+    if [[ -n "$OFFLINE_DATA_ROOT" ]]; then
+      export OFFLINE_DATA_ROOT
+    else
+      unset OFFLINE_DATA_ROOT DATASET_ROOT
+    fi
+    export OFFLINE_STATE_ROOT OFFLINE_LABEL_CONFIG_PATH
     export PLATFORM_AUTH_MODE=offline_single_user
     export PLATFORM_STATE_BACKEND=file
     export PLATFORM_REDIS_ENABLED=0
