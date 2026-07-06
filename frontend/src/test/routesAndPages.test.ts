@@ -1142,6 +1142,23 @@ describe('route rendering and live route states', () => {
     expect(appRouter.currentRoute.value.fullPath).toBe('/datasets/types/urban_violation?create=batch');
   });
 
+  it('keeps only the offline route surface when imported in offline mode', async () => {
+    vi.resetModules();
+    vi.stubEnv('VITE_RUNTIME_MODE', 'offline_single_user');
+    const { router } = await import('../app/router');
+
+    const routeNames = new Set(router.getRoutes().map((route) => String(route.name ?? route.path)));
+
+    expect(routeNames).toEqual(
+      new Set(['/', '/import-jobs/:jobId', 'dataset-type', 'dataset-import-job', 'dataset-qc', 'sample-review']),
+    );
+    expect(routeNames.has('datasets')).toBe(false);
+    expect(routeNames.has('sample-pool')).toBe(false);
+    expect(routeNames.has('account')).toBe(false);
+    expect(routeNames.has('account-permissions')).toBe(false);
+    expect(routeNames.has('account-audit')).toBe(false);
+  });
+
   it('keeps the offline ZIP upload route reachable', async () => {
     vi.stubEnv('VITE_RUNTIME_MODE', 'offline_single_user');
 

@@ -502,6 +502,49 @@ def test_offline_mode_loads_project_label_config(
     assert type_detail.json()["active_label_config_version"] == 1
 
 
+def test_offline_mode_blocks_non_core_api_surface(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    label_config_path = tmp_path / "label_config.json"
+    label_config_path.write_text(json.dumps(_minimal_label_config_payload()), encoding="utf-8")
+    monkeypatch.setenv("PLATFORM_AUTH_MODE", "offline_single_user")
+    monkeypatch.setenv("OFFLINE_LABEL_CONFIG_PATH", str(label_config_path))
+    monkeypatch.delenv("OFFLINE_DATA_ROOT", raising=False)
+    monkeypatch.setattr(service_module, "DEFAULT_DATASET_ROOT", tmp_path / "missing_default_dataset")
+
+    with TestClient(
+        create_app(
+            label_config_store_root=tmp_path / "LABEL_CONFIG_STATE",
+            platform_state_root=tmp_path / "PLATFORM_STATE",
+        )
+    ) as offline_client:
+        allowed_paths = [
+            "/health",
+            "/api/me",
+            f"/api/dataset-types/{DATASET_ID}",
+            f"/api/datasets/{DATASET_ID}/label-config/active",
+        ]
+        blocked_paths = [
+            "/api/rbac/catalog",
+            "/api/users",
+            "/api/role-bindings",
+            "/api/audit-events",
+            "/api/sample-pool",
+            "/api/exports",
+            f"/api/datasets/{DATASET_ID}/summary",
+            f"/api/datasets/{DATASET_ID}/assets",
+            f"/api/datasets/{DATASET_ID}/search",
+            f"/api/datasets/{DATASET_ID}/exports",
+        ]
+
+        allowed = [offline_client.get(path).status_code for path in allowed_paths]
+        blocked = [offline_client.get(path).status_code for path in blocked_paths]
+
+    assert allowed == [200, 200, 200, 200]
+    assert blocked == [404] * len(blocked_paths)
+
+
 def test_offline_label_config_path_does_not_become_state_root(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

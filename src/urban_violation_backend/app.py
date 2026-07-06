@@ -15,6 +15,39 @@ from urban_violation_backend.service import build_fixture_service
 
 APP_VERSION = "0.0.2"
 
+OFFLINE_DISABLED_PREFIXES = (
+    "/api/rbac",
+    "/api/users",
+    "/api/role-bindings",
+    "/api/audit-events",
+    "/api/sample-pool",
+    "/api/exports",
+)
+OFFLINE_DISABLED_DATASET_SUFFIXES = (
+    "/summary",
+    "/assets",
+    "/assets/summary",
+    "/preannotations",
+    "/evaluations",
+    "/snapshots",
+    "/search",
+    "/exports",
+)
+
+
+def _offline_endpoint_disabled(method: str, path: str) -> bool:
+    if method == "OPTIONS":
+        return False
+    if path == "/api/datasets":
+        return True
+    if path.startswith(OFFLINE_DISABLED_PREFIXES):
+        return True
+    if method == "DELETE" and path.startswith("/api/datasets/"):
+        return True
+    if not path.startswith("/api/datasets/"):
+        return False
+    return any(path.endswith(suffix) or f"{suffix}/" in path for suffix in OFFLINE_DISABLED_DATASET_SUFFIXES)
+
 
 def create_app(
     *,
@@ -51,6 +84,16 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def offline_api_surface_guard(request: Request, call_next):
+        if service.runtime_mode == "offline_single_user" and _offline_endpoint_disabled(request.method, request.url.path):
+            payload = ErrorResponse(
+                code="offline_endpoint_disabled",
+                message="Endpoint is disabled in offline single-user mode.",
+            )
+            return JSONResponse(status_code=404, content=payload.model_dump(mode="json"))
+        return await call_next(request)
 
     @app.exception_handler(ApiError)
     async def api_error_handler(_: Request, exc: ApiError) -> JSONResponse:
