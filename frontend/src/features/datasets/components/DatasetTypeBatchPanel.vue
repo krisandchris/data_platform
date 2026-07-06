@@ -107,7 +107,7 @@
           <small v-if="batch.sourceStructure">{{ sourceStructureText(batch.sourceStructure) }} · {{ batch.sourceUri || '未声明路径' }}</small>
         </div>
         <div class="batch-row__status">
-          <StatusChip :value="batch.lifecycleStatus ?? batch.status" :label="lifecycleLabel(batch.lifecycleStatus ?? batch.status)" />
+          <StatusChip :value="batchStatus(batch)" :label="lifecycleLabel(batchStatus(batch))" />
           <small>最近导入：{{ importJobStatusText(batch.latestImportJob, batch.activeImportJobId) }}</small>
         </div>
         <dl class="batch-row__metrics">
@@ -125,18 +125,10 @@
           </div>
         </dl>
         <div class="batch-row__actions">
-          <RouterLink class="button" :to="`/datasets/${batch.id}/overview`">
-            <LayoutDashboard :size="16" />
-            概览
-          </RouterLink>
-          <RouterLink class="button" :to="`/datasets/${batch.id}/assets`">
-            <Table2 :size="16" />
-            资产
-          </RouterLink>
           <RouterLink
             v-if="batch.activeImportJobId || batch.latestImportJob"
             class="button"
-            :to="`/datasets/${batch.id}/import-jobs/${batch.activeImportJobId ?? batch.latestImportJob?.id}`"
+            :to="importJobRoute(batch)"
           >
             <FileSearch :size="16" />
             导入校验
@@ -185,7 +177,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
-import { FileArchive, FileSearch, LayoutDashboard, Plus, ShieldCheck, Table2 } from 'lucide-vue-next';
+import { FileArchive, FileSearch, Plus, ShieldCheck } from 'lucide-vue-next';
 import { apiClient } from '../../../services/urbanViolationApi';
 import StatusChip from '../../../shared/components/StatusChip.vue';
 import type {
@@ -299,6 +291,8 @@ const qcProgressText = (batch: Dataset) => {
   return `${batch.qcProgress.submitted}/${total}`;
 };
 
+const batchStatus = (batch: Dataset) => batch.lifecycleStatus ?? batch.status ?? 'unknown';
+
 const processingImportStates = new Set<ImportJobState>(['Uploading', 'Uploaded', 'Scanning', 'Validating', 'Importing']);
 
 const isProgressExpired = (job: ImportJobSummary) => {
@@ -344,6 +338,9 @@ const importJobStatusText = (job?: ImportJobSummary, fallback?: string) => {
   }
   return `${base}，处理中`;
 };
+
+const importJobRoute = (batch: Dataset) =>
+  `/datasets/${batch.id}/import-jobs/${batch.activeImportJobId ?? batch.latestImportJob?.id ?? ''}`;
 
 const canGenerateBatchQcQueue = (batch: Dataset) => (
   (batch.lifecycleStatus ?? batch.status) === 'preannotation_ready' && !batch.qcQueueId
