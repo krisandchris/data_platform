@@ -6862,24 +6862,26 @@ def build_fixture_service(
     )
     offline_label_config_path = os.environ.get("OFFLINE_LABEL_CONFIG_PATH") if offline_mode else None
     env_store_root = os.environ.get("LABEL_CONFIG_STORE_ROOT")
-    resolved_store_root = (
-        label_config_store_root
-        or (
-            Path(offline_label_config_path).resolve().parent
-            if offline_label_config_path
-            else (Path(env_store_root).resolve() if env_store_root else DEFAULT_RUNTIME_LABEL_CONFIG_ROOT.resolve())
-        )
-    )
     env_state_root = os.environ.get("OFFLINE_STATE_ROOT" if offline_mode else "PLATFORM_STATE_ROOT")
     resolved_state_root = (
         platform_state_root.resolve()
         if platform_state_root is not None
-        else (
-            Path(env_state_root).resolve()
-            if env_state_root
-            else (resolved_store_root / "platform_state").resolve()
+        else (Path(env_state_root).resolve() if env_state_root else None)
+    )
+    resolved_store_root = (
+        label_config_store_root
+        or (
+            Path(env_store_root).resolve()
+            if env_store_root
+            else (
+                (resolved_state_root / "label_config_state").resolve()
+                if offline_mode and resolved_state_root is not None
+                else DEFAULT_RUNTIME_LABEL_CONFIG_ROOT.resolve()
+            )
         )
     )
+    if resolved_state_root is None:
+        resolved_state_root = (resolved_store_root / "platform_state").resolve()
 
     settings = DatabaseRuntimeSettings.from_env()
     override_backend: PlatformStateBackend | None = None
