@@ -15,13 +15,13 @@ import AccountPage from '../features/account/AccountPage.vue';
 import { ensureCurrentUser, userHasAnyPermission } from '../features/auth/authState';
 import { isOfflineSingleUserMode, offlineDatasetId } from '../services/config';
 
-const offlineEntryPath = () => `/datasets/${offlineDatasetId()}/qc`;
-const offlineRouteNames = new Set(['dataset-import-job', 'dataset-qc', 'sample-review']);
+const offlineUploadEntryPath = () => `/datasets/types/${offlineDatasetId()}?create=batch`;
+const offlineRouteNames = new Set(['dataset-type', 'dataset-import-job', 'dataset-qc', 'sample-review']);
 
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', redirect: () => (isOfflineSingleUserMode() ? offlineEntryPath() : '/datasets') },
+    { path: '/', redirect: () => (isOfflineSingleUserMode() ? offlineUploadEntryPath() : '/datasets') },
     {
       path: '/import-jobs/:jobId',
       redirect: (route) => `/datasets/${offlineDatasetId()}/import-jobs/${String(route.params.jobId)}`,
@@ -120,7 +120,7 @@ export const router = createRouter({
 
 router.beforeEach(async (to) => {
   if (isOfflineSingleUserMode() && !offlineRouteNames.has(String(to.name ?? ''))) {
-    return offlineEntryPath();
+    return offlineUploadEntryPath();
   }
   if (to.meta.public) {
     return true;

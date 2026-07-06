@@ -1125,15 +1125,32 @@ describe('route rendering and live route states', () => {
     expect(routes.find((route) => route.path === '/audit')?.redirect).toBe('/account/audit');
   });
 
-  it('redirects hidden routes to the offline QC entry in offline mode', async () => {
+  it('redirects root and hidden routes to the offline upload entry in offline mode', async () => {
     vi.stubEnv('VITE_RUNTIME_MODE', 'offline_single_user');
+
+    await appRouter.push('/');
+    await appRouter.isReady();
+    await flushPromises();
+
+    expect(appRouter.currentRoute.value.fullPath).toBe('/datasets/types/urban_violation?create=batch');
 
     await appRouter.push('/login');
     await appRouter.isReady();
     await appRouter.push('/sample-pool');
     await flushPromises();
 
-    expect(appRouter.currentRoute.value.fullPath).toBe('/datasets/urban_violation/qc');
+    expect(appRouter.currentRoute.value.fullPath).toBe('/datasets/types/urban_violation?create=batch');
+  });
+
+  it('keeps the offline ZIP upload route reachable', async () => {
+    vi.stubEnv('VITE_RUNTIME_MODE', 'offline_single_user');
+
+    await appRouter.push('/datasets/types/urban_violation?create=batch');
+    await appRouter.isReady();
+    await flushPromises();
+
+    expect(appRouter.currentRoute.value.name).toBe('dataset-type');
+    expect(appRouter.currentRoute.value.fullPath).toBe('/datasets/types/urban_violation?create=batch');
   });
 
   it('renders login as a standalone route without the app shell', async () => {
