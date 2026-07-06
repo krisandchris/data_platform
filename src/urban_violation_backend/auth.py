@@ -101,6 +101,10 @@ class AuthService:
         return _PASSWORD_HASHER.verify(password, password_hash)
 
     def ensure_bootstrap_admin(self) -> None:
+        if self.settings.auth_mode == "offline_single_user":
+            self._ensure_offline_single_user()
+            return
+
         users = self.store.list_users()
         if users:
             return
@@ -130,6 +134,47 @@ class AuthService:
             created_at=now,
         )
         self.store.save_role_bindings([binding])
+
+    def _ensure_offline_single_user(self) -> None:
+        now = self.store.now()
+        user_id = os.environ.get("PLATFORM_OFFLINE_USER_ID", "offline_reviewer")
+        users = self.store.list_users()
+        user = next((item for item in users if item.user_id == user_id), None)
+        if user is None:
+            user = UserAccount(
+                user_id=user_id,
+                display_name=os.environ.get("PLATFORM_OFFLINE_USER_NAME", "Offline Reviewer"),
+                email=f"{user_id}@offline.local",
+                password_hash=self.hash_password("offline-single-user-placeholder"),
+                status=UserStatus.ACTIVE,
+                created_at=now,
+                updated_at=now,
+                last_seen_at=now,
+            )
+            users.append(user)
+            self.store.save_users(users)
+        elif user.status != UserStatus.ACTIVE:
+            user = user.model_copy(update={"status": UserStatus.ACTIVE, "updated_at": now})
+            self.save_user(user)
+
+        bindings = self.store.list_role_bindings()
+        existing = {(binding.user_id, binding.role, binding.scope_type, binding.scope_id) for binding in bindings}
+        for role in (UserRole.BATCH_MANAGER, UserRole.QC_LEAD):
+            key = (user_id, role, RoleScopeType.PLATFORM, "*")
+            if key in existing:
+                continue
+            bindings.append(
+                RoleBinding(
+                    binding_id=self.store.new_id("rb"),
+                    user_id=user_id,
+                    role=role,
+                    scope_type=RoleScopeType.PLATFORM,
+                    scope_id="*",
+                    created_by="offline_single_user",
+                    created_at=now,
+                )
+            )
+        self.store.save_role_bindings(bindings)
 
     def list_users(self) -> list[UserAccount]:
         return self.store.list_users()
@@ -242,6 +287,17 @@ class AuthService:
             if user.status != UserStatus.ACTIVE:
                 raise unauthorized(message="User account is disabled.")
             return AuthContext(auth_mode="session", user=user, roles=self._roles_for_user(user.user_id))
+
+        if self.settings.auth_mode == "offline_single_user":
+            user_id = os.environ.get("PLATFORM_OFFLINE_USER_ID", "offline_reviewer")
+            user = self.get_user(user_id)
+            if user is None or user.status != UserStatus.ACTIVE:
+                raise unauthorized(message="Offline user is not available.")
+            return AuthContext(
+                auth_mode="offline_single_user",
+                user=user,
+                roles=self._roles_for_user(user.user_id),
+            )
 
         if self.settings.auth_mode != "dev_header":
             raise unauthorized()

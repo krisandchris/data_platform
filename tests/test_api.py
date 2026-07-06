@@ -382,6 +382,43 @@ def test_health_and_dataset_summary(client: TestClient) -> None:
     assert payload["stage2_failure_count"] == 19
 
 
+def test_offline_mode_health_and_current_user(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    data_root = tmp_path / "DATASET"
+    state_root = tmp_path / "offline_state"
+    label_config_path = tmp_path / "label_config.json"
+    data_root.mkdir()
+    label_config_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("PLATFORM_AUTH_MODE", "offline_single_user")
+    monkeypatch.setenv("OFFLINE_DATA_ROOT", str(data_root))
+    monkeypatch.setenv("OFFLINE_STATE_ROOT", str(state_root))
+    monkeypatch.setenv("OFFLINE_LABEL_CONFIG_PATH", str(label_config_path))
+    monkeypatch.setenv("PLATFORM_STATE_BACKEND", "database")
+    monkeypatch.setenv("PLATFORM_REDIS_ENABLED", "1")
+
+    with TestClient(create_app(enable_fixture_batch=False)) as offline_client:
+        health = offline_client.get("/health")
+        assert health.status_code == 200
+        assert health.json() == {
+            "status": "ok",
+            "dataset_id": DATASET_ID,
+            "mode": "offline_single_user",
+            "data_root": str(data_root.resolve()),
+            "state_root": str(state_root.resolve()),
+        }
+
+        me = offline_client.get("/api/me")
+        assert me.status_code == 200
+        payload = me.json()
+        assert payload["auth_mode"] == "offline_single_user"
+        assert payload["user_id"] == "offline_reviewer"
+        assert {"label_edit:write", "label_edit:confirm", "batch_assignment:manage"} <= set(
+            payload["permissions"]
+        )
+
+
 def test_disable_fixture_batch_preserves_type_and_label_config(tmp_path: Path) -> None:
     with TestClient(
         create_app(
