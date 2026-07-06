@@ -13,11 +13,19 @@ import UsersPage from '../features/users/UsersPage.vue';
 import AuditPage from '../features/audit/AuditPage.vue';
 import AccountPage from '../features/account/AccountPage.vue';
 import { ensureCurrentUser, userHasAnyPermission } from '../features/auth/authState';
+import { isOfflineSingleUserMode, offlineDatasetId } from '../services/config';
+
+const offlineEntryPath = () => `/datasets/${offlineDatasetId()}/qc`;
+const offlineRouteNames = new Set(['dataset-import-job', 'dataset-qc', 'sample-review']);
 
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', redirect: '/datasets' },
+    { path: '/', redirect: () => (isOfflineSingleUserMode() ? offlineEntryPath() : '/datasets') },
+    {
+      path: '/import-jobs/:jobId',
+      redirect: (route) => `/datasets/${offlineDatasetId()}/import-jobs/${String(route.params.jobId)}`,
+    },
     {
       path: '/login',
       name: 'login',
@@ -111,6 +119,9 @@ export const router = createRouter({
 });
 
 router.beforeEach(async (to) => {
+  if (isOfflineSingleUserMode() && !offlineRouteNames.has(String(to.name ?? ''))) {
+    return offlineEntryPath();
+  }
   if (to.meta.public) {
     return true;
   }
