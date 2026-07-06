@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
 
@@ -120,7 +122,11 @@ def build_router(service: FixtureRuntimeService) -> APIRouter:
             status="ok",
             dataset_id=runtime.dataset_id,
             mode=runtime.runtime_mode,
-            data_root=str(runtime.data_root) if runtime.runtime_mode == "offline_single_user" else None,
+            data_root=(
+                str(runtime.data_root)
+                if runtime.runtime_mode == "offline_single_user" and os.environ.get("OFFLINE_DATA_ROOT")
+                else None
+            ),
             state_root=str(runtime.state_root) if runtime.runtime_mode == "offline_single_user" else None,
         )
 

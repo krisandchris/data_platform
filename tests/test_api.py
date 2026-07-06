@@ -30,6 +30,7 @@ if not _effective_dataset_root.exists():
     os.environ.setdefault("PLATFORM_ENABLE_FIXTURE_BATCH", "0")
 
 import urban_violation_backend.app as app_module
+import urban_violation_backend.service as service_module
 from urban_violation_backend.app import create_app
 from urban_violation_backend.service import build_fixture_service
 
@@ -417,6 +418,35 @@ def test_offline_mode_health_and_current_user(
         assert {"label_edit:write", "label_edit:confirm", "batch_assignment:manage"} <= set(
             payload["permissions"]
         )
+
+
+def test_offline_mode_without_data_root_starts_empty_manual_upload_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("PLATFORM_AUTH_MODE", "offline_single_user")
+    monkeypatch.delenv("OFFLINE_DATA_ROOT", raising=False)
+    monkeypatch.delenv("PLATFORM_ENABLE_FIXTURE_BATCH", raising=False)
+    monkeypatch.setattr(service_module, "DEFAULT_DATASET_ROOT", tmp_path / "missing_default_dataset")
+
+    service = build_fixture_service(
+        label_config_store_root=tmp_path / "LABEL_CONFIG_STATE",
+        platform_state_root=tmp_path / "PLATFORM_STATE",
+    )
+
+    assert service.list_datasets() == []
+    assert service.get_dataset_type(DATASET_ID).batch_count == 0
+
+    with TestClient(
+        create_app(
+            label_config_store_root=tmp_path / "APP_LABEL_CONFIG_STATE",
+            platform_state_root=tmp_path / "APP_PLATFORM_STATE",
+        )
+    ) as offline_client:
+        health = offline_client.get("/health")
+
+    assert health.status_code == 200
+    assert "data_root" not in health.json()
 
 
 def test_offline_qc_queue_auto_assigns_single_user(

@@ -6840,6 +6840,7 @@ def build_fixture_service(
     """
     offline_mode = os.environ.get("PLATFORM_AUTH_MODE") == "offline_single_user"
     env_dataset_root = os.environ.get("OFFLINE_DATA_ROOT" if offline_mode else "DATASET_ROOT")
+    offline_without_data_root = offline_mode and dataset_root is None and not env_dataset_root
     resolved_dataset_root = (
         dataset_root
         if dataset_root is not None
@@ -6890,6 +6891,11 @@ def build_fixture_service(
         session_cache_ttl_seconds=settings.redis_session_cache_ttl_seconds,
         redis_client=redis_client,
     )
+    resolved_enable_fixture_batch = (
+        enable_fixture_batch
+        if enable_fixture_batch is not None
+        else (False if offline_without_data_root else _env_flag("PLATFORM_ENABLE_FIXTURE_BATCH", True))
+    )
 
     if effective_backend == PlatformStateBackend.DATABASE:
         if not effective_db_url:
@@ -6917,11 +6923,7 @@ def build_fixture_service(
         platform_state_root=resolved_state_root,
         platform_state_store=platform_state_store,
         foundation_registry_repo=foundation_registry_repo,
-        enable_fixture_batch=(
-            _env_flag("PLATFORM_ENABLE_FIXTURE_BATCH", True)
-            if enable_fixture_batch is None
-            else enable_fixture_batch
-        ),
+        enable_fixture_batch=resolved_enable_fixture_batch,
         runtime_coordinator=effective_runtime_coordinator,
         redis_lease_ttl_seconds=settings.redis_lease_ttl_seconds,
         redis_lock_ttl_seconds=settings.redis_lock_ttl_seconds,
