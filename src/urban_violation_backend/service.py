@@ -462,6 +462,20 @@ class FixtureRuntimeService:
         if self._fixture_batch_enabled:
             self._ensure_qc_tasks()
 
+    @property
+    def runtime_mode(self) -> str | None:
+        """Return the public runtime mode when it affects client behavior."""
+        mode = self._auth_service.settings.auth_mode
+        return mode if mode == "offline_single_user" else None
+
+    @property
+    def data_root(self) -> Path:
+        return self._dataset_root
+
+    @property
+    def state_root(self) -> Path:
+        return self._platform_state_root
+
     def _load_dataset_type_registry(self) -> None:
         if self._foundation_registry_repo is not None:
             items = self._foundation_registry_repo.load_dataset_type_registry()
@@ -6804,18 +6818,24 @@ def build_fixture_service(
     2. ``DATASET_ROOT`` environment variable
     3. ``DEFAULT_DATASET_ROOT`` development fallback
     """
-    env_dataset_root = os.environ.get("DATASET_ROOT")
+    offline_mode = os.environ.get("PLATFORM_AUTH_MODE") == "offline_single_user"
+    env_dataset_root = os.environ.get("OFFLINE_DATA_ROOT" if offline_mode else "DATASET_ROOT")
     resolved_dataset_root = (
         dataset_root
         if dataset_root is not None
         else (Path(env_dataset_root).resolve() if env_dataset_root else DEFAULT_DATASET_ROOT)
     )
+    offline_label_config_path = os.environ.get("OFFLINE_LABEL_CONFIG_PATH") if offline_mode else None
     env_store_root = os.environ.get("LABEL_CONFIG_STORE_ROOT")
     resolved_store_root = (
         label_config_store_root
-        or (Path(env_store_root).resolve() if env_store_root else DEFAULT_RUNTIME_LABEL_CONFIG_ROOT.resolve())
+        or (
+            Path(offline_label_config_path).resolve().parent
+            if offline_label_config_path
+            else (Path(env_store_root).resolve() if env_store_root else DEFAULT_RUNTIME_LABEL_CONFIG_ROOT.resolve())
+        )
     )
-    env_state_root = os.environ.get("PLATFORM_STATE_ROOT")
+    env_state_root = os.environ.get("OFFLINE_STATE_ROOT" if offline_mode else "PLATFORM_STATE_ROOT")
     resolved_state_root = (
         platform_state_root.resolve()
         if platform_state_root is not None
@@ -6834,7 +6854,7 @@ def build_fixture_service(
             if isinstance(platform_state_backend, PlatformStateBackend)
             else PlatformStateBackend(platform_state_backend.strip().lower())
         )
-    effective_backend = override_backend or settings.platform_state_backend
+    effective_backend = PlatformStateBackend.FILE if offline_mode else (override_backend or settings.platform_state_backend)
     effective_db_url = database_url if database_url is not None else settings.database_url
     effective_auto_migrate = (
         settings.platform_db_auto_migrate
@@ -6842,7 +6862,7 @@ def build_fixture_service(
         else platform_db_auto_migrate
     )
     effective_runtime_coordinator = runtime_coordinator or build_runtime_coordinator(
-        redis_enabled=settings.redis_enabled,
+        redis_enabled=False if offline_mode else settings.redis_enabled,
         redis_url=settings.redis_url,
         lease_ttl_seconds=settings.redis_lease_ttl_seconds,
         lock_ttl_seconds=settings.redis_lock_ttl_seconds,

@@ -114,9 +114,15 @@ def build_router(service: FixtureRuntimeService) -> APIRouter:
     ):
         return runtime.resolve_auth_context(request)
 
-    @router.get("/health", response_model=HealthResponse)
+    @router.get("/health", response_model=HealthResponse, response_model_exclude_none=True)
     async def health(runtime: FixtureRuntimeService = Depends(get_service)) -> HealthResponse:
-        return HealthResponse(status="ok", dataset_id=runtime.dataset_id)
+        return HealthResponse(
+            status="ok",
+            dataset_id=runtime.dataset_id,
+            mode=runtime.runtime_mode,
+            data_root=str(runtime.data_root) if runtime.runtime_mode == "offline_single_user" else None,
+            state_root=str(runtime.state_root) if runtime.runtime_mode == "offline_single_user" else None,
+        )
 
     @router.post("/api/auth/login", response_model=LoginResponse)
     async def login(

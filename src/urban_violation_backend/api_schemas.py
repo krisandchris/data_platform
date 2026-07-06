@@ -39,6 +39,9 @@ class HealthResponse(StrictModel):
 
     status: Literal["ok"]
     dataset_id: str
+    mode: str | None = None
+    data_root: str | None = None
+    state_root: str | None = None
 
 
 class ErrorResponse(StrictModel):
