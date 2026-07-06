@@ -1,52 +1,41 @@
 # Handoff
 
 ## Agent Role
-
-Frontend Agent
+Backend Agent
 
 ## Branch
-
-`agent/TASK-022/frontend/qc-zh-localization`
+`agent/TASK-030/backend/offline-prune`
 
 ## Worktree
-
-`../_worktrees/data_platform/qc-zh-localization`
+`../_worktrees/data_platform/backend-offline-prune`
 
 ## Scope Completed
-
-- Chinese-localized sample review / QC page operator-facing text.
-- Added display-only mapping for non-`violation_category` label-config options.
-- Preserved raw values for select inputs, datalist values, draft operations, and submit payloads.
-- Updated review route regression tests.
+- Pruned FastAPI route surface to offline import validation, QC, review, label config, label suggestions, leases, drafts, submit, and media endpoints.
+- Deleted DB/Redis/Docker/migration tests and rewrote retained backend tests for the offline flow.
+- Removed Postgres/Redis runtime code and dependencies; offline state remains file-backed.
 
 ## Changed Files
-
-- `frontend/src/features/review-workbench/ReviewWorkbenchPage.vue`: Chinese loading, empty, fallback error, and readonly lease messages.
-- `frontend/src/features/review-workbench/components/ReviewWorkbenchShell.vue`: Chinese UI labels and display-only label mapping helpers.
-- `frontend/src/test/routesAndPages.test.ts`: updated localized assertions and regression coverage for label display.
-- `.agent/*`: task plan, findings, progress, and handoff.
+- `src/urban_violation_backend/routes.py`: offline-only API routes.
+- `src/urban_violation_backend/runtime_coordination.py`: no-op single-process coordinator.
+- `src/urban_violation_backend/service.py`: file-state-only factory path.
+- `src/urban_violation_backend/db/**`: deleted.
+- `src/urban_violation_backend/migrate_state.py`: deleted.
+- `tests/**`: retained offline tests only.
+- `pyproject.toml`, `uv.lock`: removed DB/Redis dependency stack.
 
 ## Shared Contracts Changed
-
-No.
+Yes. Backend exposed API surface is reduced to offline workbench endpoints.
 
 ## Dependencies Changed
-
-No.
+Yes. Removed `alembic`, `psycopg`, `redis`, `sqlalchemy` and transitive lock entries.
 
 ## Verification
-
-- Command: `cd frontend && npm ci`
+- Command: `uv lock`
   Result: passed.
-- Command: `cd frontend && npm run test -- src/test/routesAndPages.test.ts`
-  Result: passed, 75 tests.
-- Command: `cd frontend && npm run build`
+- Command: `uv run python -m compileall -q src`
   Result: passed.
-- Command: `cd frontend && npm run test`
-  Result: passed, 123 tests.
-- Command: `git diff --check`
-  Result: passed.
+- Command: `uv run pytest tests -q`
+  Result: passed, 21 tests.
 
 ## Known Risks
-
-- English free text from source sample data remains in editable input values because translating it would mutate user-editable data rather than just the UI.
+- Service/schema modules still contain some dormant helper methods and DTO classes for historical closed-loop objects used internally around submissions; they are no longer routed.

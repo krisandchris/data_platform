@@ -1,18 +1,14 @@
-# TASK-022 Progress
+# Progress
 
-## 2026-05-22
-
-- Created frontend worktree from current `main`.
-- Replaced review page loading/empty/fallback errors with Chinese text.
-- Localized review workbench topbar, navigation, evidence panel, relation panel, candidate panel, lease/status text, and submit modal labels.
-- Added display-only label helpers for label-config backed options, preserving raw saved values.
-- Kept `violation_category` display raw per user request.
-- Updated regression tests for localized QC text and option labels.
+- Replaced backend route surface with retained offline validation/QC endpoints.
+- Rewrote API tests around offline health, single user, label config, blocked non-core endpoints, safe ZIP upload, import validation, QC queue, review, lease, batch draft, submit, and restart recovery.
+- Deleted DB foundation, Redis, Docker rollout, and migration tests.
+- Replaced Redis runtime coordination with no-op offline coordination.
+- Removed DB package and state migration tool.
+- Removed Alembic, Psycopg, Redis, SQLAlchemy from `pyproject.toml` and regenerated `uv.lock`.
 
 ## Verification
 
-- `cd frontend && npm ci`: passed.
-- `cd frontend && npm run test -- src/test/routesAndPages.test.ts`: passed.
-- `cd frontend && npm run build`: passed.
-- `cd frontend && npm run test`: passed.
-- `git diff --check`: passed.
+- `uv lock`: passed, removed DB/Redis packages.
+- `uv run python -m compileall -q src`: passed.
+- `uv run pytest tests -q`: passed, 21 tests.

@@ -13,7 +13,7 @@ from pathlib import Path
 import re
 import shutil
 import stat
-from typing import Any, Sequence
+from typing import Any, Protocol, Sequence
 import zipfile
 
 from fastapi import Request
@@ -109,17 +109,6 @@ from urban_violation_backend.api_schemas import (
     RoleBindingCreateRequest,
 )
 from urban_violation_backend.errors import ApiError, conflict, forbidden
-from urban_violation_backend.db import (
-    DatabaseBackedPlatformStateStore,
-    DatabaseFoundationRegistryRepository,
-    DatabaseLabelConfigRepository,
-    DatabaseRuntimeSettings,
-    FoundationRegistryRepositoryProtocol,
-    PlatformStateBackend,
-    build_engine,
-    build_session_factory,
-    run_migrations_to_head,
-)
 from urban_violation_backend.importer.parser import (
     FixtureSample,
     PairedSample,
@@ -242,6 +231,18 @@ class LabelEditValidationFailedError(ValueError):
     def __init__(self, report: LabelEditValidationResponse) -> None:
         super().__init__("Label edit validation failed")
         self.report = report
+
+
+class FoundationRegistryRepositoryProtocol(Protocol):
+    """Optional registry persistence hook used by the file-state runtime."""
+
+    def load_dataset_type_registry(self) -> list[dict[str, Any]]: ...
+
+    def save_dataset_type_registry(self, items: list[dict[str, Any]]) -> None: ...
+
+    def load_registered_batches(self) -> list[dict[str, Any]]: ...
+
+    def save_registered_batches(self, items: list[dict[str, Any]]) -> None: ...
 
 
 @dataclass(slots=True)
@@ -6838,7 +6839,7 @@ def build_fixture_service(
     label_config_repo: LabelConfigRepositoryProtocol | None = None,
     platform_state_store: PlatformStateStoreProtocol | None = None,
     foundation_registry_repo: FoundationRegistryRepositoryProtocol | None = None,
-    platform_state_backend: str | PlatformStateBackend | None = None,
+    platform_state_backend: str | None = None,
     database_url: str | None = None,
     platform_db_auto_migrate: bool | None = None,
     enable_fixture_batch: bool | None = None,
@@ -6883,28 +6884,13 @@ def build_fixture_service(
     if resolved_state_root is None:
         resolved_state_root = (resolved_store_root / "platform_state").resolve()
 
-    settings = DatabaseRuntimeSettings.from_env()
-    override_backend: PlatformStateBackend | None = None
-    if platform_state_backend is not None:
-        override_backend = (
-            platform_state_backend
-            if isinstance(platform_state_backend, PlatformStateBackend)
-            else PlatformStateBackend(platform_state_backend.strip().lower())
-        )
-    effective_backend = PlatformStateBackend.FILE if offline_mode else (override_backend or settings.platform_state_backend)
-    effective_db_url = database_url if database_url is not None else settings.database_url
-    effective_auto_migrate = (
-        settings.platform_db_auto_migrate
-        if platform_db_auto_migrate is None
-        else platform_db_auto_migrate
-    )
     effective_runtime_coordinator = runtime_coordinator or build_runtime_coordinator(
-        redis_enabled=False if offline_mode else settings.redis_enabled,
-        redis_url=settings.redis_url,
-        lease_ttl_seconds=settings.redis_lease_ttl_seconds,
-        lock_ttl_seconds=settings.redis_lock_ttl_seconds,
-        import_progress_ttl_seconds=settings.redis_import_progress_ttl_seconds,
-        session_cache_ttl_seconds=settings.redis_session_cache_ttl_seconds,
+        redis_enabled=False,
+        redis_url=None,
+        lease_ttl_seconds=600,
+        lock_ttl_seconds=120,
+        import_progress_ttl_seconds=1800,
+        session_cache_ttl_seconds=300,
         redis_client=redis_client,
     )
     resolved_enable_fixture_batch = (
@@ -6912,24 +6898,6 @@ def build_fixture_service(
         if enable_fixture_batch is not None
         else (False if offline_without_data_root else _env_flag("PLATFORM_ENABLE_FIXTURE_BATCH", True))
     )
-
-    if effective_backend == PlatformStateBackend.DATABASE:
-        if not effective_db_url:
-            raise ValueError("DATABASE_URL is required when PLATFORM_STATE_BACKEND=database")
-        if effective_auto_migrate:
-            run_migrations_to_head(effective_db_url)
-
-        engine = build_engine(effective_db_url)
-        session_factory = build_session_factory(engine)
-        if label_config_repo is None:
-            label_config_repo = DatabaseLabelConfigRepository(session_factory)
-        if platform_state_store is None:
-            platform_state_store = DatabaseBackedPlatformStateStore(
-                resolved_state_root,
-                session_factory=session_factory,
-            )
-        if foundation_registry_repo is None:
-            foundation_registry_repo = DatabaseFoundationRegistryRepository(session_factory)
 
     service = FixtureRuntimeService(
         dataset_root=resolved_dataset_root,
@@ -6941,8 +6909,8 @@ def build_fixture_service(
         foundation_registry_repo=foundation_registry_repo,
         enable_fixture_batch=resolved_enable_fixture_batch,
         runtime_coordinator=effective_runtime_coordinator,
-        redis_lease_ttl_seconds=settings.redis_lease_ttl_seconds,
-        redis_lock_ttl_seconds=settings.redis_lock_ttl_seconds,
+        redis_lease_ttl_seconds=600,
+        redis_lock_ttl_seconds=120,
     )
     if offline_mode and offline_label_config_path:
         _load_offline_label_config(service, Path(offline_label_config_path).resolve())
