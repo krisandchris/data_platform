@@ -283,7 +283,7 @@ export class HttpUrbanViolationApi implements UrbanViolationApi {
 
   async getMyLabelEditDraft(datasetId: DatasetId, sampleId: SampleId): Promise<LabelEditDraft | undefined> {
     const response = await this.http.get<unknown>(
-      `/datasets/${encodeURIComponent(datasetId)}/samples/${encodeURIComponent(sampleId)}/label-edits/draft`,
+      `/datasets/${encodeURIComponent(datasetId)}/samples/${encodeURIComponent(sampleId)}/label-edits/my-draft`,
     );
     return normalizeLabelEditDraft(response, datasetId, sampleId);
   }
@@ -312,7 +312,7 @@ export class HttpUrbanViolationApi implements UrbanViolationApi {
   }
 
   async getMyBatchLabelEditDraft(datasetId: DatasetId): Promise<BatchLabelEditDraft> {
-    const response = await this.http.get<unknown>(`/datasets/${encodeURIComponent(datasetId)}/label-edits/batch/draft`);
+    const response = await this.http.get<unknown>(`/datasets/${encodeURIComponent(datasetId)}/label-edits/my-batch-draft`);
     return normalizeBatchLabelEditDraft(response, datasetId);
   }
 
@@ -320,8 +320,8 @@ export class HttpUrbanViolationApi implements UrbanViolationApi {
     datasetId: DatasetId,
     payload: BatchLabelEditDraftPayload,
   ): Promise<BatchLabelEditDraftSaveResult> {
-    const response = await this.http.post<unknown>(
-      `/datasets/${encodeURIComponent(datasetId)}/label-edits/batch/draft`,
+    const response = await this.http.put<unknown>(
+      `/datasets/${encodeURIComponent(datasetId)}/label-edits/my-batch-draft`,
       toBackendBatchDraft(payload),
     );
     return normalizeBatchLabelEditDraftSave(response, datasetId, payload);
@@ -332,7 +332,7 @@ export class HttpUrbanViolationApi implements UrbanViolationApi {
     payload: BatchLabelEditDraftPayload,
   ): Promise<BatchLabelEditDraftSaveResult> {
     const response = await this.http.post<unknown>(
-      `/datasets/${encodeURIComponent(datasetId)}/label-edits/batch/draft/autosave`,
+      `/datasets/${encodeURIComponent(datasetId)}/label-edits/my-batch-draft/autosave`,
       toBackendBatchDraft(payload),
     );
     return normalizeBatchLabelEditDraftSave(response, datasetId, payload);
@@ -343,7 +343,7 @@ export class HttpUrbanViolationApi implements UrbanViolationApi {
     payload: BatchLabelEditSubmitPayload,
   ): Promise<BatchLabelEditSubmitResult> {
     const response = await this.http.post<unknown>(
-      `/datasets/${encodeURIComponent(datasetId)}/label-edits/batch/submit`,
+      `/datasets/${encodeURIComponent(datasetId)}/label-edits/submit-batch`,
       {
         unsaved_dirty_sample_ids: payload.unsavedDirtySampleIds,
         validation_error_sample_ids: payload.validationErrorSampleIds,
@@ -359,7 +359,7 @@ export class HttpUrbanViolationApi implements UrbanViolationApi {
     submissionId: string,
   ): Promise<LabelEditSubmission> {
     const response = await this.http.post<unknown>(
-      `/datasets/${encodeURIComponent(datasetId)}/samples/${encodeURIComponent(sampleId)}/label-edits/submissions/${encodeURIComponent(submissionId)}/confirm`,
+      `/datasets/${encodeURIComponent(datasetId)}/samples/${encodeURIComponent(sampleId)}/label-edits/${encodeURIComponent(submissionId)}/confirm`,
     );
     return normalizeLabelEditSubmission(response, datasetId, sampleId);
   }
@@ -371,7 +371,7 @@ export class HttpUrbanViolationApi implements UrbanViolationApi {
     reason?: string,
   ): Promise<LabelEditSubmission> {
     const response = await this.http.post<unknown>(
-      `/datasets/${encodeURIComponent(datasetId)}/samples/${encodeURIComponent(sampleId)}/label-edits/submissions/${encodeURIComponent(submissionId)}/return`,
+      `/datasets/${encodeURIComponent(datasetId)}/samples/${encodeURIComponent(sampleId)}/label-edits/${encodeURIComponent(submissionId)}/return`,
       { reason },
     );
     return normalizeLabelEditSubmission(response, datasetId, sampleId);

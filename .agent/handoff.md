@@ -20,6 +20,7 @@ Frontend Agent
 - `frontend/src/services/urbanViolationApi.ts`: offline-only API client.
 - `frontend/src/shared/types/contract.ts`: retained offline contract.
 - `frontend/src/test/**`: focused offline tests.
+- `frontend/src/services/urbanViolationApi.ts`: label-edit draft/submit routes aligned to backend retained endpoints.
 
 ## Shared Contracts Changed
 Yes. Frontend shared TypeScript contract was reduced to retained offline API/page types.
@@ -32,6 +33,8 @@ No
   Result: passed, 27 tests.
 - Command: `npm run build`
   Result: passed.
+- Command: `npm run test -- src/test/apiClient.test.ts src/test/routesAndPages.test.ts src/test/bboxOverlay.test.ts src/test/media.test.ts && npm run build`
+  Result: passed after label-edit endpoint alignment.
 
 ## Known Risks
 - Tests intentionally no longer cover deleted full-platform UI.

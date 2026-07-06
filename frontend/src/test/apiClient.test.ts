@@ -119,7 +119,7 @@ describe('offline HTTP API adapter', () => {
       'http://backend.test/datasets/ds-live/import-jobs/job-1/validate',
       'http://backend.test/datasets/ds-live/qc',
       'http://backend.test/datasets/ds-live/label-config/active',
-      'http://backend.test/datasets/ds-live/label-edits/batch/draft',
+      'http://backend.test/datasets/ds-live/label-edits/my-batch-draft',
     ]);
     expect(fetcher.mock.calls[3]?.[1]).toMatchObject({
       body: JSON.stringify({
