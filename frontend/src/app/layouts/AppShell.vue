@@ -21,9 +21,8 @@
         <div v-if="isOfflineMode" class="nav-section">
           <span class="nav-section__title">工作入口</span>
           <RouterLink
-            v-if="activeDatasetId && currentImportJobId"
             class="nav-item"
-            :to="`/datasets/${activeDatasetId}/import-jobs/${currentImportJobId}`"
+            :to="offlineValidationPath"
             title="数据校验"
           >
             <FileSearch :size="18" />
@@ -178,6 +177,11 @@ const currentImportJobId = computed(() => {
   return typeof jobId === 'string' && jobId ? jobId : '';
 });
 const offlineHomePath = computed(() => `/datasets/${activeDatasetId.value || offlineDatasetId()}/qc`);
+const offlineValidationPath = computed(() => (
+  activeDatasetId.value && currentImportJobId.value
+    ? `/datasets/${activeDatasetId.value}/import-jobs/${currentImportJobId.value}`
+    : `/datasets/types/${offlineDatasetId()}?create=batch`
+));
 const currentUserName = computed(() => displayUserName(currentUser.value?.userId, currentUser.value?.displayName));
 const userInitial = computed(() => currentUserName.value.slice(0, 1) || '?');
 const primaryRoleText = computed(() => formatRole(currentUser.value?.roles?.[0]));
@@ -185,6 +189,7 @@ const topbarContext = computed(() => {
   const name = String(route.name ?? '');
   if (isOfflineMode.value) {
     const labels: Record<string, string> = {
+      'dataset-type': '数据校验',
       'dataset-import-job': '数据校验',
       'dataset-qc': '质检工作台',
     };
