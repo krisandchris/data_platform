@@ -3039,6 +3039,38 @@ describe('route rendering and live route states', () => {
     expect(wrapper.text()).toContain('已分配批次。');
   });
 
+  it('does not request role bindings in offline QC mode', async () => {
+    vi.stubEnv('VITE_RUNTIME_MODE', 'offline_single_user');
+    mockApiClient.getQcWorkspace.mockResolvedValue({
+      datasetId: 'urban_violation__0508_797',
+      assignment: {
+        assignmentId: 'offline-assignment',
+        datasetId: 'urban_violation__0508_797',
+        assigneeUserId: 'offline_reviewer',
+        assigneeDisplayName: 'Offline Reviewer',
+        status: 'assigned',
+      },
+      queue: qcQueue,
+      tasks: [],
+      leases: [],
+    });
+    mockApiClient.listBatchAssignableUsers.mockResolvedValue([]);
+
+    mount(QcPage, {
+      props: {
+        id: 'urban_violation__0508_797',
+      },
+      global: {
+        stubs: {
+          RouterLink: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    expect(mockApiClient.listRoleBindings).not.toHaveBeenCalled();
+  });
+
   it('falls back to the current assignment manager and shows an error when assignable-users fails', async () => {
     const leadUser = {
       userId: 'qc_lead_a',

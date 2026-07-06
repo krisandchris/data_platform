@@ -153,6 +153,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 import { ChevronLeft, ChevronRight } from 'lucide-vue-next';
 import { ApiClientError } from '../../services/http';
+import { isOfflineSingleUserMode } from '../../services/config';
 import { apiClient } from '../../services/urbanViolationApi';
 import StatusChip from '../../shared/components/StatusChip.vue';
 import type { QcQueueItem, QcTaskStatus, QcWorkspace, RoleBinding, UserAccount } from '../../shared/types/contract';
@@ -250,7 +251,7 @@ async function load() {
       loadCurrentUser(),
       apiClient.getQcWorkspace(props.id),
       loadAssignableUsers(),
-      apiClient.listRoleBindings().catch(() => []),
+      isOfflineSingleUserMode() ? Promise.resolve([]) : apiClient.listRoleBindings().catch(() => []),
     ]);
     workspace.value = nextWorkspace;
     assignableUsersError.value = nextUsersResult.error;
