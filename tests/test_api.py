@@ -419,6 +419,37 @@ def test_offline_mode_health_and_current_user(
         )
 
 
+def test_offline_qc_queue_auto_assigns_single_user(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    dataset_root = Path(
+        os.environ.get("TEST_OFFLINE_DATA_ROOT", PROJECT_ROOT / "DATASET" / "urban_violation" / "0508_797")
+    )
+    if not dataset_root.exists():
+        pytest.skip(f"offline fixture dataset not available: {dataset_root}")
+    monkeypatch.setenv("PLATFORM_AUTH_MODE", "offline_single_user")
+    monkeypatch.setenv("OFFLINE_DATA_ROOT", str(dataset_root))
+    monkeypatch.setenv("OFFLINE_STATE_ROOT", str(tmp_path / "offline_state"))
+    monkeypatch.setenv("OFFLINE_LABEL_CONFIG_PATH", str(LABEL_CONFIG_PATH))
+
+    with TestClient(
+        create_app(
+            dataset_root=dataset_root,
+            label_config_store_root=tmp_path / "LABEL_CONFIG_STATE",
+            platform_state_root=tmp_path / "PLATFORM_STATE",
+            enable_fixture_batch=True,
+        )
+    ) as offline_client:
+        response = offline_client.get(f"/api/datasets/{DATASET_ID}/qc")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["assignment"]["assignee_user_id"] == "offline_reviewer"
+    assert payload["items"]
+    assert {item["assignee_user_id"] for item in payload["items"]} == {"offline_reviewer"}
+
+
 def test_disable_fixture_batch_preserves_type_and_label_config(tmp_path: Path) -> None:
     with TestClient(
         create_app(

@@ -1416,6 +1416,25 @@ class FixtureRuntimeService:
     ) -> BatchQcAssignmentResponse:
         return BatchQcAssignmentResponse(**assignment.model_dump())
 
+    def _ensure_offline_single_user_assignment(
+        self,
+        dataset_id: str,
+        *,
+        context: AuthContext | None,
+    ) -> None:
+        if context is None or self.runtime_mode != "offline_single_user":
+            return
+        active_dataset_id = self._effective_batch_dataset_id(dataset_id)
+        assignment = self._state_store.get_assignment(active_dataset_id)
+        if assignment is not None and assignment.status != BatchAssignmentStatus.REVOKED:
+            return
+        self.assign_batch(
+            dataset_id,
+            BatchAssignmentRequest(assignee_user_id=context.user_id),
+            context=context,
+            allow_reassign=False,
+        )
+
     def _to_task_response(self, task: QcTask) -> QcTaskResponse:
         return QcTaskResponse(**task.model_dump())
 
@@ -6555,6 +6574,7 @@ class FixtureRuntimeService:
         self._require_dataset(dataset_id)
         if context is not None:
             self._require_permission(context=context, action="qc_queue:read", dataset_id=dataset_id)
+            self._ensure_offline_single_user_assignment(dataset_id, context=context)
         if dataset_id in self._registered_batches:
             summary = self._registered_batches[dataset_id]
             runtime = self._registered_batch_runtimes.get(dataset_id)
