@@ -888,6 +888,7 @@ const makeReviewDetail = (sampleId: string): ReviewSampleDetail => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
   window.localStorage.clear();
   const authState = useAuthState();
   authState.currentUser.value = undefined;
@@ -1122,6 +1123,17 @@ describe('route rendering and live route states', () => {
     expect(routes.some((route) => route.path === '/account/audit' && route.name === 'account-audit')).toBe(true);
     expect(routes.find((route) => route.path === '/users')?.redirect).toBe('/account/permissions');
     expect(routes.find((route) => route.path === '/audit')?.redirect).toBe('/account/audit');
+  });
+
+  it('redirects hidden routes to the offline QC entry in offline mode', async () => {
+    vi.stubEnv('VITE_RUNTIME_MODE', 'offline_single_user');
+
+    await appRouter.push('/login');
+    await appRouter.isReady();
+    await appRouter.push('/sample-pool');
+    await flushPromises();
+
+    expect(appRouter.currentRoute.value.fullPath).toBe('/datasets/urban_violation/qc');
   });
 
   it('renders login as a standalone route without the app shell', async () => {
@@ -1642,6 +1654,42 @@ describe('route rendering and live route states', () => {
 
     expect(wrapper.classes()).toContain('app-shell--sidebar-collapsed');
     expect(window.localStorage.getItem('uvp.sidebarCollapsed')).toBe('1');
+  });
+
+  it('renders only validation and QC navigation in offline mode', async () => {
+    vi.stubEnv('VITE_RUNTIME_MODE', 'offline_single_user');
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/datasets/:id/import-jobs/:jobId', name: 'dataset-import-job', component: { template: '<div />' } },
+        { path: '/datasets/:id/qc', name: 'dataset-qc', component: { template: '<div />' } },
+      ],
+    });
+    await router.push('/datasets/ds-live/import-jobs/job-1');
+    await router.isReady();
+
+    const wrapper = mount(AppShell, {
+      slots: {
+        default: '<div>Import body</div>',
+      },
+      global: {
+        plugins: [router],
+      },
+    });
+
+    expect(wrapper.text()).toContain('当前批次');
+    expect(wrapper.text()).toContain('数据校验');
+    expect(wrapper.text()).toContain('质检工作台');
+    expect(wrapper.text()).not.toContain('数据集中心');
+    expect(wrapper.text()).not.toContain('修正样本池');
+    expect(wrapper.text()).not.toContain('批次概览');
+    expect(wrapper.text()).not.toContain('资产样本');
+    expect(wrapper.text()).not.toContain('预标注结果');
+    expect(wrapper.text()).not.toContain('用户中心');
+    expect(wrapper.find('a[href="/datasets/ds-live/import-jobs/job-1"]').exists()).toBe(true);
+    expect(wrapper.find('a[href="/datasets/ds-live/qc"]').exists()).toBe(true);
+
+    wrapper.unmount();
   });
 
   it('renders the sample pool loading state before API responses settle', async () => {

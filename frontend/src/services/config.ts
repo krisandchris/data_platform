@@ -10,3 +10,8 @@ const cleanEnv = (value: string | undefined) => {
 export const apiBaseUrl = cleanEnv(import.meta.env.VITE_API_BASE_URL) ?? DEFAULT_API_BASE_URL;
 
 export const apiMode: ApiMode = cleanEnv(import.meta.env.VITE_API_MODE) === 'fixture' ? 'fixture' : 'http';
+
+export const isOfflineSingleUserMode = () =>
+  cleanEnv(import.meta.env.VITE_RUNTIME_MODE) === 'offline_single_user';
+
+export const offlineDatasetId = () => cleanEnv(import.meta.env.VITE_OFFLINE_DATASET_ID) ?? 'urban_violation';
