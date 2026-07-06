@@ -1153,6 +1153,26 @@ describe('route rendering and live route states', () => {
     expect(appRouter.currentRoute.value.fullPath).toBe('/datasets/types/urban_violation?create=batch');
   });
 
+  it('redirects the offline generic QC entry to the uploaded batch QC route', async () => {
+    vi.stubEnv('VITE_RUNTIME_MODE', 'offline_single_user');
+    mockApiClient.getDatasetType.mockResolvedValueOnce({
+      datasetType: 'urban_violation',
+      displayName: '城市违规',
+      fieldSchemaVersion: '2026-05-18',
+      activeLabelConfigVersion: 'urban_violation_labels_v1',
+      status: 'active',
+      batchCount: 1,
+      batches: [{ ...dataset, id: 'urban_violation__0508_797', name: '0508_797' }],
+    });
+
+    await appRouter.push('/datasets/urban_violation/qc');
+    await appRouter.isReady();
+    await flushPromises();
+
+    expect(mockApiClient.getDatasetType).toHaveBeenCalledWith('urban_violation');
+    expect(appRouter.currentRoute.value.fullPath).toBe('/datasets/urban_violation__0508_797/qc');
+  });
+
   it('renders login as a standalone route without the app shell', async () => {
     mockApiClient.getCurrentUser.mockRejectedValueOnce(new Error('unauthenticated'));
     const router = createRouter({

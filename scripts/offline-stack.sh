@@ -165,11 +165,34 @@ load_stack_env() {
   . "$STACK_ENV_FILE"
 }
 
+current_qc_url() {
+  python3 - "$OFFLINE_STATE_ROOT" "$OFFLINE_DATASET_ID" "$FRONTEND_URL" <<'PY' 2>/dev/null || printf '%s/datasets/%s/qc\n' "$FRONTEND_URL" "$OFFLINE_DATASET_ID"
+import json
+import sys
+from pathlib import Path
+
+state_root, dataset_type, frontend_url = sys.argv[1:4]
+index_path = Path(state_root) / "label_config_state" / "dataset_batches.json"
+if not index_path.exists():
+    raise SystemExit(1)
+
+data = json.loads(index_path.read_text(encoding="utf-8"))
+for item in data.get("batches", []):
+    summary = item.get("summary") or {}
+    if summary.get("dataset_type") == dataset_type and summary.get("dataset_id"):
+        print(f"{frontend_url}/datasets/{summary['dataset_id']}/qc")
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
+}
+
 print_urls() {
+  local current_qc_url_value
+  current_qc_url_value="$(current_qc_url)"
   printf 'Backend health: %s/health\n' "$BACKEND_URL"
   printf 'Frontend:       %s\n' "$FRONTEND_URL"
   printf 'Upload ZIP:     %s\n' "$UPLOAD_URL"
-  printf 'QC workbench:   %s\n' "$QC_URL"
+  printf 'QC workbench:   %s\n' "$current_qc_url_value"
   printf 'Data root:      %s\n' "${OFFLINE_DATA_ROOT:-manual ZIP upload only}"
   printf 'State root:     %s\n' "$OFFLINE_STATE_ROOT"
 }

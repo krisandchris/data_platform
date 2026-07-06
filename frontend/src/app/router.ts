@@ -14,9 +14,20 @@ import AuditPage from '../features/audit/AuditPage.vue';
 import AccountPage from '../features/account/AccountPage.vue';
 import { ensureCurrentUser, userHasAnyPermission } from '../features/auth/authState';
 import { isOfflineSingleUserMode, offlineDatasetId } from '../services/config';
+import { apiClient } from '../services/urbanViolationApi';
 
 const offlineUploadEntryPath = () => `/datasets/types/${offlineDatasetId()}?create=batch`;
 const offlineRouteNames = new Set(['dataset-type', 'dataset-import-job', 'dataset-qc', 'sample-review']);
+
+const offlineQcEntryPath = async () => {
+  try {
+    const group = await apiClient.getDatasetType(offlineDatasetId());
+    const batch = group.batches[0];
+    return batch ? `/datasets/${batch.id}/qc` : offlineUploadEntryPath();
+  } catch {
+    return offlineUploadEntryPath();
+  }
+};
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -119,8 +130,13 @@ export const router = createRouter({
 });
 
 router.beforeEach(async (to) => {
-  if (isOfflineSingleUserMode() && !offlineRouteNames.has(String(to.name ?? ''))) {
-    return offlineUploadEntryPath();
+  if (isOfflineSingleUserMode()) {
+    if (to.name === 'dataset-qc' && String(to.params.id ?? '') === offlineDatasetId()) {
+      return offlineQcEntryPath();
+    }
+    if (!offlineRouteNames.has(String(to.name ?? ''))) {
+      return offlineUploadEntryPath();
+    }
   }
   if (to.meta.public) {
     return true;
