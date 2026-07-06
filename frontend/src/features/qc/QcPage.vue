@@ -153,17 +153,15 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 import { ChevronLeft, ChevronRight } from 'lucide-vue-next';
 import { ApiClientError } from '../../services/http';
-import { isOfflineSingleUserMode } from '../../services/config';
 import { apiClient } from '../../services/urbanViolationApi';
 import StatusChip from '../../shared/components/StatusChip.vue';
-import type { QcQueueItem, QcTaskStatus, QcWorkspace, RoleBinding, UserAccount } from '../../shared/types/contract';
+import type { QcQueueItem, QcTaskStatus, QcWorkspace, UserAccount } from '../../shared/types/contract';
 import { useAuthState } from '../auth/authState';
 
 const props = defineProps<{ id: string }>();
 const { currentUser, canManageAssignments, canConfirmSubmissions, loadCurrentUser } = useAuthState();
 const workspace = ref<QcWorkspace>();
 const users = ref<UserAccount[]>([]);
-const roleBindings = ref<RoleBinding[]>([]);
 const loading = ref(true);
 const error = ref('');
 const assignableUsersError = ref('');
@@ -185,12 +183,6 @@ const tabs = [
 
 onMounted(load);
 
-const roleBindingsByUser = computed(() =>
-  roleBindings.value.reduce<Record<string, RoleBinding[]>>((acc, binding) => {
-    acc[binding.userId] = [...(acc[binding.userId] ?? []), binding];
-    return acc;
-  }, {}),
-);
 const assignableUsers = computed(() => users.value.filter((user) => user.status === 'active'));
 const assignmentPending = computed(() => assignmentAction.value !== '');
 const hasActiveAssignment = computed(() => {
@@ -247,11 +239,10 @@ async function load() {
   error.value = '';
   assignableUsersError.value = '';
   try {
-    const [user, nextWorkspace, nextUsersResult, nextRoleBindings] = await Promise.all([
+    const [user, nextWorkspace, nextUsersResult] = await Promise.all([
       loadCurrentUser(),
       apiClient.getQcWorkspace(props.id),
       loadAssignableUsers(),
-      isOfflineSingleUserMode() ? Promise.resolve([]) : apiClient.listRoleBindings().catch(() => []),
     ]);
     workspace.value = nextWorkspace;
     assignableUsersError.value = nextUsersResult.error;
@@ -260,7 +251,6 @@ async function load() {
       : nextUsersResult.error && user?.status === 'active'
         ? [user]
         : [];
-    roleBindings.value = nextRoleBindings;
     const activeUsers = users.value.filter((item) => item.status === 'active');
     const preferredAssignee = nextWorkspace.assignment?.assigneeUserId;
     selectedAssignee.value =
@@ -363,7 +353,7 @@ function canOpenEditable(item: QcQueueItem) {
 }
 
 function userRoleText(user: UserAccount) {
-  const roles = user.roles?.length ? user.roles : roleBindingsByUser.value[user.userId]?.map((binding) => binding.role);
+  const roles = user.roles;
   return roles?.length ? roles.join(', ') : 'active';
 }
 

@@ -197,3 +197,19 @@
   - `uv lock`: passed, removed DB/Redis packages.
   - `uv run python -m compileall -q src`: passed.
   - `uv run pytest tests -q`: passed, 21 tests.
+- Integration branch `integration/TASK-030` merged frontend and backend agent branches.
+- Resolved `.agent` merge conflicts by preserving the lead workspace coordination files.
+- Integration verification:
+  - `uv run python -m compileall -q src && uv run pytest tests -q`: passed, 21 tests.
+  - `npm run test -- src/test/apiClient.test.ts src/test/routesAndPages.test.ts src/test/bboxOverlay.test.ts src/test/media.test.ts`: passed, 27 tests.
+  - `npm run build`: passed.
+  - `git diff --check` and `bash -n scripts/offline-stack.sh`: passed.
+- Live offline smoke with `OFFLINE_STATE_ROOT=.runtime/offline_state_0508_zip_e2e`:
+  - `/health`: 200, `mode=offline_single_user`, manual ZIP upload only.
+  - `/api/datasets/urban_violation__0508_797/qc`: 200, 797 items, assigned to `offline_reviewer`.
+  - `/api/users`, `/api/role-bindings`, `/api/sample-pool`, `/api/exports`, and batch assets endpoint: 404.
+  - Browser QC page rendered `797 visible / 797 total`.
+  - Browser review page rendered sample `000002_0_1760525209355`, bbox controls, editable fields, action bar, label suggestions, and image media.
+  - Screenshots saved:
+    - `.runtime/offline_state_0508_zip_e2e/evidence/task030_qc_page.png`
+    - `.runtime/offline_state_0508_zip_e2e/evidence/task030_review_page.png`

@@ -196,3 +196,4 @@
 - Frontend label-edit endpoints must stay aligned to existing backend retained paths: `my-draft`, `my-batch-draft`, `submit-batch`, and sample-scoped confirm/return.
 - Backend DB/Redis code is not needed for offline single-user file-state mode; route and tests still pass after deleting DB package, migration tool, Redis implementation, and DB/Redis dependencies.
 - Backend state store still needs retained objects for users, role bindings used by offline auth, sessions, QC assignments/tasks, leases, drafts, batch drafts, and submissions.
+- Integration smoke found and fixed a backend response-model regression on `/api/datasets/{dataset_id}/label-suggestions`; the route now returns the `LabelSuggestionResponse` object that the service and frontend already expect.

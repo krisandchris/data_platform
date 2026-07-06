@@ -358,9 +358,9 @@ Lead Agent
 3. Trim backend routes, schemas, service/state methods, and backend tests.
    - Status: complete.
 4. Merge worktree branches into the offline branch.
-   - Status: in_progress.
+   - Status: complete.
 5. Run focused frontend, backend, and live offline verification.
-   - Status: pending.
+   - Status: complete.
 
 ## Acceptance Criteria
 

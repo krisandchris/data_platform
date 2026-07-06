@@ -2,21 +2,7 @@
   <div>
     <header class="page-header">
       <div>
-        <h1 class="page-title">{{ group?.displayName ?? datasetType }} / 类型管理</h1>
-      </div>
-      <div class="page-actions">
-        <RouterLink class="button" to="/datasets">
-          <ArrowLeft :size="17" />
-          返回数据集中心
-        </RouterLink>
-        <RouterLink v-if="isLabelConfigSection" class="button" :to="typeRoute">
-          <LayoutDashboard :size="17" />
-          类型管理
-        </RouterLink>
-        <RouterLink v-else class="button button--primary" :to="labelConfigRoute">
-          <Settings2 :size="17" />
-          标签配置
-        </RouterLink>
+        <h1 class="page-title">{{ group?.displayName ?? datasetType }} / 数据校验</h1>
       </div>
     </header>
 
@@ -42,23 +28,6 @@
         </div>
       </section>
 
-      <LabelConfigUploadPanel
-        v-if="isLabelConfigSection"
-        :dataset-id="group.datasetType"
-        :scope-name="group.displayName"
-        @saved="reload"
-      />
-      <section v-else class="panel label-config-entry-panel">
-        <div>
-          <h2 class="panel__title">标签配置管理</h2>
-          <strong>{{ group.activeLabelConfigVersion ?? '未激活' }}</strong>
-        </div>
-        <RouterLink class="button button--primary" :to="labelConfigRoute">
-          <Settings2 :size="16" />
-          打开标签配置
-        </RouterLink>
-      </section>
-
       <DatasetTypeBatchPanel
         class="type-page-section"
         :group="group"
@@ -72,16 +41,13 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import { RouterLink, useRoute } from 'vue-router';
-import { ArrowLeft, LayoutDashboard, Settings2 } from 'lucide-vue-next';
+import { useRoute } from 'vue-router';
 import { apiClient } from '../../services/urbanViolationApi';
 import { useAsyncState } from '../../shared/composables/useAsyncState';
 import DatasetTypeBatchPanel from './components/DatasetTypeBatchPanel.vue';
-import LabelConfigUploadPanel from './components/LabelConfigUploadPanel.vue';
 
 const props = defineProps<{
   datasetType: string;
-  section?: 'overview' | 'label-config';
 }>();
 
 const route = useRoute();
@@ -91,9 +57,6 @@ const { data, loading, error, reload } = useAsyncState(() => apiClient.getDatase
 });
 
 const group = computed(() => data.value);
-const isLabelConfigSection = computed(() => props.section === 'label-config');
-const typeRoute = computed(() => `/datasets/types/${encodeURIComponent(props.datasetType)}`);
-const labelConfigRoute = computed(() => `${typeRoute.value}/label-config`);
 const shouldOpenCreateBatch = computed(() => route?.query?.create === 'batch');
 </script>
 
@@ -126,25 +89,6 @@ const shouldOpenCreateBatch = computed(() => route?.query?.create === 'batch');
   font-size: 20px;
 }
 
-.label-config-entry-panel {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  margin-top: 14px;
-  padding: 18px;
-}
-
-.label-config-entry-panel > div {
-  display: grid;
-  gap: 6px;
-}
-
-.label-config-entry-panel strong {
-  color: var(--muted);
-  overflow-wrap: anywhere;
-}
-
 .type-page-section {
   margin-top: 14px;
 }
@@ -158,11 +102,6 @@ const shouldOpenCreateBatch = computed(() => route?.query?.create === 'batch');
 @media (max-width: 620px) {
   .type-summary-panel {
     grid-template-columns: 1fr;
-  }
-
-  .label-config-entry-panel {
-    align-items: stretch;
-    flex-direction: column;
   }
 }
 </style>
