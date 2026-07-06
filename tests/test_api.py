@@ -215,6 +215,14 @@ def test_offline_health_current_user_and_label_config(offline_env: dict[str, Pat
         assert config.status_code == 200
         assert config.json()["version"] == "offline_labels_v1"
 
+        suggestions = client.get(
+            f"/api/datasets/{DATASET_TYPE}/label-suggestions",
+            params={"field": "scene_elements", "query": "road"},
+        )
+        assert suggestions.status_code == 200
+        assert suggestions.json()["field"] == "scene_elements"
+        assert suggestions.json()["suggestions"][0]["code"] == "road"
+
         dataset_type = client.get(f"/api/dataset-types/{DATASET_TYPE}")
         assert dataset_type.status_code == 200
         assert dataset_type.json()["batch_count"] == 0

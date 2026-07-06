@@ -112,13 +112,13 @@ def build_router(service: FixtureRuntimeService) -> APIRouter:
         except (DatasetNotFoundError, LabelConfigVersionAccessError, LabelConfigPersistenceAccessError) as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
-    @router.get("/api/datasets/{dataset_id}/label-suggestions", response_model=list[LabelSuggestionResponse])
+    @router.get("/api/datasets/{dataset_id}/label-suggestions", response_model=LabelSuggestionResponse)
     async def label_suggestions(
         dataset_id: str,
         field: str = Query(..., min_length=1, max_length=120),
         query: str = Query(default="", max_length=120),
         runtime: FixtureRuntimeService = Depends(get_service),
-    ) -> list[LabelSuggestionResponse]:
+    ) -> LabelSuggestionResponse:
         try:
             return runtime.get_label_suggestions(dataset_id=dataset_id, field=field, query=query)
         except (DatasetNotFoundError, LabelFieldAccessError) as exc:
