@@ -71,6 +71,30 @@ def _modified_label_config_payload(*, version: str | None = None) -> dict[str, A
     return payload
 
 
+def _minimal_label_config_payload(version: str = "offline_labels_v1") -> dict[str, Any]:
+    return {
+        "schema_version": "label_config_v1",
+        "dataset_type": DATASET_ID,
+        "version": version,
+        "fields": [
+            {
+                "field": "violation_category",
+                "mode": "closed_enum",
+                "label_zh": "违法类别",
+                "allow_custom": False,
+                "options": [{"code": "illegal_parking", "label_zh": "违停", "sort_order": 0}],
+            },
+            {
+                "field": "scene_elements",
+                "mode": "open_tags",
+                "label_zh": "场景元素",
+                "allow_custom": True,
+                "options": [{"code": "road", "label_zh": "道路", "sort_order": 0}],
+            },
+        ],
+    }
+
+
 def _label_config_version_number(version: str | None = None) -> int | None:
     """Return the trailing numeric version used by dataset-type summaries."""
     raw_version = str(version or _load_label_config_payload().get("version", ""))
@@ -391,7 +415,7 @@ def test_offline_mode_health_and_current_user(
     state_root = tmp_path / "offline_state"
     label_config_path = tmp_path / "label_config.json"
     data_root.mkdir()
-    label_config_path.write_text("{}", encoding="utf-8")
+    label_config_path.write_text(json.dumps(_minimal_label_config_payload()), encoding="utf-8")
     monkeypatch.setenv("PLATFORM_AUTH_MODE", "offline_single_user")
     monkeypatch.setenv("OFFLINE_DATA_ROOT", str(data_root))
     monkeypatch.setenv("OFFLINE_STATE_ROOT", str(state_root))
@@ -447,6 +471,35 @@ def test_offline_mode_without_data_root_starts_empty_manual_upload_workspace(
 
     assert health.status_code == 200
     assert "data_root" not in health.json()
+
+
+def test_offline_mode_loads_project_label_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    label_config_path = tmp_path / "label_config.json"
+    label_config_path.write_text(
+        json.dumps(_minimal_label_config_payload()),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PLATFORM_AUTH_MODE", "offline_single_user")
+    monkeypatch.setenv("OFFLINE_LABEL_CONFIG_PATH", str(label_config_path))
+    monkeypatch.delenv("OFFLINE_DATA_ROOT", raising=False)
+    monkeypatch.setattr(service_module, "DEFAULT_DATASET_ROOT", tmp_path / "missing_default_dataset")
+
+    with TestClient(
+        create_app(
+            label_config_store_root=tmp_path / "LABEL_CONFIG_STATE",
+            platform_state_root=tmp_path / "PLATFORM_STATE",
+        )
+    ) as offline_client:
+        active = offline_client.get(f"/api/datasets/{DATASET_ID}/label-config/active")
+        type_detail = offline_client.get(f"/api/dataset-types/{DATASET_ID}")
+
+    assert active.status_code == 200
+    assert active.json()["version"] == "offline_labels_v1"
+    assert type_detail.status_code == 200
+    assert type_detail.json()["active_label_config_version"] == 1
 
 
 def test_offline_qc_queue_auto_assigns_single_user(

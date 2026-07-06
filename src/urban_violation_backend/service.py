@@ -6816,6 +6816,20 @@ def _env_flag(name: str, default: bool) -> bool:
     return default
 
 
+def _load_offline_label_config(service: FixtureRuntimeService, label_config_path: Path | None) -> None:
+    if label_config_path is None or not label_config_path.is_file():
+        return
+    payload = json.loads(label_config_path.read_text(encoding="utf-8"))
+    service.save_label_config(
+        dataset_id=service.dataset_id,
+        request=LabelConfigSaveRequest(
+            file_name=label_config_path.name,
+            config=payload,
+            activate=True,
+        ),
+    )
+
+
 def build_fixture_service(
     dataset_root: Path | None = None,
     sample_ids: Sequence[str] | None = None,
@@ -6915,7 +6929,7 @@ def build_fixture_service(
         if foundation_registry_repo is None:
             foundation_registry_repo = DatabaseFoundationRegistryRepository(session_factory)
 
-    return FixtureRuntimeService(
+    service = FixtureRuntimeService(
         dataset_root=resolved_dataset_root,
         sample_ids=sample_ids,
         label_config_repo=label_config_repo,
@@ -6928,3 +6942,6 @@ def build_fixture_service(
         redis_lease_ttl_seconds=settings.redis_lease_ttl_seconds,
         redis_lock_ttl_seconds=settings.redis_lock_ttl_seconds,
     )
+    if offline_mode and offline_label_config_path:
+        _load_offline_label_config(service, Path(offline_label_config_path).resolve())
+    return service
